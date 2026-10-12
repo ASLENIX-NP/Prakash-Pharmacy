@@ -95,7 +95,7 @@ model Inventory {
 // 5. User Table
 // ==========================================
 model User {
-  id          Int      @id @default(autoincrement())
+  id          String   @id @default(cuid())
   username    String   @unique @map("username")
   password    String   @map("password") // Hashed password
   firstName   String   @map("first_name")
@@ -136,7 +136,7 @@ model Bill {
   changeReturned    Decimal    @default(0.00) @db.Decimal(12, 2) @map("change_returned")
 
   // Cashier Foreign Key
-  cashierId         Int        @map("cashier_id")
+  cashierId         String     @map("cashier_id")
   cashier           User       @relation(fields: [cashierId], references: [id], onDelete: Restrict)
 
   // Line items
