@@ -1,6 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { PharmacyProvider, usePharmacy } from './context/PharmacyContext';
-import { Header, ActiveTab } from './components/Header';
+import React, { useEffect, useState } from 'react';
+import { Menu } from 'lucide-react';
+
+import {
+  PharmacyProvider,
+  usePharmacy,
+} from './context/PharmacyContext';
+
+import {
+  Sidebar,
+  ActiveTab,
+} from './components/Sidebar';
+
 import { DashboardView } from './components/DashboardView';
 import { InventoryView } from './components/InventoryView';
 import { PhysicalStockWorksheetView } from './components/PhysicalStockWorksheetView';
@@ -11,124 +21,253 @@ import { ReportsView } from './components/ReportsView';
 import { SettingsView } from './components/SettingsView';
 import { UserManagementView } from './components/UserManagementView';
 import { LoginView } from './components/LoginView';
+import { TopInfoBar } from './components/TopInfoBar';
+
 import { VatTaxInfoModal } from './components/VatTaxInfoModal';
 import { PhysicalStockAuditModal } from './components/PhysicalStockAuditModal';
 import { TaxInvoiceModal } from './components/TaxInvoiceModal';
 
 const PharmacyAppContent: React.FC = () => {
-  const { 
+  const {
     isAuthenticated,
-    currentUser,
     isAdmin,
-    activeVatInfoMedicine, 
+
+    activeVatInfoMedicine,
     setActiveVatInfoMedicine,
+
     activeAuditMedicine,
     setActiveAuditMedicine,
+
     activeInvoiceToPrint,
     setActiveInvoiceToPrint,
-    settings
+
+    settings,
   } = usePharmacy();
 
-  // Role based default tab
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeTab, setActiveTab] =
+    useState<ActiveTab>('dashboard');
 
-  // If user is Staff, ensure they are routed strictly to sales / bill entry tabs
+  const [mobileSidebarOpen, setMobileSidebarOpen] =
+    useState(false);
+
+  /*
+   * Staff users should only have access to:
+   *
+   * - POS
+   * - Sales History
+   */
   useEffect(() => {
-    if (isAuthenticated) {
-      if (!isAdmin) {
-        if (activeTab !== 'pos' && activeTab !== 'sales_history') {
-          setActiveTab('pos');
-        }
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (!isAdmin) {
+      if (
+        activeTab !== 'pos' &&
+        activeTab !== 'sales_history'
+      ) {
+        setActiveTab('pos');
       }
     }
-  }, [isAuthenticated, isAdmin, activeTab]);
+  }, [
+    isAuthenticated,
+    isAdmin,
+    activeTab,
+  ]);
 
-  // Requirement: "OPEN APP WITH LINK BUT ENTER WITH CREDENTIALS"
+  /*
+   * User must authenticate before the main application
+   * becomes available.
+   */
   if (!isAuthenticated) {
     return <LoginView />;
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900 font-sans">
-      {/* Header with Navigation and Credentials */}
-      <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div className="flex h-[100svh] flex-col overflow-hidden bg-slate-100 text-slate-900">
+      <TopInfoBar />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {activeTab === 'dashboard' && (
-          isAdmin ? <DashboardView setActiveTab={setActiveTab} /> : <PosView />
-        )}
-        {activeTab === 'pos' && <PosView />}
-        {activeTab === 'inventory' && (
-          isAdmin ? <InventoryView /> : <PosView />
-        )}
-        {activeTab === 'physical_audit' && (
-          isAdmin ? <PhysicalStockWorksheetView /> : <PosView />
-        )}
-        {activeTab === 'stockists' && (
-          isAdmin ? <StockistManagementView /> : <PosView />
-        )}
-        {activeTab === 'sales_history' && <SalesHistoryView />}
-        {activeTab === 'reports' && (
-          isAdmin ? <ReportsView /> : <PosView />
-        )}
-        {activeTab === 'users' && (
-          isAdmin ? <UserManagementView /> : <PosView />
-        )}
-        {activeTab === 'settings' && (
-          isAdmin ? <SettingsView /> : <PosView />
-        )}
-      </main>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* ======================================================
+            SIDEBAR
+        ======================================================= */}
 
-      {/* Global Modals */}
-      {/* 1. "Click to Know" VAT & Tax Breakdown Modal */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          mobileOpen={mobileSidebarOpen}
+          onMobileClose={() =>
+            setMobileSidebarOpen(false)
+          }
+        />
+
+        {/* ======================================================
+            RIGHT SIDE / APP CONTENT
+        ======================================================= */}
+
+        <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
+          {/* --------------------------------------------------
+              MOBILE HEADER
+
+              Desktop does not need a top navigation anymore.
+          --------------------------------------------------- */}
+
+          <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur lg:hidden">
+            <button
+              type="button"
+              onClick={() =>
+                setMobileSidebarOpen(true)
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50"
+              aria-label="Open navigation"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+
+            <div className="text-right">
+              <p className="text-sm font-extrabold text-slate-900">
+                {settings.storeName}
+              </p>
+
+              <p className="text-[10px] font-medium text-slate-400">
+                Pharmacy Management
+              </p>
+            </div>
+          </header>
+
+          {/* ==================================================
+              PAGE CONTENT
+          =================================================== */}
+
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-7 lg:py-7">
+              {/* Dashboard */}
+
+              {activeTab === 'dashboard' &&
+                (isAdmin ? (
+                  <DashboardView
+                    setActiveTab={setActiveTab}
+                  />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* POS */}
+
+              {activeTab === 'pos' && (
+                <PosView />
+              )}
+
+              {/* Inventory */}
+
+              {activeTab === 'inventory' &&
+                (isAdmin ? (
+                  <InventoryView />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* Physical Stock */}
+
+              {activeTab === 'physical_audit' &&
+                (isAdmin ? (
+                  <PhysicalStockWorksheetView />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* Stockists */}
+
+              {activeTab === 'stockists' &&
+                (isAdmin ? (
+                  <StockistManagementView />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* Sales History */}
+
+              {activeTab === 'sales_history' && (
+                <SalesHistoryView />
+              )}
+
+              {/* Reports */}
+
+              {activeTab === 'reports' &&
+                (isAdmin ? (
+                  <ReportsView />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* Users */}
+
+              {activeTab === 'users' &&
+                (isAdmin ? (
+                  <UserManagementView />
+                ) : (
+                  <PosView />
+                ))}
+
+              {/* Settings */}
+
+              {activeTab === 'settings' &&
+                (isAdmin ? (
+                  <SettingsView />
+                ) : (
+                  <PosView />
+                ))}
+            </div>
+          </main>
+
+          {/* ==================================================
+              SMALL FOOTER
+
+              No PAN / DDA / address clutter here.
+          =================================================== */}
+
+          <footer className="border-t border-slate-200 bg-white px-6 py-3 text-center text-[11px] text-slate-400 print:hidden">
+            © {new Date().getFullYear()}{' '}
+            {settings.storeName}.
+            All rights reserved.
+          </footer>
+        </div>
+      </div>
+
+      {/* ======================================================
+          GLOBAL MODALS
+      ======================================================= */}
+
       <VatTaxInfoModal
         medicine={activeVatInfoMedicine}
-        onClose={() => setActiveVatInfoMedicine(null)}
+        onClose={() =>
+          setActiveVatInfoMedicine(null)
+        }
       />
 
-      {/* 2. Physical Stock Count & Quick Add/Deduce Adjustment Modal */}
       <PhysicalStockAuditModal
         medicine={activeAuditMedicine}
-        onClose={() => setActiveAuditMedicine(null)}
+        onClose={() =>
+          setActiveAuditMedicine(null)
+        }
       />
 
-      {/* 3. Official Printable 13% VAT Tax Invoice / Cash Memo (कर बीजक) */}
       <TaxInvoiceModal
         invoice={activeInvoiceToPrint}
-        onClose={() => setActiveInvoiceToPrint(null)}
+        onClose={() =>
+          setActiveInvoiceToPrint(null)
+        }
       />
-
-      {/* Bottom Footer (Hidden during printing) */}
-      <footer className="bg-white border-t border-slate-200 py-4 px-6 text-xs text-slate-500 print:hidden mt-auto">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-800">{settings.storeName}</span>
-            <span>•</span>
-            <span>{settings.address}</span>
-            <span>•</span>
-            <span className="font-mono">PAN: {settings.panNumber}</span>
-            <span>•</span>
-            <span className="font-mono">DDA: {settings.ddaLicenceNumber}</span>
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px] text-slate-400">
-            <span>Logged in: <strong className="text-slate-700 font-mono">@{currentUser?.username}</strong> ({currentUser?.role})</span>
-            <span>•</span>
-            <span>Fiscal Year: {settings.fiscalYear}</span>
-            <span>•</span>
-            <span>Nepal VAT Act 2052 &amp; IRD Compliant</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };
 
-export default function App() {
+const App: React.FC = () => {
   return (
     <PharmacyProvider>
       <PharmacyAppContent />
     </PharmacyProvider>
   );
-}
+};
+
+export default App;
