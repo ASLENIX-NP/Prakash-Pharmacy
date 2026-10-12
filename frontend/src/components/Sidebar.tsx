@@ -1,4 +1,4 @@
-﻿import React from 'react';
+﻿import React, { useState } from 'react';
 import {
   ChevronRight,
   LogOut,
@@ -140,14 +140,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleLogout = () => {
-    const confirmed = window.confirm(
-      `Sign out of ${settings.storeName || 'Prakash Pharmacy'}?`
-    );
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-    if (confirmed) {
-      logout();
-    }
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = () => {
+    setShowLogoutConfirm(false);
+    logout();
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutConfirm(false);
   };
 
   const firstLetter =
@@ -335,6 +340,110 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {sidebarContent}
       </aside>
+
+      {/* ======================================================
+          LOGOUT CONFIRMATION MODAL
+      ======================================================= */}
+      {showLogoutConfirm && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[2px]"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              cancelLogout();
+            }
+          }}
+        >
+          <div className="w-full max-w-[400px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
+
+            {/* TOP */}
+            <div className="px-7 pb-5 pt-7 text-center">
+
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
+                <img
+                  src={prakashLogo}
+                  alt="Prakash Pharmacy"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+
+              <h2 className="mt-4 text-[19px] font-extrabold tracking-tight text-slate-900">
+                Sign out of Prakash Pharmacy?
+              </h2>
+
+              <p className="mx-auto mt-2 max-w-[300px] text-[13px] leading-5 text-slate-500">
+                You will need to sign in again to continue using the pharmacy system.
+              </p>
+
+            </div>
+
+            {/* CURRENT ACCOUNT */}
+            <div className="mx-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center gap-3">
+
+                <div
+                  className={`
+                    flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-black text-white
+                    ${
+                      isAdmin
+                        ? 'bg-gradient-to-br from-violet-600 to-purple-700'
+                        : 'bg-gradient-to-br from-teal-600 to-emerald-700'
+                    }
+                  `}
+                >
+                  {firstLetter}
+                </div>
+
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-[13px] font-bold text-slate-900">
+                    {currentUser?.name || 'User'}
+                  </p>
+
+                  <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                    @{currentUser?.username}
+                  </p>
+                </div>
+
+                <span
+                  className={`
+                    rounded-md px-2 py-1 text-[9px] font-extrabold uppercase
+                    ${
+                      isAdmin
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-emerald-100 text-emerald-700'
+                    }
+                  `}
+                >
+                  {isAdmin ? 'Admin' : 'Staff'}
+                </span>
+
+              </div>
+            </div>
+
+            {/* ACTIONS */}
+            <div className="mt-6 grid grid-cols-2 gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-5">
+
+              <button
+                type="button"
+                onClick={cancelLogout}
+                className="h-11 rounded-xl border border-slate-300 bg-white text-[13px] font-bold text-slate-700 transition hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={confirmLogout}
+                className="flex h-11 items-center justify-center gap-2 rounded-xl bg-rose-600 text-[13px] font-bold text-white transition hover:bg-rose-700"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
+
     </>
   );
 };
