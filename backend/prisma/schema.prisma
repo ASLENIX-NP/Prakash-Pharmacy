@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +8,234 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ==========================================
+// 1. Generic Table
+// ==========================================
+model Generic {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique // A-Z name
+  inventories Inventory[]
+
+  @@map("generic_tbl")
+}
+
+// ==========================================
+// 2. Category Table
+// ==========================================
+model Category {
+  id           Int                          @id @default(autoincrement())
+  name         String                       @unique // A-Z name
+  inventories  Inventory[]
+  salesReports CategoryWiseSalesReport[]
+
+  @@map("category_tbl")
+}
+
+// ==========================================
+// 3. Rack Table
+// ==========================================
+model Rack {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique // A-Z name
+  description String?     // A-Z description
+  inventories Inventory[]
+
+  @@map("rack_tbl")
+}
+
+// ==========================================
+// 4. Inventory Table
+// ==========================================
+model Inventory {
+  id             Int         @id @default(autoincrement())
+  medicineBrand  String      @map("medicine_brand") // A-Z medicine_brand
+  batchNumber    String      @map("batch_number")   // A-Z batch_number
+  expiryDate     String      @map("expiry_date")    // expiry_date
+
+  // Foreign Keys
+  genericId      Int         @map("generic_id")
+  generic        Generic     @relation(fields: [genericId], references: [id], onDelete: Restrict)
+
+  categoryId     Int         @map("category_id")
+  category       Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  rackId         Int?        @map("rack_id")
+  rack           Rack?       @relation(fields: [rackId], references: [id], onDelete: SetNull)
+
+  // Quantities
+  unitPerPack    Int         @default(10) @map("unit_per_pack")
+  packInStock    Int         @default(0) @map("pack_in_stock")
+  unitInStock    Int         @default(0) @map("unit_in_stock")
+  packAlertLevel Int         @default(15) @map("pack_alert_level")
+
+  // Pricing
+  costPrice      Decimal     @db.Decimal(10, 2) @map("cost_price")
+  sellingPrice   Decimal     @db.Decimal(10, 2) @map("selling_price")
+
+  // Statutory VAT
+  hasvat         Boolean     @default(false) @map("hasvat")
+
+  // Relations
+  billItems      BillItem[]
+
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  @@index([medicineBrand])
+  @@index([genericId])
+  @@index([categoryId])
+  @@index([rackId])
+  @@index([batchNumber])
+  @@map("inventory_tbl")
+}
+
+// ==========================================
+// 5. User Table
+// ==========================================
+model User {
+  id          String   @id @default(cuid())
+  username    String   @unique @map("username")
+  password    String   @map("password") // Hashed password
+  firstName   String   @map("first_name")
+  lastName    String   @map("last_name")
+  initials    String?  @map("initials")
+  email       String?  @map("email")
+  phoneNumber String?  @map("phone_number")
+  role        String   @default("staff") @map("role") // "admin" | "staff"
+  shift       String?  @map("shift")
+  status      String   @default("active") @map("status")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  bills       Bill[]
+
+  @@map("user_tbl")
+}
+
+// ==========================================
+// 6. Bill / Invoice Table
+// ==========================================
+model Bill {
+  id                Int        @id @default(autoincrement())
+  invoiceNumber     String     @unique @map("invoice_number")
+  transactionDate   DateTime   @default(now()) @map("transaction_date")
+  customerName      String?    @map("customer_name")
+  customerPhone     String?    @map("customer_phone")
+  customerPan       String?    @map("customer_pan")
+  prescribingDoctor String?    @map("prescribing_doctor")
+  paymentMethod     String     @default("cash") @map("payment_method")
+  paymentStatus     String     @default("paid") @map("payment_status")
+
+  // Financial amounts
+  subTotal          Decimal    @db.Decimal(12, 2) @map("sub_total")
+  discountAmount    Decimal    @default(0.00) @db.Decimal(12, 2) @map("discount_amount")
+  vatAmount         Decimal    @default(0.00) @db.Decimal(12, 2) @map("vat_amount")
+  grandTotal        Decimal    @db.Decimal(12, 2) @map("grand_total")
+  amountReceived    Decimal    @default(0.00) @db.Decimal(12, 2) @map("amount_received")
+  changeReturned    Decimal    @default(0.00) @db.Decimal(12, 2) @map("change_returned")
+
+  // Cashier Foreign Key
+  cashierId         String     @map("cashier_id")
+  cashier           User       @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+
+  // Line items
+  items             BillItem[]
+
+  @@index([invoiceNumber])
+  @@index([transactionDate])
+  @@index([cashierId])
+  @@map("bill_tbl")
+}
+
+// ==========================================
+// 7. Bill Line Items Table
+// ==========================================
+model BillItem {
+  id             Int       @id @default(autoincrement())
+
+  // Foreign Keys
+  invoiceId      Int       @map("invoice_id")
+  invoice        Bill      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  inventoryId    Int       @map("inventory_id")
+  inventory      Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  // Quantities sold
+  quantityInPack Int       @default(0) @map("quantity_in_pack")
+  quantityInUnit Int       @default(0) @map("quantity_in_unit")
+
+  // Prices
+  packPrice      Decimal   @db.Decimal(10, 2) @map("pack_price")
+  vatitemPrice   Decimal   @default(0.00) @db.Decimal(12, 2) @map("vatitem_price")
+  grossItemPrice Decimal   @db.Decimal(12, 2) @map("gross_item_price")
+  netItemPrice   Decimal   @db.Decimal(12, 2) @map("net_item_price")
+
+  @@index([invoiceId])
+  @@index([inventoryId])
+  @@map("bill_items")
+}
+
+// ==========================================
+// 8. Category Wise Sales Report Table
+// ==========================================
+model CategoryWiseSalesReport {
+  id             Int      @id @default(autoincrement())
+
+  categoryId     Int      @map("category_id")
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  medicineCount  Int      @default(0) @map("medicine_count")
+  packetsCount   Int      @default(0) @map("packets_count")
+  unitsCount     Int      @default(0) @map("units_count")
+
+  costValuation  Decimal  @default(0.00) @db.Decimal(12, 2) @map("cost_valuation")
+  saleValuation  Decimal  @default(0.00) @db.Decimal(12, 2) @map("sale_valuation")
+  grossMargin    Decimal  @default(0.00) @db.Decimal(12, 2) @map("gross_margin")
+
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([categoryId])
+  @@map("category_wise_sales_report_tbl")
+}
+
+// ==========================================
+// 9. Distributors Table
+// ==========================================
+model Distributor {
+  id             Int      @id @default(autoincrement())
+  name           String   @map("name")
+  pannumber      String?  @map("pannumber")
+  phone          String   @map("phone")
+  address        String?  @map("address")
+  creditLimit    Decimal  @default(0.00) @db.Decimal(12, 2) @map("credit_limit")
+  currentBalance Decimal  @default(0.00) @db.Decimal(12, 2) @map("current_balance")
+
+  ledgers        Ledger[]
+
+  @@map("distributors_tbl")
+}
+
+// ==========================================
+// 10. Ledger Table
+// ==========================================
+model Ledger {
+  id             Int          @id @default(autoincrement())
+
+  distributorId  Int?         @map("distributor_id")
+  distributor    Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+
+  invoiceId      Int?         @map("invoice_id")
+  dateOfCreation DateTime     @default(now()) @map("date_of_creation")
+  description    String?      @map("description")
+  ledgerType     String       @map("ledger_type") // e.g. "purchase", "payment", "return"
+  referenceNo    String?      @map("reference_no")
+
+  debitAmount    Decimal      @default(0.00) @db.Decimal(12, 2) @map("debit_amount")
+  creditAmount   Decimal      @default(0.00) @db.Decimal(12, 2) @map("credit_amount")
+  balance        Decimal      @default(0.00) @db.Decimal(12, 2) @map("balance")
+
+  @@index([distributorId])
+  @@index([dateOfCreation])
+  @@map("ledger_tbl")
 }
