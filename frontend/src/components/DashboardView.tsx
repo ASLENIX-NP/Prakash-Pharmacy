@@ -1,23 +1,11 @@
 import React, { useMemo } from 'react';
-import { 
-  DollarSign, 
-  Package, 
-  AlertTriangle, 
-  Clock, 
-  ShoppingCart, 
-  Truck, 
-  ClipboardCheck, 
-  Layers, 
-  ArrowUpRight, 
-  TrendingUp, 
-  FileText, 
-  ShieldAlert, 
-  Calendar,
-  CheckCircle2,
-  ExternalLink
+import {
+  AlertTriangle,
+  FileText,
+  ShieldAlert,
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
-import { ActiveTab } from './Header';
+import { ActiveTab } from './Sidebar';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -81,165 +69,216 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
   return (
     <div className="space-y-6">
-      {/* Top Welcome & Quick Actions Bar */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-teal-950 text-white p-6 rounded-3xl shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <span className="text-teal-400 text-xs font-bold uppercase tracking-wider">
-            Pharmacy Real-Time Operations Overview
-          </span>
-          <h2 className="text-2xl font-black tracking-tight mt-1">
-            {settings.storeName} Dashboard
-          </h2>
-          <p className="text-xs text-slate-300 mt-1 max-w-xl">
-            Hetauda-5, Sanopokhara • Makwanpur • Nepal • Reg DDA: {settings.ddaLicenceNumber}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            onClick={() => setActiveTab('physical_audit')}
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-xl text-xs font-bold backdrop-blur-xs transition-colors"
-          >
-            <ClipboardCheck className="w-4 h-4 text-teal-300" />
-            <span>Physical Stock Audit</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('stockists')}
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-xl text-xs font-bold backdrop-blur-xs transition-colors"
-          >
-            <Truck className="w-4 h-4 text-amber-300" />
-            <span>Stockist Bills &amp; Ledger</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('pos')}
-            className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-xs font-extrabold shadow-md shadow-emerald-500/20 transition-all active:scale-[0.98]"
-          >
-            <ShoppingCart className="w-4 h-4" />
-            <span>New Counter Bill (POS)</span>
-          </button>
-        </div>
-      </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Today's Sales */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>Today's Counter Revenue</span>
-            <div className="p-2 bg-emerald-50 text-emerald-700 rounded-xl">
-              <DollarSign className="w-4 h-4" />
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+
+        {/* Today's Revenue */}
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+          <div>
+            <p className="text-[12px] font-bold text-slate-600">
+              Today's Counter Revenue
+            </p>
+
+            <p className="mt-4 font-mono text-[28px] font-black leading-none tracking-tight text-slate-950">
+              Rs. {todayRevenue.toFixed(2)}
+            </p>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-4 text-[11px]">
+              <span className="text-slate-500">
+                Bills
+                <strong className="ml-1.5 font-bold text-slate-800">
+                  {todaySales.length}
+                </strong>
+              </span>
+
+              <span className="text-right text-slate-500">
+                Avg Bill
+                <strong className="ml-1.5 font-bold text-slate-800">
+                  Rs. {avgBillValue.toFixed(0)}
+                </strong>
+              </span>
             </div>
-          </div>
-          <div className="font-mono text-2xl font-black text-slate-900">
-            Rs. {todayRevenue.toFixed(2)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-            <span>Bills: <strong>{todaySales.length}</strong></span>
-            <span>Avg Bill: <strong>Rs. {avgBillValue.toFixed(0)}</strong></span>
           </div>
         </div>
 
-        {/* Stock Valuation */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>Inventory Stock Valuation</span>
-            <div className="p-2 bg-teal-50 text-teal-700 rounded-xl">
-              <Layers className="w-4 h-4" />
+
+        {/* Inventory Valuation */}
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+          <div>
+            <p className="text-[12px] font-bold text-slate-600">
+              Inventory Stock Valuation
+            </p>
+
+            <p className="mt-4 font-mono text-[28px] font-black leading-none tracking-tight text-teal-700">
+              Rs. {valuationMRP.toFixed(0)}
+            </p>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-4 text-[11px]">
+              <span className="text-slate-500">
+                Cost Basis
+                <strong className="ml-1.5 font-mono font-bold text-slate-800">
+                  Rs. {valuationCost.toFixed(0)}
+                </strong>
+              </span>
+
+              <span className="text-right font-bold text-emerald-700">
+                Margin ~
+                {valuationMRP > 0
+                  ? (
+                      ((valuationMRP - valuationCost) /
+                        valuationMRP) *
+                      100
+                    ).toFixed(0)
+                  : 0}
+                %
+              </span>
             </div>
-          </div>
-          <div className="font-mono text-2xl font-black text-teal-800">
-            Rs. {valuationMRP.toFixed(0)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-            <span>Cost Basis: <strong className="font-mono">Rs. {valuationCost.toFixed(0)}</strong></span>
-            <span className="text-emerald-700 font-semibold">Margin ~{valuationMRP > 0 ? (((valuationMRP - valuationCost)/valuationMRP)*100).toFixed(0) : 0}%</span>
           </div>
         </div>
 
-        {/* Total Physical Stock Quantities */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>Active Stock Quantities</span>
-            <div className="p-2 bg-blue-50 text-blue-700 rounded-xl">
-              <Package className="w-4 h-4" />
+
+        {/* Active Stock */}
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+          <div>
+            <p className="text-[12px] font-bold text-slate-600">
+              Active Stock Quantities
+            </p>
+
+            <div className="mt-4 flex items-end gap-2">
+              <span className="font-mono text-[28px] font-black leading-none tracking-tight text-slate-950">
+                {totalPacks}
+              </span>
+
+              <span className="pb-0.5 text-[12px] font-bold text-slate-500">
+                Packs
+              </span>
             </div>
           </div>
-          <div className="font-mono text-2xl font-black text-slate-900">
-            {totalPacks} <span className="text-sm font-semibold text-slate-500">Packs</span>
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-            <span>Medicines: <strong>{medicines.length}</strong></span>
-            <span>Loose: <strong>+{totalLooseUnits} tabs</strong></span>
+
+          <div className="mt-5 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-4 text-[11px]">
+              <span className="text-slate-500">
+                Medicines
+                <strong className="ml-1.5 font-bold text-slate-800">
+                  {medicines.length}
+                </strong>
+              </span>
+
+              <span className="text-right text-slate-500">
+                Loose
+                <strong className="ml-1.5 font-bold text-slate-800">
+                  +{totalLooseUnits} tabs
+                </strong>
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Wholesaler Payables */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold">
-            <span>Stockist Payables Balance</span>
-            <div className="p-2 bg-amber-50 text-amber-700 rounded-xl">
-              <Truck className="w-4 h-4" />
+
+        {/* Payables */}
+        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+          <div>
+            <p className="text-[12px] font-bold text-slate-600">
+              Stockist Payables Balance
+            </p>
+
+            <p className="mt-4 font-mono text-[28px] font-black leading-none tracking-tight text-rose-700">
+              Rs. {totalPayableToStockists.toFixed(0)}
+            </p>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-4 text-[11px]">
+              <span className="text-slate-500">
+                Stockists
+                <strong className="ml-1.5 font-bold text-slate-800">
+                  {stockists.length}
+                </strong>
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('stockists')}
+                className="font-bold text-teal-700 transition-colors hover:text-teal-900"
+              >
+                View Ledger ?
+              </button>
             </div>
           </div>
-          <div className="font-mono text-2xl font-black text-rose-700">
-            Rs. {totalPayableToStockists.toFixed(0)}
-          </div>
-          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-            <span>Stockists: <strong>{stockists.length}</strong></span>
-            <button 
-              onClick={() => setActiveTab('stockists')}
-              className="text-teal-700 font-bold hover:underline"
-            >
-              View Ledger &rarr;
-            </button>
-          </div>
         </div>
+
       </div>
 
-      {/* Main Dual Grid: Low Stock Alert & Near Expiry */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 1. Low Stock Alerts */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 bg-amber-50/60 border-b border-amber-200/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-amber-100 text-amber-800 rounded-lg">
-                <AlertTriangle className="w-4 h-4" />
+      {/* Main Dual Grid: Stock & Expiry Alerts */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:items-stretch">
+
+        {/* LOW STOCK */}
+        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+
+              <div>
+                <h3 className="text-[15px] font-extrabold text-slate-900">
+                  Low Stock
+                </h3>
+
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+                  {lowStockMedicines.length} item{lowStockMedicines.length === 1 ? '' : 's'} below reorder level
+                </p>
               </div>
-              <h3 className="font-bold text-sm text-amber-900">
-                Low Stock Critical Alerts ({lowStockMedicines.length})
-              </h3>
             </div>
+
             <button
+              type="button"
               onClick={() => setActiveTab('inventory')}
-              className="text-xs font-bold text-amber-800 hover:text-amber-900 hover:underline"
+              className="text-[12px] font-bold text-teal-700 hover:text-teal-900"
             >
               Open Inventory &rarr;
             </button>
           </div>
 
-          <div className="p-4 divide-y divide-slate-100 flex-1 overflow-y-auto max-h-72">
-            {lowStockMedicines.slice(0, 6).map(m => (
-              <div key={m.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                <div>
-                  <div className="font-bold text-slate-900">{m.name}</div>
-                  <div className="text-[11px] text-slate-500">{m.genericName} • Location: <strong className="text-slate-700">{m.rackLocation}</strong></div>
+          <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+            {lowStockMedicines.slice(0, 6).map((m) => (
+              <div
+                key={m.id}
+                className="grid grid-cols-[minmax(0,1fr)_120px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-extrabold text-slate-900">
+                    {m.name}
+                  </p>
+
+                  <p className="mt-1 truncate text-[11px] text-slate-500">
+                    {m.genericName}
+                    <span className="mx-2 text-slate-300">&middot;</span>
+                    Rack
+                    <span className="ml-1 font-semibold text-slate-700">
+                      {m.rackLocation}
+                    </span>
+                  </p>
                 </div>
 
                 <div className="text-right">
-                  <div className="font-mono font-bold text-rose-600">
-                    {m.stockPacks} packs left
-                  </div>
-                  <div className="text-[10px] text-slate-400">
+                  <p className="font-mono text-[14px] font-extrabold text-rose-600">
+                    {m.stockPacks} packs
+                  </p>
+
+                  <p className="mt-1 text-[10px] font-medium text-slate-400">
                     Reorder at &le; {m.reorderLevel}
-                  </div>
+                  </p>
                 </div>
 
                 <button
+                  type="button"
                   onClick={() => setActiveAuditMedicine(m)}
-                  className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded-lg text-[11px] transition-colors"
-                  title="Audit or adjust stock"
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800 transition hover:bg-amber-100"
                 >
                   Count Stock
                 </button>
@@ -247,77 +286,112 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             ))}
 
             {lowStockMedicines.length === 0 && (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                All medicine stock levels are currently above reorder thresholds!
+              <div className="px-5 py-8 text-center">
+                <p className="text-[13px] font-semibold text-slate-600">
+                  Stock levels are healthy.
+                </p>
               </div>
             )}
           </div>
-        </div>
+        </section>
 
-        {/* 2. Expiry Alerts */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
-          <div className="p-4 bg-rose-50/60 border-b border-rose-200/80 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-rose-100 text-rose-800 rounded-lg">
-                <ShieldAlert className="w-4 h-4" />
+
+        {/* EXPIRY WATCH */}
+        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+
+              <div>
+                <h3 className="text-[15px] font-extrabold text-slate-900">
+                  Expiry Watch
+                </h3>
+
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+                  {expiryAlertMedicines.length} item{expiryAlertMedicines.length === 1 ? '' : 's'} require attention
+                </p>
               </div>
-              <h3 className="font-bold text-sm text-rose-900">
-                Near-Expiry &amp; Expired Alert List ({expiryAlertMedicines.length})
-              </h3>
             </div>
+
             <button
+              type="button"
               onClick={() => setActiveTab('stockists')}
-              className="text-xs font-bold text-rose-800 hover:text-rose-900 hover:underline"
-              title="Return expired items to wholesaler"
+              className="text-[12px] font-bold text-teal-700 hover:text-teal-900"
             >
               Wholesaler Return &rarr;
             </button>
           </div>
 
-          <div className="p-4 divide-y divide-slate-100 flex-1 overflow-y-auto max-h-72">
-            {expiryAlertMedicines.slice(0, 6).map(m => {
+          <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">
+            {expiryAlertMedicines.slice(0, 6).map((m) => {
               const expTime = new Date(m.expiryDate).getTime();
-              const nowTime = new Date().getTime();
+              const nowTime = Date.now();
               const isExpired = expTime < nowTime;
 
               return (
-                <div key={m.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                  <div>
-                    <div className="font-bold text-slate-900">{m.name}</div>
-                    <div className="text-[11px] text-slate-500 font-mono">
-                      Batch: {m.batchNumber} • Stock: {m.stockPacks} pk
-                    </div>
+                <div
+                  key={m.id}
+                  className="grid grid-cols-[minmax(0,1fr)_190px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-extrabold text-slate-900">
+                      {m.name}
+                    </p>
+
+                    <p className="mt-1 truncate font-mono text-[10px] text-slate-500">
+                      Batch: {m.batchNumber}
+                      <span className="mx-2 text-slate-300">&middot;</span>
+                      Stock: {m.stockPacks} pk
+                    </p>
                   </div>
 
-                  <div className="text-right">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold font-mono ${
-                      isExpired ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {isExpired ? 'EXPIRED' : `Expires: ${m.expiryDate}`}
+                  <div className="min-w-0 text-right">
+                    <span
+                      className={
+                        isExpired
+                          ? 'inline-flex rounded-md bg-rose-100 px-2.5 py-1 font-mono text-[11px] font-bold text-rose-700'
+                          : 'inline-flex rounded-md bg-amber-50 px-2.5 py-1 font-mono text-[11px] font-bold text-amber-700'
+                      }
+                    >
+                      {isExpired
+                        ? 'Expired'
+                        : 'Expires ' + m.expiryDate}
                     </span>
-                    <span className="text-[10px] text-slate-400 block mt-0.5">
+
+                    <p
+                      title={m.supplierName}
+                      className="mt-1.5 truncate text-[10px] text-slate-400"
+                    >
                       {m.supplierName}
-                    </span>
+                    </p>
                   </div>
 
                   <button
+                    type="button"
                     onClick={() => setActiveAuditMedicine(m)}
-                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-900 font-bold rounded-lg text-[11px] transition-colors"
+                    className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700 transition hover:bg-rose-100"
                   >
-                    Deduce Stock
+                    Deduct
                   </button>
                 </div>
               );
             })}
 
             {expiryAlertMedicines.length === 0 && (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                No items are expiring within the next 6 months. Shelf is clean!
+              <div className="px-5 py-8 text-center">
+                <p className="text-[13px] font-semibold text-slate-600">
+                  No medicines currently require expiry attention.
+                </p>
               </div>
             )}
           </div>
-        </div>
+        </section>
+
       </div>
+
+
+
+
 
       {/* Recent Counter Bills */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
