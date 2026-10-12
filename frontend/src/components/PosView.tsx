@@ -1,272 +1,519 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  ShoppingCart, 
-  Search, 
-  Plus, 
-  Minus, 
-  Trash2, 
-  Percent, 
-  Printer, 
-  CheckCircle2, 
-  AlertTriangle, 
-  User, 
-  Phone, 
-  UserCheck, 
-  Info, 
-  Sparkles, 
-  Layers, 
-  QrCode, 
-  CreditCard, 
-  Banknote, 
-  Receipt,
-  FileText,
-  X
+﻿import React, { useMemo, useState } from 'react';
+import {
+  Minus,
+  Plus,
+  Search,
+  Trash2,
+  X,
 } from 'lucide-react';
+
 import { usePharmacy } from '../context/PharmacyContext';
-import { Medicine, SaleItem, SaleInvoice } from '../types/pharmacy';
+import {
+  Medicine,
+  SaleItem,
+} from '../types/pharmacy';
 
 export const PosView: React.FC = () => {
-  const { 
-    medicines, 
-    completeSale, 
-    settings, 
+  const {
+    medicines,
+    completeSale,
     currentUser,
-    setActiveInvoiceToPrint, 
-    setActiveVatInfoMedicine 
+    setActiveInvoiceToPrint,
   } = usePharmacy();
 
-  // Search state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedGenericFilter, setSelectedGenericFilter] = useState<string | null>(null);
+  // ============================================================
+  // SEARCH
+  // ============================================================
 
-  // Cart state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGenericFilter, setSelectedGenericFilter] =
+    useState<string | null>(null);
+
+  // ============================================================
+  // CART
+  // ============================================================
+
   const [cart, setCart] = useState<SaleItem[]>([]);
 
-  // Customer / Patient Info
-  const [customerName, setCustomerName] = useState('Counter Customer');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerPan, setCustomerPan] = useState('');
-  const [doctorName, setDoctorName] = useState('');
-  const [patientAge, setPatientAge] = useState('');
-  const [patientGender, setPatientGender] = useState('N/A');
+  // ============================================================
+  // CUSTOMER
+  // ============================================================
 
-  // Discount & Payment
-  const [discountType, setDiscountType] = useState<'percent' | 'flat'>('flat');
-  const [discountValue, setDiscountValue] = useState<number>(0);
-  const [paymentMode, setPaymentMode] = useState<'cash' | 'fonepay_qr' | 'card' | 'credit'>('cash');
-  const [cashTendered, setCashTendered] = useState<number>(0);
+  const [customerName, setCustomerName] =
+    useState('Counter Customer');
 
-  // Filtered search results
+  const [customerPhone, setCustomerPhone] =
+    useState('');
+
+  const [customerPan, setCustomerPan] =
+    useState('');
+
+  const [doctorName, setDoctorName] =
+    useState('');
+
+  const [patientAge, setPatientAge] =
+    useState('');
+
+  const [patientGender] =
+    useState('N/A');
+
+  // ============================================================
+  // DISCOUNT / PAYMENT
+  // ============================================================
+
+  const [discountType, setDiscountType] =
+    useState<'percent' | 'flat'>('flat');
+
+  const [discountValue, setDiscountValue] =
+    useState<number>(0);
+
+  const [paymentMode, setPaymentMode] =
+    useState<
+      'cash' |
+      'fonepay_qr' |
+      'card' |
+      'credit'
+    >('cash');
+
+  const [cashTendered, setCashTendered] =
+    useState<number>(0);
+
+  // ============================================================
+  // SEARCH RESULTS
+  // ============================================================
+
   const searchResults = useMemo(() => {
-    if (!searchQuery.trim() && !selectedGenericFilter) return [];
-    
-    return medicines.filter(m => {
+    if (!searchQuery.trim() && !selectedGenericFilter) {
+      return [];
+    }
+
+    return medicines.filter((medicine) => {
       if (selectedGenericFilter) {
-        return m.genericName.toLowerCase() === selectedGenericFilter.toLowerCase();
+        return (
+          medicine.genericName.toLowerCase() ===
+          selectedGenericFilter.toLowerCase()
+        );
       }
 
-      const q = searchQuery.toLowerCase();
+      const query =
+        searchQuery.trim().toLowerCase();
+
       return (
-        m.name.toLowerCase().includes(q) ||
-        m.genericName.toLowerCase().includes(q) ||
-        m.batchNumber.toLowerCase().includes(q) ||
-        m.rackLocation.toLowerCase().includes(q)
+        medicine.name
+          .toLowerCase()
+          .includes(query) ||
+        medicine.genericName
+          .toLowerCase()
+          .includes(query) ||
+        medicine.batchNumber
+          .toLowerCase()
+          .includes(query) ||
+        medicine.rackLocation
+          .toLowerCase()
+          .includes(query)
       );
     });
-  }, [medicines, searchQuery, selectedGenericFilter]);
+  }, [
+    medicines,
+    searchQuery,
+    selectedGenericFilter,
+  ]);
 
-  // Add item to cart
-  const handleAddToCart = (medicine: Medicine, isLoose: boolean = false) => {
-    // Check if expired
-    const isExpired = new Date(medicine.expiryDate).getTime() < new Date().getTime();
+  // ============================================================
+  // ADD TO CART
+  // ============================================================
+
+  const handleAddToCart = (
+    medicine: Medicine,
+    isLoose = false
+  ) => {
+    const isExpired =
+      new Date(medicine.expiryDate).getTime() <
+      Date.now();
+
     if (isExpired) {
-      alert(`Cannot sell ${medicine.name}! Batch ${medicine.batchNumber} has expired on ${medicine.expiryDate}.`);
+      alert(
+        `Cannot sell ${medicine.name}. Batch ${medicine.batchNumber} expired on ${medicine.expiryDate}.`
+      );
       return;
     }
 
-    // Check stock
-    const currentTotalUnits = (medicine.stockPacks * medicine.unitsPerPack) + medicine.stockLooseUnits;
+    const currentTotalUnits =
+      medicine.stockPacks *
+        medicine.unitsPerPack +
+      medicine.stockLooseUnits;
+
     if (currentTotalUnits <= 0) {
-      alert(`Out of stock! ${medicine.name} has 0 available units.`);
+      alert(
+        `${medicine.name} is out of stock.`
+      );
       return;
     }
 
     const unitPrice = isLoose
-      ? (medicine.unitsPerPack > 1 ? medicine.mrpPrice / medicine.unitsPerPack : medicine.mrpPrice)
+      ? medicine.unitsPerPack > 1
+        ? medicine.mrpPrice /
+          medicine.unitsPerPack
+        : medicine.mrpPrice
       : medicine.mrpPrice;
 
     const costUnitPrice = isLoose
-      ? (medicine.unitsPerPack > 1 ? medicine.costPrice / medicine.unitsPerPack : medicine.costPrice)
+      ? medicine.unitsPerPack > 1
+        ? medicine.costPrice /
+          medicine.unitsPerPack
+        : medicine.costPrice
       : medicine.costPrice;
 
-    // Check if item already exists in cart with same unit mode
-    const existingIndex = cart.findIndex(
-      item => item.medicineId === medicine.id && item.isLooseUnit === isLoose
-    );
+    const existingIndex =
+      cart.findIndex(
+        (item) =>
+          item.medicineId === medicine.id &&
+          item.isLooseUnit === isLoose
+      );
 
     if (existingIndex >= 0) {
       const updated = [...cart];
-      const newQty = updated[existingIndex].quantity + 1;
-      
-      // Check total required units against stock
-      const totalUnitsNeeded = isLoose 
-        ? newQty 
+
+      const newQty =
+        updated[existingIndex].quantity + 1;
+
+      const totalUnitsNeeded = isLoose
+        ? newQty
         : newQty * medicine.unitsPerPack;
-        
-      if (totalUnitsNeeded > currentTotalUnits) {
-        alert(`Cannot add more! Total available in stock is ${currentTotalUnits} units.`);
+
+      if (
+        totalUnitsNeeded >
+        currentTotalUnits
+      ) {
+        alert(
+          `Cannot add more. Only ${currentTotalUnits} units are available.`
+        );
         return;
       }
 
-      const lineTotal = newQty * unitPrice;
-      const taxBase = medicine.isVatApplicable ? lineTotal / 1.13 : lineTotal;
-      const vatAmount = medicine.isVatApplicable ? lineTotal - taxBase : 0;
+      const lineTotal =
+        newQty * unitPrice;
+
+      const taxBase =
+        medicine.isVatApplicable
+          ? lineTotal / 1.13
+          : lineTotal;
+
+      const vatAmount =
+        medicine.isVatApplicable
+          ? lineTotal - taxBase
+          : 0;
 
       updated[existingIndex] = {
         ...updated[existingIndex],
         quantity: newQty,
         lineTotal,
         taxBase,
-        vatAmount
+        vatAmount,
       };
-      setCart(updated);
-    } else {
-      const lineTotal = unitPrice;
-      const taxBase = medicine.isVatApplicable ? lineTotal / 1.13 : lineTotal;
-      const vatAmount = medicine.isVatApplicable ? lineTotal - taxBase : 0;
 
-      const newItem: SaleItem = {
-        medicineId: medicine.id,
-        medicineName: medicine.name,
-        genericName: medicine.genericName,
-        category: medicine.category,
-        batchNumber: medicine.batchNumber,
-        expiryDate: medicine.expiryDate,
-        isLooseUnit: isLoose,
-        quantity: 1,
-        unitsPerPack: medicine.unitsPerPack,
-        unitPrice,
-        costPrice: costUnitPrice,
-        isVatApplicable: medicine.isVatApplicable,
-        rackLocation: medicine.rackLocation,
-        lineTotal,
-        taxBase,
-        vatAmount
-      };
-      setCart([...cart, newItem]);
+      setCart(updated);
+      return;
     }
+
+    const lineTotal = unitPrice;
+
+    const taxBase =
+      medicine.isVatApplicable
+        ? lineTotal / 1.13
+        : lineTotal;
+
+    const vatAmount =
+      medicine.isVatApplicable
+        ? lineTotal - taxBase
+        : 0;
+
+    const newItem: SaleItem = {
+      medicineId: medicine.id,
+      medicineName: medicine.name,
+      genericName: medicine.genericName,
+      category: medicine.category,
+      batchNumber: medicine.batchNumber,
+      expiryDate: medicine.expiryDate,
+      isLooseUnit: isLoose,
+      quantity: 1,
+      unitsPerPack: medicine.unitsPerPack,
+      unitPrice,
+      costPrice: costUnitPrice,
+      isVatApplicable:
+        medicine.isVatApplicable,
+      rackLocation:
+        medicine.rackLocation,
+      lineTotal,
+      taxBase,
+      vatAmount,
+    };
+
+    setCart((previous) => [
+      ...previous,
+      newItem,
+    ]);
   };
 
-  // Update item quantity
-  const handleUpdateQty = (index: number, newQty: number) => {
+  // ============================================================
+  // QUANTITY
+  // ============================================================
+
+  const handleUpdateQty = (
+    index: number,
+    newQty: number
+  ) => {
     if (newQty <= 0) {
       handleRemoveItem(index);
       return;
     }
 
     const item = cart[index];
-    const med = medicines.find(m => m.id === item.medicineId);
-    if (!med) return;
 
-    const currentTotalUnits = (med.stockPacks * med.unitsPerPack) + med.stockLooseUnits;
-    const unitsNeeded = item.isLooseUnit ? newQty : newQty * item.unitsPerPack;
+    const medicine =
+      medicines.find(
+        (med) =>
+          med.id === item.medicineId
+      );
 
-    if (unitsNeeded > currentTotalUnits) {
-      alert(`Requested quantity exceeds available stock (${currentTotalUnits} units)!`);
+    if (!medicine) {
+      return;
+    }
+
+    const currentTotalUnits =
+      medicine.stockPacks *
+        medicine.unitsPerPack +
+      medicine.stockLooseUnits;
+
+    const unitsNeeded =
+      item.isLooseUnit
+        ? newQty
+        : newQty *
+          item.unitsPerPack;
+
+    if (
+      unitsNeeded >
+      currentTotalUnits
+    ) {
+      alert(
+        `Requested quantity exceeds available stock (${currentTotalUnits} units).`
+      );
       return;
     }
 
     const updated = [...cart];
-    const lineTotal = newQty * item.unitPrice;
-    const taxBase = item.isVatApplicable ? lineTotal / 1.13 : lineTotal;
-    const vatAmount = item.isVatApplicable ? lineTotal - taxBase : 0;
+
+    const lineTotal =
+      newQty * item.unitPrice;
+
+    const taxBase =
+      item.isVatApplicable
+        ? lineTotal / 1.13
+        : lineTotal;
+
+    const vatAmount =
+      item.isVatApplicable
+        ? lineTotal - taxBase
+        : 0;
 
     updated[index] = {
       ...item,
       quantity: newQty,
       lineTotal,
       taxBase,
-      vatAmount
+      vatAmount,
     };
+
     setCart(updated);
   };
 
-  // Toggle loose vs pack inside cart
-  const handleToggleLoose = (index: number) => {
+  // ============================================================
+  // PACK / LOOSE
+  // ============================================================
+
+  const handleToggleLoose = (
+    index: number
+  ) => {
     const item = cart[index];
-    const med = medicines.find(m => m.id === item.medicineId);
-    if (!med) return;
 
-    const newIsLoose = !item.isLooseUnit;
-    const newUnitPrice = newIsLoose
-      ? (med.unitsPerPack > 1 ? med.mrpPrice / med.unitsPerPack : med.mrpPrice)
-      : med.mrpPrice;
+    const medicine =
+      medicines.find(
+        (med) =>
+          med.id === item.medicineId
+      );
 
-    const newCostPrice = newIsLoose
-      ? (med.unitsPerPack > 1 ? med.costPrice / med.unitsPerPack : med.costPrice)
-      : med.costPrice;
+    if (!medicine) {
+      return;
+    }
+
+    const newIsLoose =
+      !item.isLooseUnit;
+
+    const newUnitPrice =
+      newIsLoose
+        ? medicine.unitsPerPack > 1
+          ? medicine.mrpPrice /
+            medicine.unitsPerPack
+          : medicine.mrpPrice
+        : medicine.mrpPrice;
+
+    const newCostPrice =
+      newIsLoose
+        ? medicine.unitsPerPack > 1
+          ? medicine.costPrice /
+            medicine.unitsPerPack
+          : medicine.costPrice
+        : medicine.costPrice;
 
     const updated = [...cart];
-    const lineTotal = item.quantity * newUnitPrice;
-    const taxBase = item.isVatApplicable ? lineTotal / 1.13 : lineTotal;
-    const vatAmount = item.isVatApplicable ? lineTotal - taxBase : 0;
+
+    const lineTotal =
+      item.quantity *
+      newUnitPrice;
+
+    const taxBase =
+      item.isVatApplicable
+        ? lineTotal / 1.13
+        : lineTotal;
+
+    const vatAmount =
+      item.isVatApplicable
+        ? lineTotal - taxBase
+        : 0;
 
     updated[index] = {
       ...item,
-      isLooseUnit: newIsLoose,
-      unitPrice: newUnitPrice,
-      costPrice: newCostPrice,
+      isLooseUnit:
+        newIsLoose,
+      unitPrice:
+        newUnitPrice,
+      costPrice:
+        newCostPrice,
       lineTotal,
       taxBase,
-      vatAmount
+      vatAmount,
     };
+
     setCart(updated);
   };
 
-  // Remove item
-  const handleRemoveItem = (index: number) => {
-    setCart(cart.filter((_, i) => i !== index));
+  // ============================================================
+  // REMOVE
+  // ============================================================
+
+  const handleRemoveItem = (
+    index: number
+  ) => {
+    setCart(
+      cart.filter(
+        (_, currentIndex) =>
+          currentIndex !== index
+      )
+    );
   };
 
-  // Clear cart
+  // ============================================================
+  // CLEAR
+  // ============================================================
+
   const handleClearCart = () => {
-    if (cart.length > 0 && confirm('Are you sure you want to clear current billing cart?')) {
+    if (
+      cart.length > 0 &&
+      window.confirm(
+        'Clear all items from the current bill?'
+      )
+    ) {
       setCart([]);
       setDiscountValue(0);
       setCashTendered(0);
     }
   };
 
-  // Statutory VAT Totals calculation
+  // ============================================================
+  // TOTALS
+  // ============================================================
+
   const totals = useMemo(() => {
-    const grossSubtotal = cart.reduce((acc, it) => acc + it.lineTotal, 0);
-    
-    // Split into VAT-exempt and 13% VAT
-    const vatExemptSubtotal = cart
-      .filter(it => !it.isVatApplicable)
-      .reduce((acc, it) => acc + it.lineTotal, 0);
+    const grossSubtotal =
+      cart.reduce(
+        (total, item) =>
+          total + item.lineTotal,
+        0
+      );
 
-    const taxableGross = cart
-      .filter(it => it.isVatApplicable)
-      .reduce((acc, it) => acc + it.lineTotal, 0);
+    const vatExemptSubtotal =
+      cart
+        .filter(
+          (item) =>
+            !item.isVatApplicable
+        )
+        .reduce(
+          (total, item) =>
+            total +
+            item.lineTotal,
+          0
+        );
 
-    // In retail MRP pricing with 13% inclusive VAT:
-    // Taxable base = taxableGross / 1.13
-    // VAT Amount = taxableGross - Taxable base
-    const taxableBaseSubtotal = taxableGross > 0 ? taxableGross / 1.13 : 0;
-    const vatAmount = taxableGross > 0 ? taxableGross - taxableBaseSubtotal : 0;
+    const taxableGross =
+      cart
+        .filter(
+          (item) =>
+            item.isVatApplicable
+        )
+        .reduce(
+          (total, item) =>
+            total +
+            item.lineTotal,
+          0
+        );
 
-    // End-of-bill discount
+    const taxableBaseSubtotal =
+      taxableGross > 0
+        ? taxableGross / 1.13
+        : 0;
+
+    const vatAmount =
+      taxableGross > 0
+        ? taxableGross -
+          taxableBaseSubtotal
+        : 0;
+
     let discountAmount = 0;
-    if (discountType === 'percent') {
-      discountAmount = (grossSubtotal * (discountValue || 0)) / 100;
-    } else {
-      discountAmount = discountValue || 0;
-    }
-    if (discountAmount > grossSubtotal) discountAmount = grossSubtotal;
 
-    const grandTotal = Math.max(0, grossSubtotal - discountAmount);
-    const changeGiven = Math.max(0, (cashTendered || 0) - grandTotal);
+    if (
+      discountType ===
+      'percent'
+    ) {
+      discountAmount =
+        (grossSubtotal *
+          (discountValue || 0)) /
+        100;
+    } else {
+      discountAmount =
+        discountValue || 0;
+    }
+
+    if (
+      discountAmount >
+      grossSubtotal
+    ) {
+      discountAmount =
+        grossSubtotal;
+    }
+
+    const grandTotal =
+      Math.max(
+        0,
+        grossSubtotal -
+          discountAmount
+      );
+
+    const changeGiven =
+      Math.max(
+        0,
+        (cashTendered || 0) -
+          grandTotal
+      );
 
     return {
       grossSubtotal,
@@ -275,616 +522,941 @@ export const PosView: React.FC = () => {
       vatAmount,
       discountAmount,
       grandTotal,
-      changeGiven
+      changeGiven,
     };
-  }, [cart, discountType, discountValue, cashTendered]);
+  }, [
+    cart,
+    discountType,
+    discountValue,
+    cashTendered,
+  ]);
 
-  // Complete & Print Bill
+  // ============================================================
+  // COMPLETE SALE
+  // ============================================================
+
   const handleCompleteSale = () => {
     if (cart.length === 0) {
-      alert('Cart is empty! Add medicines to bill.');
+      alert(
+        'Cart is empty. Add medicines before billing.'
+      );
       return;
     }
 
-    const saleRecord = completeSale({
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().split(' ')[0],
-      customerName: customerName.trim() || 'Counter Patient',
-      customerPhone: customerPhone.trim() || undefined,
-      customerPan: customerPan.trim() || undefined,
-      doctorName: doctorName.trim() || undefined,
-      patientAge: patientAge.trim() || undefined,
-      patientGender: patientGender !== 'N/A' ? patientGender : undefined,
-      items: cart,
-      grossSubtotal: totals.grossSubtotal,
-      vatExemptSubtotal: totals.vatExemptSubtotal,
-      taxableBaseSubtotal: totals.taxableBaseSubtotal,
-      vatAmount: totals.vatAmount,
-      discountType,
-      discountValue,
-      discountAmount: totals.discountAmount,
-      grandTotal: totals.grandTotal,
-      paymentMode,
-      cashTendered: paymentMode === 'cash' ? (cashTendered || totals.grandTotal) : totals.grandTotal,
-      changeGiven: paymentMode === 'cash' ? totals.changeGiven : 0,
-      cashierName: currentUser?.name || 'Cashier',
-      cashierId: currentUser?.username || currentUser?.id || 'admin'
-    });
+    const saleRecord =
+      completeSale({
+        date: new Date()
+          .toISOString()
+          .split('T')[0],
 
-    // Reset Form
+        time: new Date()
+          .toTimeString()
+          .split(' ')[0],
+
+        customerName:
+          customerName.trim() ||
+          'Counter Patient',
+
+        customerPhone:
+          customerPhone.trim() ||
+          undefined,
+
+        customerPan:
+          customerPan.trim() ||
+          undefined,
+
+        doctorName:
+          doctorName.trim() ||
+          undefined,
+
+        patientAge:
+          patientAge.trim() ||
+          undefined,
+
+        patientGender:
+          patientGender !== 'N/A'
+            ? patientGender
+            : undefined,
+
+        items: cart,
+
+        grossSubtotal:
+          totals.grossSubtotal,
+
+        vatExemptSubtotal:
+          totals.vatExemptSubtotal,
+
+        taxableBaseSubtotal:
+          totals.taxableBaseSubtotal,
+
+        vatAmount:
+          totals.vatAmount,
+
+        discountType,
+        discountValue,
+
+        discountAmount:
+          totals.discountAmount,
+
+        grandTotal:
+          totals.grandTotal,
+
+        paymentMode,
+
+        cashTendered:
+          paymentMode === 'cash'
+            ? cashTendered ||
+              totals.grandTotal
+            : totals.grandTotal,
+
+        changeGiven:
+          paymentMode === 'cash'
+            ? totals.changeGiven
+            : 0,
+
+        cashierName:
+          currentUser?.name ||
+          'Cashier',
+
+        cashierId:
+          currentUser?.username ||
+          currentUser?.id ||
+          'admin',
+      });
+
     setCart([]);
-    setCustomerName('Counter Customer');
+
+    setCustomerName(
+      'Counter Customer'
+    );
+
     setCustomerPhone('');
     setCustomerPan('');
     setDoctorName('');
     setPatientAge('');
+
     setDiscountValue(0);
     setCashTendered(0);
 
-    // Open Printable VAT Bill Modal immediately
-    setActiveInvoiceToPrint(saleRecord);
+    setActiveInvoiceToPrint(
+      saleRecord
+    );
   };
 
+  // ============================================================
+  // QUICK GENERICS
+  // ============================================================
+
+  const quickGenerics = [
+    'Paracetamol',
+    'Amoxicillin',
+    'Pantoprazole',
+    'Cetirizine',
+    'Azithromycin',
+  ];
+
+  // ============================================================
+  // UI
+  // ============================================================
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-      {/* LEFT COLUMN: Fast Search & Medicine Selector (7 cols) */}
-      <div className="lg:col-span-7 space-y-4">
-        {/* Search Header Card */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              <Search className="w-4 h-4 text-teal-600" />
-              <span>Fast Medicine &amp; Barcode Search</span>
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(400px,1fr)]">
+
+      {/* ======================================================
+          LEFT SIDE
+      ======================================================= */}
+
+      <div className="min-w-0 space-y-4">
+
+        {/* MEDICINE SEARCH */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-[16px] font-extrabold text-slate-900">
+              Medicine Search
+            </h2>
+
+            <span className="text-[12px] font-medium text-slate-400">
+              Barcode scanner ready
             </span>
-            {selectedGenericFilter && (
-              <button
-                onClick={() => setSelectedGenericFilter(null)}
-                className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full flex items-center gap-1 hover:bg-rose-100"
-              >
-                <span>Clear Generic Filter: {selectedGenericFilter}</span>
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
 
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
             <input
               type="text"
               autoFocus
-              placeholder="Type brand name (Augmentin, Pan 40), generic salt, batch #, or rack location..."
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                if (selectedGenericFilter) setSelectedGenericFilter(null);
+              placeholder="Search medicine, generic, barcode, batch or rack..."
+              onChange={(event) => {
+                setSearchQuery(
+                  event.target.value
+                );
+
+                if (
+                  selectedGenericFilter
+                ) {
+                  setSelectedGenericFilter(
+                    null
+                  );
+                }
               }}
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-medium text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden shadow-xs"
+              className="h-[50px] w-full rounded-xl border border-slate-300 bg-white pl-11 pr-4 text-[15px] font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
             />
           </div>
 
-          {/* Quick Shortcuts */}
-          <div className="flex items-center gap-1.5 flex-wrap text-[11px] text-slate-500">
-            <span className="font-semibold text-slate-600">Quick Molecule:</span>
-            {['Paracetamol', 'Amoxicillin', 'Pantoprazole', 'Cetirizine', 'Azithromycin'].map(salt => (
-              <button
-                key={salt}
-                onClick={() => {
-                  setSearchQuery(salt);
-                  setSelectedGenericFilter(null);
-                }}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md transition-colors"
-              >
-                {salt}
-              </button>
-            ))}
-          </div>
-        </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[12px] font-semibold text-slate-500">
+              Quick Generic:
+            </span>
 
-        {/* Search Results List */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600 font-semibold">
-            <span>Live Stock Availability</span>
-            <span>
-              {searchResults.length > 0 
-                ? `${searchResults.length} medicines found` 
-                : searchQuery ? 'No items found' : 'Type above to search stock'}
+            {quickGenerics.map(
+              (generic) => (
+                <button
+                  key={generic}
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery(
+                      generic
+                    );
+
+                    setSelectedGenericFilter(
+                      null
+                    );
+                  }}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[12px] font-semibold text-slate-600 transition hover:border-teal-200 hover:bg-teal-50 hover:text-teal-700"
+                >
+                  {generic}
+                </button>
+              )
+            )}
+
+            {selectedGenericFilter && (
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedGenericFilter(
+                    null
+                  )
+                }
+                className="flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[12px] font-semibold text-rose-600"
+              >
+                {selectedGenericFilter}
+
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </section>
+
+
+        {/* STOCK RESULTS */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <h2 className="text-[15px] font-extrabold text-slate-900">
+              Stock Results
+            </h2>
+
+            <span className="text-[12px] font-medium text-slate-400">
+              {searchResults.length > 0
+                ? `${searchResults.length} batch${searchResults.length === 1 ? '' : 'es'} found`
+                : searchQuery
+                  ? 'No stock found'
+                  : 'Search above'}
             </span>
           </div>
 
-          <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto">
-            {searchResults.map(m => {
-              const isLowStock = m.stockPacks <= m.reorderLevel;
-              const perTabletMrp = m.unitsPerPack > 1 ? (m.mrpPrice / m.unitsPerPack) : m.mrpPrice;
-              const isExpired = new Date(m.expiryDate).getTime() < new Date().getTime();
+          <div className="max-h-[430px] divide-y divide-slate-100 overflow-y-auto">
 
-              return (
-                <div 
-                  key={m.id}
-                  className={`p-3.5 hover:bg-slate-50/90 transition-colors flex flex-wrap items-center justify-between gap-3 ${
-                    isExpired ? 'opacity-60 bg-rose-50/30' : ''
-                  }`}
-                >
-                  {/* Left Info */}
-                  <div className="space-y-1 max-w-[55%]">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900 text-sm">{m.name}</span>
-                      <span className="bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded text-[10px] font-mono">
-                        {m.batchNumber}
-                      </span>
-                      {/* Click to know VAT badge */}
-                      <button
-                        type="button"
-                        onClick={() => setActiveVatInfoMedicine(m)}
-                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold border flex items-center gap-0.5 ${
-                          m.isVatApplicable
-                            ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+            {searchResults.map(
+              (medicine) => {
+                const isExpired =
+                  new Date(
+                    medicine.expiryDate
+                  ).getTime() <
+                  Date.now();
+
+                const isLowStock =
+                  medicine.stockPacks <=
+                  medicine.reorderLevel;
+
+                return (
+                  <div
+                    key={medicine.id}
+                    className="grid grid-cols-[minmax(0,1fr)_170px_105px_130px] items-center gap-4 px-4 py-3 transition hover:bg-slate-50/60"
+                  >
+
+                    {/* MEDICINE */}
+                    <div className="min-w-0">
+                      <p className="truncate text-[14px] font-extrabold text-slate-900">
+                        {medicine.name}
+                      </p>
+
+                      <p className="mt-1 truncate text-[11px] text-slate-500">
+                        {medicine.genericName}
+                        <span className="mx-1.5 text-slate-300">
+                          •
+                        </span>
+                        Batch {medicine.batchNumber}
+                        <span className="mx-1.5 text-slate-300">
+                          •
+                        </span>
+                        Rack {medicine.rackLocation}
+                        <span className="mx-1.5 text-slate-300">
+                          •
+                        </span>
+
+                        <span
+                          className={
+                            medicine.isVatApplicable
+                              ? 'text-blue-600'
+                              : 'text-emerald-600'
+                          }
+                        >
+                          {medicine.isVatApplicable
+                            ? '13% VAT'
+                            : 'VAT Exempt'}
+                        </span>
+                      </p>
+                    </div>
+
+
+                    {/* STOCK */}
+                    <div className="text-right">
+                      <p
+                        className={`text-[13px] font-bold ${
+                          isExpired
+                            ? 'text-rose-600'
+                            : isLowStock
+                              ? 'text-amber-700'
+                              : 'text-teal-700'
                         }`}
-                        title="Click to Know: View VAT and Tax breakdown"
                       >
-                        <span>{m.isVatApplicable ? '13% VAT' : 'VAT Free'}</span>
-                        <Info className="w-2.5 h-2.5 opacity-70" />
-                      </button>
+                        {medicine.stockPacks} packs
+                        {' + '}
+                        {medicine.stockLooseUnits} units
+                        {isExpired
+                          ? ' · Expired'
+                          : isLowStock
+                            ? ' · Low'
+                            : ''}
+                      </p>
+
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Exp {medicine.expiryDate}
+                      </p>
                     </div>
 
-                    <div className="text-[11px] text-slate-500 font-medium">
-                      {m.genericName}
+
+                    {/* PRICE */}
+                    <div className="text-right">
+                      <p className="font-mono text-[13px] font-black text-slate-900">
+                        Rs. {medicine.mrpPrice.toFixed(2)}
+                      </p>
+
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        MRP / pack
+                      </p>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px] text-slate-400">
-                      <span>Rack: <strong className="text-slate-700">{m.rackLocation}</strong></span>
-                      <span>•</span>
-                      <span>Exp: <strong className={isExpired ? 'text-rose-600 font-bold' : 'text-slate-600'}>{m.expiryDate}</strong></span>
-                      <span>•</span>
-                      <span>Pack: {m.unitsPerPack} u</span>
-                    </div>
 
-                    {/* Bio-equivalent Suggestion shortcut */}
-                    <div className="pt-0.5">
+                    {/* PACK / TAB ADD OPTIONS */}
+                    <div className="flex items-center justify-end gap-1.5">
+
+                      {/* ADD FULL PACK */}
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedGenericFilter(m.genericName);
-                          setSearchQuery('');
-                        }}
-                        className="text-[10px] font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1 hover:underline"
-                        title="See all in-stock brands with same generic molecule"
+                        disabled={isExpired || medicine.stockPacks <= 0}
+                        onClick={() =>
+                          handleAddToCart(
+                            medicine,
+                            false
+                          )
+                        }
+                        className="
+                          min-w-[58px]
+                          rounded-lg
+                          bg-teal-700
+                          px-2.5
+                          py-2
+                          text-[11px]
+                          font-bold
+                          text-white
+                          transition
+                          hover:bg-teal-800
+                          disabled:cursor-not-allowed
+                          disabled:bg-slate-200
+                          disabled:text-slate-400
+                        "
                       >
-                        <Sparkles className="w-2.5 h-2.5 text-teal-600" />
-                        <span>Find Bio-Equivalent Brands ({m.genericName.split(' ')[0]})</span>
+                        Pack
                       </button>
-                    </div>
-                  </div>
 
-                  {/* Stock & Price */}
-                  <div className="text-right space-y-0.5">
-                    <div className="text-xs font-mono font-bold text-slate-900">
-                      Rs. {m.mrpPrice.toFixed(2)} <span className="text-[10px] font-normal text-slate-500">/pack</span>
-                    </div>
-                    {m.unitsPerPack > 1 && (
-                      <div className="text-[11px] font-mono text-teal-700 font-medium">
-                        Rs. {perTabletMrp.toFixed(2)} /tab
-                      </div>
-                    )}
-                    <div className="text-[11px] font-mono">
-                      Stock: <strong className={isLowStock ? 'text-rose-600' : 'text-slate-800'}>
-                        {m.stockPacks} pk
-                      </strong>
-                      {m.stockLooseUnits > 0 && (
-                        <span className="text-teal-700 ml-1">+{m.stockLooseUnits} tab</span>
+                      {/* ADD SINGLE TAB / LOOSE UNIT */}
+                      {medicine.unitsPerPack > 1 && (
+                        <button
+                          type="button"
+                          disabled={
+                            isExpired ||
+                            (
+                              medicine.stockPacks <= 0 &&
+                              medicine.stockLooseUnits <= 0
+                            )
+                          }
+                          onClick={() =>
+                            handleAddToCart(
+                              medicine,
+                              true
+                            )
+                          }
+                          className="
+                            min-w-[52px]
+                            rounded-lg
+                            border
+                            border-teal-200
+                            bg-teal-50
+                            px-2.5
+                            py-2
+                            text-[11px]
+                            font-bold
+                            text-teal-700
+                            transition
+                            hover:border-teal-300
+                            hover:bg-teal-100
+                            disabled:cursor-not-allowed
+                            disabled:border-slate-200
+                            disabled:bg-slate-100
+                            disabled:text-slate-400
+                          "
+                        >
+                          Tab
+                        </button>
                       )}
+
                     </div>
                   </div>
-
-                  {/* Add Buttons: Strip vs Loose */}
-                  <div className="flex items-center gap-1.5">
-                    {/* Add Full Pack */}
-                    <button
-                      type="button"
-                      disabled={isExpired || (m.stockPacks === 0 && m.stockLooseUnits < m.unitsPerPack)}
-                      onClick={() => handleAddToCart(m, false)}
-                      className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-all"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>+ Pack</span>
-                    </button>
-
-                    {/* Add Loose Tablet */}
-                    {m.unitsPerPack > 1 && (
-                      <button
-                        type="button"
-                        disabled={isExpired || (m.stockPacks === 0 && m.stockLooseUnits === 0)}
-                        onClick={() => handleAddToCart(m, true)}
-                        className="px-2.5 py-1.5 bg-teal-50 hover:bg-teal-100 disabled:opacity-40 text-teal-800 border border-teal-300 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all"
-                        title="Bill individual loose tablet/capsule (auto derives fractional pack stock deduction)"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>+ 1 Tab</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {searchResults.length === 0 && searchQuery && (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                No active stock found for "{searchQuery}". Try searching generic salt name.
-              </div>
+                );
+              }
             )}
 
-            {searchResults.length === 0 && !searchQuery && !selectedGenericFilter && (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                Enter medicine name or generic composition in search box above to browse stock and add items to cart.
+            {searchResults.length ===
+              0 && (
+              <div className="flex min-h-[120px] items-center justify-center px-6 text-center">
+                <p className="text-[14px] font-medium text-slate-400">
+                  {searchQuery
+                    ? `No available stock found for "${searchQuery}".`
+                    : 'Search for a medicine to view available stock.'}
+                </p>
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* RIGHT COLUMN: POS Billing Cart & 13% Statutory VAT Invoice (5 cols) */}
-      <div className="lg:col-span-5 space-y-4">
-        {/* Patient / Customer Details Card */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
-            <span className="flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-teal-600" />
-              <span>Customer &amp; Doctor Information</span>
-            </span>
-            <span className="text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-              Cashier: <strong>{currentUser?.name}</strong> <span className="font-mono text-[10px] text-emerald-700">(@{currentUser?.username})</span>
+
+      {/* ======================================================
+          RIGHT SIDE
+      ======================================================= */}
+
+      <div className="min-w-0 space-y-4">
+
+        {/* CUSTOMER DETAILS */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="text-[16px] font-extrabold text-slate-900">
+              Customer Details
+            </h2>
+
+            <span className="max-w-[230px] truncate rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+              Cashier: {currentUser?.name}{' '}
+              ({currentUser?.role})
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
             <div>
-              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                Patient / Customer Name:
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                Customer / Patient Name
               </label>
+
               <input
                 type="text"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Patient Name"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-hidden"
+                onChange={(event) =>
+                  setCustomerName(
+                    event.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
               />
             </div>
 
+
             <div>
-              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                Phone Number:
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                Phone Number
               </label>
+
               <input
                 type="text"
                 value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder="e.g. 9845012345"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-hidden"
+                onChange={(event) =>
+                  setCustomerPhone(
+                    event.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
               />
             </div>
 
+
             <div>
-              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                Prescribing Doctor:
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                Prescribing Doctor
               </label>
+
               <input
                 type="text"
                 value={doctorName}
-                onChange={(e) => setDoctorName(e.target.value)}
                 placeholder="Dr. Name (Hetauda Hosp)"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-hidden"
+                onChange={(event) =>
+                  setDoctorName(
+                    event.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
               />
             </div>
 
+
             <div>
-              <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                Buyer PAN (Tax Invoice):
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                Buyer PAN (optional)
               </label>
+
               <input
                 type="text"
                 value={customerPan}
-                onChange={(e) => setCustomerPan(e.target.value)}
-                placeholder="Optional Buyer PAN"
-                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-mono focus:bg-white focus:ring-1 focus:ring-teal-500 focus:outline-hidden"
+                placeholder="Buyer PAN"
+                onChange={(event) =>
+                  setCustomerPan(
+                    event.target.value
+                  )
+                }
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
               />
             </div>
-          </div>
-        </div>
 
-        {/* Cart Line Items */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="p-3 bg-slate-900 text-white flex items-center justify-between text-xs">
-            <span className="font-bold flex items-center gap-1.5">
-              <ShoppingCart className="w-4 h-4 text-emerald-400" />
-              <span>Current Cart ({cart.length} items)</span>
-            </span>
+          </div>
+        </section>
+
+
+        {/* CURRENT CART */}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          {/* CART HEADER */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-[16px] font-extrabold text-slate-900">
+                Current Cart
+              </h2>
+
+              <span className="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-bold text-teal-700">
+                {cart.length}{' '}
+                {cart.length === 1
+                  ? 'item'
+                  : 'items'}
+              </span>
+            </div>
+
             {cart.length > 0 && (
               <button
                 type="button"
                 onClick={handleClearCart}
-                className="text-[11px] text-rose-300 hover:text-white transition-colors"
+                className="text-[12px] font-semibold text-rose-600 hover:text-rose-800"
               >
                 Clear Cart
               </button>
             )}
           </div>
 
-          {/* Cart Table */}
-          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
-            {cart.map((item, idx) => (
-              <div key={`${item.medicineId}-${item.isLooseUnit}`} className="p-3 hover:bg-slate-50/60 text-xs space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-bold text-slate-900">{item.medicineName}</div>
-                    <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                      <span className="font-mono">{item.batchNumber}</span>
-                      <span>•</span>
-                      {/* Clickable VAT badge in cart line item */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const med = medicines.find(m => m.id === item.medicineId);
-                          if (med) setActiveVatInfoMedicine(med);
-                        }}
-                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold border flex items-center gap-0.5 ${
-                          item.isVatApplicable
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        }`}
-                        title="Click to view VAT portion of this cart line"
-                      >
-                        <span>{item.isVatApplicable ? '13% VAT' : '0% Exempt'}</span>
-                        <Info className="w-2.5 h-2.5 opacity-70" />
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="text-right">
-                    <span className="font-bold font-mono text-slate-900 text-sm">
-                      Rs. {item.lineTotal.toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-400 block font-mono">
-                      @ Rs. {item.unitPrice.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
+          {/* CART HEADINGS */}
+          {cart.length > 0 && (
+            <div className="grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-400">
+              <span>Medicine</span>
+              <span className="text-center">
+                Qty
+              </span>
+              <span className="text-right">
+                Rate
+              </span>
+              <span className="text-right">
+                Total
+              </span>
+              <span />
+            </div>
+          )}
 
-                {/* Controls: Pack vs Loose Toggle, Qty Counter */}
-                <div className="flex items-center justify-between pt-1">
-                  {/* Mode badge: Pack vs Loose Tablet */}
-                  <div className="flex items-center gap-1.5">
-                    {item.unitsPerPack > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleLoose(idx)}
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors ${
-                          item.isLooseUnit
-                            ? 'bg-teal-100 text-teal-800 border-teal-300 font-bold'
-                            : 'bg-slate-100 text-slate-700 border-slate-200'
-                        }`}
-                        title="Toggle Full Pack vs Loose Tablet billing"
-                      >
-                        {item.isLooseUnit ? 'Loose Tablet Billing' : 'Full Pack Billing'}
-                      </button>
-                    ) : (
-                      <span className="text-[10px] text-slate-400">Pack (Unit)</span>
-                    )}
-                  </div>
 
-                  {/* Quantity adjust buttons */}
-                  <div className="flex items-center gap-1">
+          {/* CART ITEMS */}
+          <div className="max-h-[240px] divide-y divide-slate-100 overflow-y-auto">
+
+            {cart.map(
+              (item, index) => (
+                <div
+                  key={`${item.medicineId}-${item.isLooseUnit}`}
+                  className="grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] items-center gap-3 px-4 py-3"
+                >
+
+                  {/* NAME */}
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-extrabold text-slate-900">
+                      {item.medicineName}
+                    </p>
+
                     <button
                       type="button"
-                      onClick={() => handleUpdateQty(idx, item.quantity - 1)}
-                      className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold text-xs"
+                      onClick={() =>
+                        handleToggleLoose(
+                          index
+                        )
+                      }
+                      className="mt-1 text-left text-[10px] font-medium text-slate-400 hover:text-teal-700"
                     >
-                      <Minus className="w-3 h-3" />
+                      {item.isLooseUnit
+                        ? 'Tab'
+                        : 'Pack'}
+                      {' · '}
+                      {item.batchNumber}
                     </button>
+                  </div>
+
+
+                  {/* QTY */}
+                  <div className="flex items-center justify-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdateQty(
+                          index,
+                          item.quantity - 1
+                        )
+                      }
+                      className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-100"
+                    >
+                      <Minus className="h-3 w-3" />
+                    </button>
+
                     <input
                       type="number"
                       min="1"
                       value={item.quantity}
-                      onChange={(e) => handleUpdateQty(idx, parseInt(e.target.value, 10) || 1)}
-                      className="w-12 text-center border border-slate-200 rounded py-0.5 text-xs font-bold font-mono text-slate-900"
+                      onChange={(event) =>
+                        handleUpdateQty(
+                          index,
+                          parseInt(
+                            event.target.value,
+                            10
+                          ) || 1
+                        )
+                      }
+                      className="h-6 w-8 rounded-md border border-slate-200 text-center font-mono text-[11px] font-bold outline-none"
                     />
+
                     <button
                       type="button"
-                      onClick={() => handleUpdateQty(idx, item.quantity + 1)}
-                      className="w-6 h-6 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 font-bold text-xs"
+                      onClick={() =>
+                        handleUpdateQty(
+                          index,
+                          item.quantity + 1
+                        )
+                      }
+                      className="flex h-5 w-5 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-100"
                     >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem(idx)}
-                      className="p-1 hover:bg-rose-50 text-rose-500 rounded ml-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Plus className="h-3 w-3" />
                     </button>
                   </div>
+
+
+                  {/* RATE */}
+                  <div className="text-right font-mono text-[11px] font-semibold text-slate-600">
+                    {item.unitPrice.toFixed(2)}
+                  </div>
+
+
+                  {/* TOTAL */}
+                  <div className="text-right font-mono text-[12px] font-black text-slate-900">
+                    {item.lineTotal.toFixed(2)}
+                  </div>
+
+
+                  {/* REMOVE */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleRemoveItem(
+                        index
+                      )
+                    }
+                    className="text-slate-300 transition hover:text-rose-600"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+
                 </div>
-              </div>
-            ))}
+              )
+            )}
 
             {cart.length === 0 && (
-              <div className="p-8 text-center text-slate-400 text-xs">
-                Your cart is currently empty. Add items from the left catalog.
+              <div className="flex min-h-[105px] items-center justify-center px-6 text-center">
+                <p className="text-[13px] font-medium text-slate-400">
+                  Your cart is empty. Add medicines from the stock results.
+                </p>
               </div>
             )}
           </div>
 
-          {/* Statutory VAT Tax Breakdown & Summary Box */}
-          <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-2.5 text-xs">
-            <div className="flex justify-between text-slate-600">
-              <span>Gross Subtotal:</span>
-              <span className="font-mono font-bold text-slate-800">
-                Rs. {totals.grossSubtotal.toFixed(2)}
-              </span>
-            </div>
 
-            <div className="flex justify-between text-emerald-800 bg-emerald-50/60 px-2 py-1 rounded">
-              <span>VAT Free / Exempt Sales (0%):</span>
-              <span className="font-mono font-semibold">
-                Rs. {totals.vatExemptSubtotal.toFixed(2)}
-              </span>
-            </div>
+          {/* ==================================================
+              BILL SUMMARY
+          =================================================== */}
 
-            <div className="flex justify-between text-blue-900 bg-blue-50/60 px-2 py-1 rounded">
-              <span>Taxable Base Amount:</span>
-              <span className="font-mono font-semibold">
-                Rs. {totals.taxableBaseSubtotal.toFixed(2)}
-              </span>
-            </div>
+          <div className="border-t border-slate-200 bg-white px-4 py-4">
 
-            <div className="flex justify-between text-blue-900 bg-blue-50/60 px-2 py-1 rounded">
-              <span>13% VAT (Value Added Tax):</span>
-              <span className="font-mono font-bold">
-                Rs. {totals.vatAmount.toFixed(2)}
-              </span>
-            </div>
+            <div className="space-y-2 text-[12px]">
 
-            {/* End of bill discount */}
-            <div className="pt-1 border-t border-slate-200/80 flex items-center justify-between gap-2">
-              <span className="font-semibold text-slate-700">Total Bill Discount:</span>
-              <div className="flex items-center gap-1.5">
-                <div className="flex bg-slate-200 p-0.5 rounded text-[10px] font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setDiscountType('flat')}
-                    className={`px-1.5 py-0.5 rounded ${discountType === 'flat' ? 'bg-white text-slate-900' : 'text-slate-600'}`}
-                  >
-                    Rs.
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDiscountType('percent')}
-                    className={`px-1.5 py-0.5 rounded ${discountType === 'percent' ? 'bg-white text-slate-900' : 'text-slate-600'}`}
-                  >
-                    %
-                  </button>
-                </div>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={discountValue || ''}
-                  placeholder="0"
-                  onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
-                  className="w-16 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold text-right text-slate-900 focus:outline-hidden"
-                />
-                <span className="text-slate-400 text-[11px] font-mono">
-                  (- Rs. {totals.discountAmount.toFixed(2)})
+              <div className="flex items-center justify-between text-slate-600">
+                <span>Subtotal</span>
+
+                <span className="font-mono font-bold text-slate-800">
+                  Rs. {totals.grossSubtotal.toFixed(2)}
                 </span>
               </div>
+
+
+              <div className="flex items-center justify-between text-slate-500">
+                <span>VAT Exempt</span>
+
+                <span className="font-mono font-semibold text-slate-700">
+                  Rs. {totals.vatExemptSubtotal.toFixed(2)}
+                </span>
+              </div>
+
+
+              <div className="flex items-center justify-between text-slate-500">
+                <span>Taxable Amount</span>
+
+                <span className="font-mono font-semibold text-slate-700">
+                  Rs. {totals.taxableBaseSubtotal.toFixed(2)}
+                </span>
+              </div>
+
+
+              <div className="flex items-center justify-between text-slate-500">
+                <span>VAT (13%)</span>
+
+                <span className="font-mono font-semibold text-slate-700">
+                  Rs. {totals.vatAmount.toFixed(2)}
+                </span>
+              </div>
+
             </div>
 
-            {/* Grand Total */}
-            <div className="pt-2 border-t-2 border-slate-300 flex justify-between items-center text-sm">
-              <span className="font-extrabold text-slate-900">Grand Total Payable:</span>
-              <span className="font-extrabold font-mono text-xl text-teal-800">
+
+            {/* DISCOUNT */}
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="flex items-center justify-between gap-3">
+
+                <span className="text-[12px] font-semibold text-slate-600">
+                  Bill Discount
+                </span>
+
+                <div className="flex items-center gap-2">
+
+                  <div className="flex overflow-hidden rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDiscountType(
+                          'flat'
+                        )
+                      }
+                      className={`px-2.5 py-1.5 text-[11px] font-bold ${
+                        discountType ===
+                        'flat'
+                          ? 'bg-teal-700 text-white'
+                          : 'bg-white text-slate-500'
+                      }`}
+                    >
+                      Rs.
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDiscountType(
+                          'percent'
+                        )
+                      }
+                      className={`px-2.5 py-1.5 text-[11px] font-bold ${
+                        discountType ===
+                        'percent'
+                          ? 'bg-teal-700 text-white'
+                          : 'bg-white text-slate-500'
+                      }`}
+                    >
+                      %
+                    </button>
+                  </div>
+
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={
+                      discountValue || ''
+                    }
+                    placeholder="0"
+                    onChange={(event) =>
+                      setDiscountValue(
+                        parseFloat(
+                          event.target.value
+                        ) || 0
+                      )
+                    }
+                    className="h-8 w-20 rounded-lg border border-slate-200 px-2 text-right font-mono text-[12px] font-bold outline-none focus:border-teal-400"
+                  />
+
+                </div>
+              </div>
+
+              {totals.discountAmount > 0 && (
+                <div className="mt-2 flex justify-between text-[11px] text-slate-400">
+                  <span>
+                    Discount applied
+                  </span>
+
+                  <span className="font-mono">
+                    - Rs. {totals.discountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+
+            {/* GRAND TOTAL */}
+            <div className="mt-3 flex items-center justify-between border-t-2 border-slate-300 pt-3">
+              <span className="text-[15px] font-black text-slate-900">
+                Grand Total
+              </span>
+
+              <span className="font-mono text-[22px] font-black tracking-tight text-teal-700">
                 Rs. {totals.grandTotal.toFixed(2)}
               </span>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="pt-2 space-y-1.5">
-              <span className="block text-[11px] font-semibold text-slate-700">
-                Settlement Payment Mode:
-              </span>
-              <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('cash')}
-                  className={`py-2 rounded-lg flex flex-col items-center gap-1 transition-all ${
-                    paymentMode === 'cash'
-                      ? 'bg-emerald-700 text-white shadow-xs'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <Banknote className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">Cash</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('fonepay_qr')}
-                  className={`py-2 rounded-lg flex flex-col items-center gap-1 transition-all ${
-                    paymentMode === 'fonepay_qr'
-                      ? 'bg-rose-700 text-white shadow-xs'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <QrCode className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">Fonepay QR</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('card')}
-                  className={`py-2 rounded-lg flex flex-col items-center gap-1 transition-all ${
-                    paymentMode === 'card'
-                      ? 'bg-blue-700 text-white shadow-xs'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <CreditCard className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">Card</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('credit')}
-                  className={`py-2 rounded-lg flex flex-col items-center gap-1 transition-all ${
-                    paymentMode === 'credit'
-                      ? 'bg-amber-700 text-white shadow-xs'
-                      : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span className="text-[10px]">Credit (Udharo)</span>
-                </button>
+
+            {/* PAYMENT */}
+            <div className="mt-4">
+              <p className="mb-2 text-[12px] font-semibold text-slate-600">
+                Payment Mode
+              </p>
+
+              <div className="grid grid-cols-4 gap-2">
+
+                {[
+                  ['cash', 'Cash'],
+                  ['fonepay_qr', 'Fonepay QR'],
+                  ['card', 'Card'],
+                  ['credit', 'Credit (Udharo)'],
+                ].map(
+                  ([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() =>
+                        setPaymentMode(
+                          value as
+                            | 'cash'
+                            | 'fonepay_qr'
+                            | 'card'
+                            | 'credit'
+                        )
+                      }
+                      className={`min-h-[42px] rounded-lg border px-2 py-2 text-[11px] font-bold transition ${
+                        paymentMode ===
+                        value
+                          ? 'border-teal-700 bg-teal-700 text-white'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                )}
+
               </div>
             </div>
 
-            {/* Cash Tendered & Change Return */}
+
+            {/* CASH */}
             {paymentMode === 'cash' && (
-              <div className="pt-2 border-t border-slate-200 grid grid-cols-2 gap-2 text-xs">
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+
                 <div>
-                  <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                    Cash Tendered (Rs.):
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">
+                    Cash Tendered (Rs.)
                   </label>
+
                   <input
                     type="number"
                     min="0"
-                    step="1"
-                    value={cashTendered || ''}
-                    placeholder={totals.grandTotal.toFixed(0)}
-                    onChange={(e) => setCashTendered(parseFloat(e.target.value) || 0)}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-mono font-bold text-slate-900 focus:outline-hidden"
+                    value={
+                      cashTendered || ''
+                    }
+                    placeholder="0"
+                    onChange={(event) =>
+                      setCashTendered(
+                        parseFloat(
+                          event.target.value
+                        ) || 0
+                      )
+                    }
+                    className="h-9 w-full rounded-lg border border-slate-200 px-3 font-mono text-[13px] font-bold outline-none focus:border-teal-400"
                   />
                 </div>
+
+
                 <div>
-                  <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">
-                    Change to Return:
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">
+                    Change to Return
                   </label>
-                  <div className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 font-mono font-bold text-emerald-700 text-sm">
+
+                  <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[14px] font-black text-emerald-700">
                     Rs. {totals.changeGiven.toFixed(2)}
                   </div>
                 </div>
+
               </div>
             )}
 
-            {/* Complete Sale & Print Button */}
-            <div className="pt-3">
-              <button
-                type="button"
-                disabled={cart.length === 0}
-                onClick={handleCompleteSale}
-                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 disabled:opacity-50 text-white rounded-xl text-sm font-bold shadow-md shadow-teal-700/20 flex items-center justify-center gap-2 transition-all active:scale-[0.99]"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Complete Bill &amp; Print VAT Tax Invoice (कर बीजक)</span>
-              </button>
-            </div>
+
+            {/* COMPLETE */}
+            <button
+              type="button"
+              disabled={cart.length === 0}
+              onClick={handleCompleteSale}
+              className="mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+            >
+              Complete Bill &amp; Print VAT Invoice
+            </button>
+
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
