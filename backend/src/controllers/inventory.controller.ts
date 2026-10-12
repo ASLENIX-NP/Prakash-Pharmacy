@@ -22,12 +22,13 @@ export const formatInventoryItem = (inv: any) => {
       name: inv.generic.name,
     },
     genericName: inv.generic.name,
-    category: {
+    category: inv.category.name, // "Tablet", "Capsule" (matches frontend MedicineCategory)
+    categoryName: inv.category.name,
+    categoryDetails: {
       id: formatCategoryCode(inv.category.id), // "CAT-001"
       categoryCode: formatCategoryCode(inv.category.id),
       name: inv.category.name,
     },
-    categoryName: inv.category.name,
     rack: inv.rack
       ? {
           id: formatRackCode(inv.rack.id), // "RCK-001"
@@ -40,10 +41,14 @@ export const formatInventoryItem = (inv: any) => {
     batchNumber: inv.batchNumber,
     expiryDate: inv.expiryDate,
     unitPerPack: inv.unitPerPack,
+    unitsPerPack: inv.unitPerPack, // Frontend compatibility alias
     packInStock: inv.packInStock,
+    stockPacks: inv.packInStock, // Frontend compatibility alias
     unitInStock: inv.unitInStock,
+    stockLooseUnits: inv.unitInStock, // Frontend compatibility alias
     totalUnitsAvailable: inv.packInStock * inv.unitPerPack + inv.unitInStock,
     packAlertLevel: inv.packAlertLevel,
+    reorderLevel: inv.packAlertLevel, // Frontend compatibility alias
     costPrice: Number(inv.costPrice),
     sellingPrice: Number(inv.sellingPrice),
     mrpPrice: Number(inv.sellingPrice), // friendly alias
