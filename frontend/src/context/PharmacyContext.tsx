@@ -9,7 +9,8 @@ import {
   SaleInvoice,
   PharmacySettings,
   PharmacyUser,
-  RackLocation
+  RackLocation,
+  UserRole
 } from '../types/pharmacy';
 import {
   initialMedicines,
@@ -978,3 +979,4 @@ export const usePharmacy = () => {
   }
   return context;
 };
+

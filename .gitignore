@@ -6,3 +6,53 @@ coverage/
 *.log
 .env*
 !.env.example
+
+*.zip
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+build/
+**/build/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor / AI tooling
+.windsurf/
+**/.windsurf/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Archives
+*.zip
+
+# Prisma generated client
+backend/src/generated/prisma/
+
+# Coverage
+coverage/
+
+# AI / agent generated files
+.agents/
+**/.agents/
+.claude/
+**/.claude/
+skills-lock.json
+**/skills-lock.json
