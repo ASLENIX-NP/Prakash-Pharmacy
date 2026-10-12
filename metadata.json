@@ -1,0 +1,6 @@
+{
+  "name": "Prakash Pharmacy — Retail Pharmacy Management & POS System",
+  "description": "Retail Pharmacy ERP & POS system for Prakash Pharmacy, Hetauda-5, Sanopokhara, Makwanpur, Nepal. Featuring inventory management, physical stock count audits, stockist purchase invoices & ledgers, damage/expiry returns, and 13% VAT vs VAT-free statutory billing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
