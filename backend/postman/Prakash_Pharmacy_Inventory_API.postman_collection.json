@@ -1,0 +1,323 @@
+{
+  "info": {
+    "name": "Prakash Pharmacy - Inventory & Catalog API",
+    "description": "Postman Collection for testing Inventory, Racks, Categories, Generics, and Stock Alerts with proper human-friendly IDs (MED-001, RCK-001, CAT-001, GEN-001).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login as Admin (Auto-saves token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.token) {",
+                  "    pm.collectionVariables.set('token', res.token);",
+                  "    console.log('Saved token to collection variable:', res.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Racks Management",
+      "item": [
+        {
+          "name": "Get All Racks (Returns RCK-001, RCK-002...)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/racks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "racks"]
+            }
+          }
+        },
+        {
+          "name": "Get Rack by Code (RCK-001)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/racks/RCK-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "racks", "RCK-001"]
+            }
+          }
+        },
+        {
+          "name": "Create New Storage Rack (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Emergency Tray 1\",\n  \"description\": \"Crash cart and rapid response medicines\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/racks",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "racks"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Categories & Generics",
+      "item": [
+        {
+          "name": "Get All Categories (Returns CAT-001, CAT-002...)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "categories"]
+            }
+          }
+        },
+        {
+          "name": "Get All Generics (Returns GEN-001, GEN-002...)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/generics?search=Paracetamol",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "generics"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Paracetamol"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Inventory & Medicines",
+      "item": [
+        {
+          "name": "Get Inventory Summary & Alerts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/alerts/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory", "alerts", "summary"]
+            }
+          }
+        },
+        {
+          "name": "Get All Inventory (Returns MED-001, MED-002...)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"]
+            }
+          }
+        },
+        {
+          "name": "Get Medicine by Code (MED-001)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/MED-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory", "MED-001"]
+            }
+          }
+        },
+        {
+          "name": "Get Low Stock Medicines Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory?lowStock=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"],
+              "query": [
+                {
+                  "key": "lowStock",
+                  "value": "true"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Medicine (by brand or generic name)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory?search=Augmentin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Augmentin"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add New Medicine to Inventory",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicineBrand\": \"Amoxil 500mg\",\n  \"genericName\": \"Amoxicillin Trihydrate 500mg\",\n  \"categoryName\": \"Capsule\",\n  \"rackName\": \"Rack A-1\",\n  \"batchNumber\": \"AMX-2026-99\",\n  \"expiryDate\": \"2027-12-31\",\n  \"unitPerPack\": 10,\n  \"packInStock\": 40,\n  \"unitInStock\": 5,\n  \"packAlertLevel\": 15,\n  \"costPrice\": 85.00,\n  \"sellingPrice\": 125.00,\n  \"hasvat\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory"]
+            }
+          }
+        },
+        {
+          "name": "Update Stock / Pricing by Code (MED-001)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"packInStock\": 55,\n  \"sellingPrice\": 130.00\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/inventory/MED-001",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "inventory", "MED-001"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

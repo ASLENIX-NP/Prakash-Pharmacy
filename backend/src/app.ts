@@ -4,6 +4,10 @@ import helmet from "helmet";
 import morgan from "morgan";
 import { checkDatabaseConnection } from "./db.js";
 import authRoutes from "./routes/auth.routes.js";
+import rackRoutes from "./routes/rack.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
+import genericRoutes from "./routes/generic.routes.js";
+import inventoryRoutes from "./routes/inventory.routes.js";
 
 const app = express();
 
@@ -49,7 +53,12 @@ app.get(["/", "/api/health"], async (_req, res) => {
   res.status(dbHealth.connected ? 200 : 503).json(response);
 });
 
-// Authentication Routes
+// API Routes
 app.use("/api/auth", authRoutes);
+app.use("/api/racks", rackRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/generics", genericRoutes);
+app.use("/api/inventory", inventoryRoutes);
+app.use("/api/medicines", inventoryRoutes); // Alias for convenience
 
 export default app;
