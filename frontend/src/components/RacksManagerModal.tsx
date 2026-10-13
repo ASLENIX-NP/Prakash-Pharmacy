@@ -26,12 +26,12 @@ export const RacksManagerModal: React.FC<RacksManagerModalProps> = ({ isOpen, on
 
   if (!isOpen) return null;
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     setFeedback(null);
     if (!newRackName.trim()) return;
 
-    const res = addRack(newRackName, newRackDescription);
+    const res = await addRack(newRackName, newRackDescription);
     if (res.success) {
       setFeedback({ type: 'success', text: res.message });
       setNewRackName('');
@@ -41,14 +41,14 @@ export const RacksManagerModal: React.FC<RacksManagerModalProps> = ({ isOpen, on
     }
   };
 
-  const handleDeduce = (rackId: string, rackName: string) => {
+  const handleDeduce = async (rackId: string, rackName: string) => {
     const count = medicines.filter(m => m.rackLocation.toLowerCase() === rackName.toLowerCase()).length;
     const confirmMsg = count > 0
       ? `Rack "${rackName}" currently contains ${count} medicines. Removing this rack will reassign them to "General Shelf". Are you sure?`
       : `Are you sure you want to deduce/remove rack "${rackName}"?`;
 
     if (confirm(confirmMsg)) {
-      const res = deduceRack(rackId);
+      const res = await deduceRack(rackId);
       if (res.success) {
         setFeedback({ type: 'success', text: res.message });
       } else {
