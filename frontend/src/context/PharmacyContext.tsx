@@ -586,50 +586,374 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
   };
 
-  const addUser = (userData: Omit<PharmacyUser, 'id' | 'createdAt'>): PharmacyUser => {
-    const newUser: PharmacyUser = {
+  const addUser = (
+    userData: Omit<PharmacyUser, 'id' | 'createdAt'>
+  ): PharmacyUser => {
+
+    const temporaryId =
+      `tmp-user-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 6)}`;
+
+    const temporaryUser: PharmacyUser = {
       ...userData,
-      id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+      id: temporaryId,
       createdAt: new Date().toISOString()
     };
-    setUsers(prev => [...prev, newUser]);
-    return newUser;
+
+    // Optimistic UI update.
+    setUsers(prev => [...prev, temporaryUser]);
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+      user: PharmacyUser;
+    }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(userData),
+    })
+      .then(res => {
+        const serverUser = {
+          ...res.user,
+
+          // Backend intentionally never sends passwords.
+          password: ''
+        } as PharmacyUser;
+
+        setUsers(prev =>
+          prev.map(user =>
+            user.id === temporaryId
+              ? serverUser
+              : user
+          )
+        );
+      })
+      .catch(error => {
+        // Roll back optimistic row if database write fails.
+        setUsers(prev =>
+          prev.filter(user => user.id !== temporaryId)
+        );
+
+        console.error(
+          'Failed to create staff user:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to create staff user.'
+        );
+      });
+
+    return temporaryUser;
   };
 
-  const updateUser = (id: string, updates: Partial<PharmacyUser>) => {
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+  const updateUser = (
+    id: string,
+    updates: Partial<PharmacyUser>
+  ) => {
+
+    const previousUser =
+      users.find(user => user.id === id);
+
+    // Preserve existing immediate UI behaviour.
+    setUsers(prev =>
+      prev.map(user =>
+        user.id === id
+          ? { ...user, ...updates }
+          : user
+      )
+    );
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+      user: PharmacyUser;
+    }>(`/auth/users/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+      .then(res => {
+        const serverUser = {
+          ...res.user,
+          password: ''
+        } as PharmacyUser;
+
+        setUsers(prev =>
+          prev.map(user =>
+            user.id === id
+              ? serverUser
+              : user
+          )
+        );
+      })
+      .catch(error => {
+        // Roll back if backend rejects the update.
+        if (previousUser) {
+          setUsers(prev =>
+            prev.map(user =>
+              user.id === id
+                ? previousUser
+                : user
+            )
+          );
+        }
+
+        console.error(
+          'Failed to update staff user:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to update staff user.'
+        );
+      });
   };
 
   const deleteUser = (id: string) => {
     if (users.length <= 1) {
-      alert('Cannot delete the only existing staff account!');
+      alert(
+        'Cannot delete the only existing staff account!'
+      );
       return;
     }
-    setUsers(prev => prev.filter(u => u.id !== id));
+
     if (currentUserId === id) {
-      const remaining = users.filter(u => u.id !== id);
-      if (remaining.length > 0) {
-        setCurrentUser(remaining[0]);
-      }
+      alert(
+        'You cannot delete the account that is currently signed in.'
+      );
+      return;
     }
+
+    const deletedUser =
+      users.find(user => user.id === id);
+
+    const previousUsers = [...users];
+
+    // Optimistic removal.
+    setUsers(prev =>
+      prev.filter(user => user.id !== id)
+    );
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+    }>(`/auth/users/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+      .catch(error => {
+        // Restore list if database delete fails.
+        setUsers(previousUsers);
+
+        console.error(
+          'Failed to delete staff user:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : `Failed to delete ${
+                deletedUser?.name || 'staff user'
+              }.`
+        );
+      });
   };
 
   // Inventory actions
-  const addMedicine = (medData: Omit<Medicine, 'id'>): Medicine => {
-    const newMed: Medicine = {
+  const addMedicine = (
+    medData: Omit<Medicine, 'id'>
+  ): Medicine => {
+
+    const temporaryId =
+      `tmp-med-${Date.now()}-${Math.random()
+        .toString(36)
+        .substring(2, 6)}`;
+
+    const temporaryMedicine: Medicine = {
       ...medData,
-      id: `med-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`
+      id: temporaryId
     };
-    setMedicines(prev => [newMed, ...prev]);
-    return newMed;
+
+    // Preserve existing immediate UI behaviour.
+    setMedicines(prev => [
+      temporaryMedicine,
+      ...prev
+    ]);
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+      data: Medicine;
+    }>('/inventory', {
+      method: 'POST',
+      body: JSON.stringify(medData),
+    })
+      .then(res => {
+        const serverMedicine = {
+          ...res.data,
+
+          // Supplier fields are not yet in the backend DTO.
+          supplierId:
+            res.data.supplierId ||
+            medData.supplierId ||
+            '',
+
+          supplierName:
+            res.data.supplierName ||
+            medData.supplierName ||
+            ''
+        } as Medicine;
+
+        setMedicines(prev =>
+          prev.map(medicine =>
+            medicine.id === temporaryId
+              ? serverMedicine
+              : medicine
+          )
+        );
+      })
+      .catch(error => {
+        // Remove temporary medicine if database insert fails.
+        setMedicines(prev =>
+          prev.filter(
+            medicine =>
+              medicine.id !== temporaryId
+          )
+        );
+
+        console.error(
+          'Failed to create medicine:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to create medicine.'
+        );
+      });
+
+    return temporaryMedicine;
   };
 
-  const updateMedicine = (id: string, updates: Partial<Medicine>) => {
-    setMedicines(prev => prev.map(m => m.id === id ? { ...m, ...updates } : m));
+  const updateMedicine = (
+    id: string,
+    updates: Partial<Medicine>
+  ) => {
+
+    const previousMedicine =
+      medicines.find(medicine => medicine.id === id);
+
+    // Existing synchronous local behaviour remains intact.
+    setMedicines(prev =>
+      prev.map(medicine =>
+        medicine.id === id
+          ? { ...medicine, ...updates }
+          : medicine
+      )
+    );
+
+    // Temporary records have not received their DB MED-xxx
+    // identifier yet. Their POST request will create them.
+    if (id.startsWith('tmp-med-')) {
+      return;
+    }
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+      data: Medicine;
+    }>(`/inventory/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+      .then(res => {
+        setMedicines(prev =>
+          prev.map(medicine => {
+            if (medicine.id !== id) {
+              return medicine;
+            }
+
+            return {
+              ...medicine,
+              ...res.data,
+
+              supplierId:
+                res.data.supplierId ||
+                medicine.supplierId ||
+                '',
+
+              supplierName:
+                res.data.supplierName ||
+                medicine.supplierName ||
+                ''
+            } as Medicine;
+          })
+        );
+      })
+      .catch(error => {
+        // Restore previous record if database update fails.
+        if (previousMedicine) {
+          setMedicines(prev =>
+            prev.map(medicine =>
+              medicine.id === id
+                ? previousMedicine
+                : medicine
+            )
+          );
+        }
+
+        console.error(
+          'Failed to update medicine:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to update medicine.'
+        );
+      });
   };
 
   const deleteMedicine = (id: string) => {
-    setMedicines(prev => prev.filter(m => m.id !== id));
+    const previousMedicines = [...medicines];
+
+    // Existing immediate UI behaviour.
+    setMedicines(prev =>
+      prev.filter(medicine => medicine.id !== id)
+    );
+
+    // Unsaved temporary medicine can simply be removed locally.
+    if (id.startsWith('tmp-med-')) {
+      return;
+    }
+
+    void apiRequest<{
+      success: boolean;
+      message?: string;
+    }>(`/inventory/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+      .catch(error => {
+        // Restore inventory if backend delete fails.
+        setMedicines(previousMedicines);
+
+        console.error(
+          'Failed to delete medicine:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete medicine.'
+        );
+      });
   };
 
   const bulkImportMedicines = (newMeds: Medicine[]) => {
