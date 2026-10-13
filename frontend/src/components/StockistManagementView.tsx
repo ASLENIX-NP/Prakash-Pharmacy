@@ -1444,3 +1444,6 @@ export const StockistManagementView: React.FC = () => {
     </div>
   );
 };
+
+
+
