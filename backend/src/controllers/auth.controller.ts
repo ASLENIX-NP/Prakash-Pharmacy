@@ -22,10 +22,17 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const cleanUsername = String(username).trim();
+    const cleanInput = String(username).trim();
 
-    const user = await prisma.user.findUnique({
-      where: { username: cleanUsername },
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { username: { equals: cleanInput, mode: "insensitive" } },
+          { username: { equals: `${cleanInput}.staff`, mode: "insensitive" } },
+          { id: { equals: cleanInput, mode: "insensitive" } },
+          { email: { equals: cleanInput, mode: "insensitive" } },
+        ],
+      },
     });
 
     if (!user) {

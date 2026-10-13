@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Minus,
   Plus,
@@ -854,8 +854,14 @@ export const PosView: React.FC = () => {
                         Rs. {medicine.mrpPrice.toFixed(2)}
                       </p>
 
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        MRP / pack
+                      <p className="mt-0.5 text-[10px] font-medium text-slate-500">
+                        {medicine.unitsPerPack > 1 ? (
+                          <>
+                            Pack · <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
+                          </>
+                        ) : (
+                          'MRP / pack'
+                        )}
                       </p>
                     </div>
 
@@ -896,6 +902,7 @@ export const PosView: React.FC = () => {
                       {medicine.unitsPerPack > 1 && (
                         <button
                           type="button"
+                          title={`Add Tab at Rs. ${(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)} (${medicine.mrpPrice} / ${medicine.unitsPerPack} units)`}
                           disabled={
                             isExpired ||
                             (
@@ -910,18 +917,18 @@ export const PosView: React.FC = () => {
                             )
                           }
                           className="
-                            min-w-[52px]
+                            min-w-[62px]
                             rounded-lg
                             border
-                            border-teal-200
+                            border-teal-300
                             bg-teal-50
-                            px-2.5
+                            px-2
                             py-2
                             text-[11px]
                             font-bold
-                            text-teal-700
+                            text-teal-800
                             transition
-                            hover:border-teal-300
+                            hover:border-teal-400
                             hover:bg-teal-100
                             disabled:cursor-not-allowed
                             disabled:border-slate-200
@@ -929,7 +936,7 @@ export const PosView: React.FC = () => {
                             disabled:text-slate-400
                           "
                         >
-                          Tab
+                          Tab (Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(1)})
                         </button>
                       )}
 
@@ -1117,21 +1124,28 @@ export const PosView: React.FC = () => {
                       {item.medicineName}
                     </p>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleToggleLoose(
-                          index
-                        )
-                      }
-                      className="mt-1 text-left text-[10px] font-medium text-slate-400 hover:text-teal-700"
-                    >
-                      {item.isLooseUnit
-                        ? 'Tab'
-                        : 'Pack'}
-                      {' · '}
-                      {item.batchNumber}
-                    </button>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleToggleLoose(
+                            index
+                          )
+                        }
+                        title="Click to toggle between Packet and Tab"
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase transition ${
+                          item.isLooseUnit
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
+                            : 'bg-teal-100 text-teal-800 border border-teal-300 hover:bg-teal-200'
+                        }`}
+                      >
+                        {item.isLooseUnit ? 'Tab (Loose)' : 'Packet'}
+                      </button>
+
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {item.batchNumber}
+                      </span>
+                    </div>
                   </div>
 
 
@@ -1182,8 +1196,13 @@ export const PosView: React.FC = () => {
 
 
                   {/* RATE */}
-                  <div className="text-right font-mono text-[11px] font-semibold text-slate-600">
-                    {item.unitPrice.toFixed(2)}
+                  <div className="text-right">
+                    <span className="font-mono text-[11px] font-semibold text-slate-700">
+                      {item.unitPrice.toFixed(2)}
+                    </span>
+                    <span className="block text-[9px] text-slate-400">
+                      {item.isLooseUnit ? '/ tab' : '/ pack'}
+                    </span>
                   </div>
 
 

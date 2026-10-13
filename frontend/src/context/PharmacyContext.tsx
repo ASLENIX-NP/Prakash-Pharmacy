@@ -398,6 +398,25 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 
       // ------------------------------------------------------
+      // BILLS & SALES INVOICES
+      // ------------------------------------------------------
+      try {
+        const res = await apiRequest<{ data: SaleInvoice[] }>(
+          '/bills?limit=all'
+        );
+
+        if (!cancelled && res.data && res.data.length > 0) {
+          setSalesInvoices(res.data);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching live sales invoices:',
+          error
+        );
+      }
+
+
+      // ------------------------------------------------------
       // STAFF ? ADMIN ONLY
       // ------------------------------------------------------
       if (isAdmin) {
@@ -1293,15 +1312,26 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (!med) return;
 
       if (!saleItem.isLooseUnit) {
-        // Sold in full packs
+        // Sold in full packets: subtract from stockPacks, stockLooseUnits stays unchanged
         const remainingPacks = Math.max(0, med.stockPacks - saleItem.quantity);
         updateMedicine(med.id, { stockPacks: remainingPacks });
       } else {
-        // Sold loose tablets
-        const currentTotalUnits = (med.stockPacks * med.unitsPerPack) + med.stockLooseUnits;
-        const newTotalUnits = Math.max(0, currentTotalUnits - saleItem.quantity);
-        const newPacks = Math.floor(newTotalUnits / med.unitsPerPack);
-        const newLoose = newTotalUnits % med.unitsPerPack;
+        // Sold loose tabs: subtract directly from stockLooseUnits
+        let newPacks = med.stockPacks;
+        let newLoose = med.stockLooseUnits;
+        const unitsPerPack = Math.max(1, med.unitsPerPack || 10);
+
+        if (med.stockLooseUnits >= saleItem.quantity) {
+          // Direct deduction from loose units
+          newLoose = med.stockLooseUnits - saleItem.quantity;
+        } else {
+          // If loose units are insufficient, open required full pack(s)
+          const deficit = saleItem.quantity - med.stockLooseUnits;
+          const packsToOpen = Math.ceil(deficit / unitsPerPack);
+          newPacks = Math.max(0, med.stockPacks - packsToOpen);
+          newLoose = (med.stockLooseUnits + (packsToOpen * unitsPerPack)) - saleItem.quantity;
+        }
+
         updateMedicine(med.id, {
           stockPacks: newPacks,
           stockLooseUnits: newLoose
@@ -1310,6 +1340,34 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
 
     setSalesInvoices(prev => [newInvoice, ...prev]);
+
+    // Persist sale invoice to backend database
+    void apiRequest<{
+      success: boolean;
+      data: SaleInvoice;
+    }>('/bills', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...saleData,
+        invoiceNumber,
+        cashierId: saleData.cashierId || currentUser?.id,
+      }),
+    })
+      .then(res => {
+        if (res.data) {
+          setSalesInvoices(prev =>
+            prev.map(inv =>
+              inv.id === newInvoice.id || inv.invoiceNumber === newInvoice.invoiceNumber
+                ? res.data
+                : inv
+            )
+          );
+        }
+      })
+      .catch(error => {
+        console.error('Failed to persist sales bill to database:', error);
+      });
+
     return newInvoice;
   };
 

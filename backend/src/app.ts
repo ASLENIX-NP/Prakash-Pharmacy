@@ -8,6 +8,7 @@ import rackRoutes from "./routes/rack.routes.js";
 import categoryRoutes from "./routes/category.routes.js";
 import genericRoutes from "./routes/generic.routes.js";
 import inventoryRoutes from "./routes/inventory.routes.js";
+import billRoutes from "./routes/bill.routes.js";
 
 const app = express();
 
@@ -77,5 +78,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/generics", genericRoutes);
 app.use("/api/inventory", inventoryRoutes);
 app.use("/api/medicines", inventoryRoutes); // Alias for convenience
+app.use("/api/bills", billRoutes);
+app.use("/api/sales", billRoutes); // Alias for convenience
 
 export default app;

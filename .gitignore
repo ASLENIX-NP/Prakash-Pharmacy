@@ -56,3 +56,5 @@ coverage/
 **/.claude/
 skills-lock.json
 **/skills-lock.json
+.markdown-collab/
+**/.markdown-collab/
