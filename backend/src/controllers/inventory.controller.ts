@@ -75,9 +75,167 @@ const findDuplicateMedicineBatchSafe = async (
 };
 
 
+
+type DistributorResolution = {
+  provided: boolean;
+  id: number | null;
+  name: string;
+  error?: string;
+};
+
+
+const resolveInventoryDistributor = async (
+  body: any
+): Promise<DistributorResolution> => {
+
+  const rawId =
+    body.distributorId ??
+    body.supplierId;
+
+  const supplierName =
+    String(
+      body.supplierName ??
+      body.distributorName ??
+      ""
+    ).trim();
+
+
+  // Explicit blank/null means clear relation.
+  if (
+    rawId === null ||
+    rawId === ""
+  ) {
+    return {
+      provided: true,
+      id: null,
+      name: "",
+    };
+  }
+
+
+  // Resolve by ID.
+  if (rawId !== undefined) {
+
+    const match =
+      String(rawId)
+        .trim()
+        .match(/(\d+)$/);
+
+    const numericPart =
+      match?.[1];
+
+    if (!numericPart) {
+      return {
+        provided: true,
+        id: null,
+        name: "",
+        error:
+          "Invalid distributor/supplier ID.",
+      };
+    }
+
+    const id =
+      Number.parseInt(
+        numericPart,
+        10
+      );
+
+    const distributor =
+      await prisma.distributor.findUnique({
+        where: {
+          id,
+        },
+      });
+
+    if (!distributor) {
+      return {
+        provided: true,
+        id: null,
+        name: "",
+        error:
+          `Distributor with ID ${id} not found.`,
+      };
+    }
+
+    return {
+      provided: true,
+      id:
+        distributor.id,
+      name:
+        distributor.name,
+    };
+  }
+
+
+  // Resolve by supplier/distributor name.
+  if (supplierName) {
+
+    const distributor =
+      await prisma.distributor.findFirst({
+        where: {
+          name: {
+            equals:
+              supplierName,
+
+            mode:
+              "insensitive",
+          },
+        },
+      });
+
+    if (!distributor) {
+      return {
+        provided: true,
+        id: null,
+        name:
+          supplierName,
+        error:
+          `Distributor '${supplierName}' not found.`,
+      };
+    }
+
+    return {
+      provided: true,
+      id:
+        distributor.id,
+      name:
+        distributor.name,
+    };
+  }
+
+
+  return {
+    provided: false,
+    id: null,
+    name: "",
+  };
+};
+
+
 export const formatInventoryItem = (inv: any) => {
   const medicineCode = formatMedicineCode(inv.id);
   return {
+
+    distributorId:
+      inv.distributorId ?? null,
+
+    supplierId:
+      inv.distributorId
+        ? String(inv.distributorId)
+        : "",
+
+    distributorName:
+      inv.distributor?.name ?? "",
+
+    supplierName:
+      inv.distributor?.name ?? "",
+
+    barcode:
+      inv.barcode ?? "",
+
+    notes:
+      inv.notes ?? "",
+
     id: medicineCode, // Formatted ID e.g. "MED-001"
     medicineCode,
     medicineBrand: inv.medicineBrand,
@@ -104,7 +262,9 @@ export const formatInventoryItem = (inv: any) => {
         }
       : null,
     rackLocation: inv.rack ? inv.rack.name : "Unassigned",
-    batchNumber: inv.batchNumber,
+
+
+batchNumber: inv.batchNumber,
     expiryDate: inv.expiryDate,
     unitPerPack: inv.unitPerPack,
     unitsPerPack: inv.unitPerPack, // Frontend compatibility alias
@@ -209,7 +369,8 @@ export const getAllInventory = async (req: Request, res: Response): Promise<void
           generic: true,
           category: true,
           rack: true,
-        },
+        
+        distributor: true,},
         orderBy,
         skip: isAll || isLowStockRequested ? undefined : (parsedPage - 1) * (parsedLimit || 50),
         take: isAll || isLowStockRequested ? undefined : parsedLimit,
@@ -267,7 +428,8 @@ export const getInventoryById = async (req: Request, res: Response): Promise<voi
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     if (!item) {
@@ -376,6 +538,45 @@ export const createInventory = async (req: Request, res: Response): Promise<void
     }
 
 
+    
+    const distributorResolutionOnCreate =
+      await resolveInventoryDistributor(
+        req.body
+      );
+
+    if (
+      distributorResolutionOnCreate.error
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          distributorResolutionOnCreate.error,
+      });
+      return;
+    }
+
+    const finalDistributorId =
+      distributorResolutionOnCreate.provided
+        ? distributorResolutionOnCreate.id
+        : null;
+
+    const normalizedBarcode =
+      req.body.barcode === undefined ||
+      req.body.barcode === null
+        ? null
+        : String(
+            req.body.barcode
+          ).trim() || null;
+
+    const normalizedNotes =
+      req.body.notes === undefined ||
+      req.body.notes === null
+        ? null
+        : String(
+            req.body.notes
+          ).trim() || null;
+
+
     // 1. Resolve Generic ID
     let finalGenericId: number;
     if (genericId && !isNaN(parseInt(genericId, 10))) {
@@ -463,6 +664,16 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         genericId: finalGenericId,
         categoryId: finalCategoryId,
         rackId: finalRackId,
+        
+        distributorId:
+          finalDistributorId,
+
+        barcode:
+          normalizedBarcode,
+
+        notes:
+          normalizedNotes,
+
         unitPerPack: Math.max(1, finalUnitPerPack),
         packInStock: Math.max(0, finalPackInStock),
         unitInStock: Math.max(0, finalUnitInStock),
@@ -475,7 +686,8 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     res.status(201).json({
@@ -673,6 +885,59 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
 
+    
+    const distributorResolutionOnUpdate =
+      await resolveInventoryDistributor(
+        req.body
+      );
+
+    if (
+      distributorResolutionOnUpdate.error
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          distributorResolutionOnUpdate.error,
+      });
+      return;
+    }
+
+    if (
+      distributorResolutionOnUpdate.provided
+    ) {
+      updateData.distributorId =
+        distributorResolutionOnUpdate.id;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        req.body,
+        "barcode"
+      )
+    ) {
+      updateData.barcode =
+        req.body.barcode === null
+          ? null
+          : String(
+              req.body.barcode
+            ).trim() || null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        req.body,
+        "notes"
+      )
+    ) {
+      updateData.notes =
+        req.body.notes === null
+          ? null
+          : String(
+              req.body.notes
+            ).trim() || null;
+    }
+
+
     const updated = await prisma.inventory.update({
       where: { id },
       data: updateData,
@@ -680,7 +945,8 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     res.status(200).json({

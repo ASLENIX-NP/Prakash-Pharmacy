@@ -64,6 +64,9 @@ model Inventory {
   rackId Int?  @map("rack_id")
   rack   Rack? @relation(fields: [rackId], references: [id], onDelete: SetNull)
 
+  distributorId Int?         @map("distributor_id")
+  distributor   Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+
   // Quantities
   unitPerPack    Int @default(10) @map("unit_per_pack")
   packInStock    Int @default(0) @map("pack_in_stock")
@@ -77,6 +80,10 @@ model Inventory {
   // Statutory VAT
   hasvat Boolean @default(false) @map("hasvat")
 
+  // Optional medicine metadata
+  barcode String? @map("barcode")
+  notes   String? @map("notes")
+
   // Relations
   billItems BillItem[]
   createdAt DateTime   @default(now()) @map("created_at")
@@ -89,6 +96,7 @@ model Inventory {
   @@index([categoryId])
   @@index([rackId])
   @@index([batchNumber])
+  @@index([distributorId])
   @@map("inventory_tbl")
 }
 
@@ -212,7 +220,8 @@ model Distributor {
   creditLimit    Decimal @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
   currentBalance Decimal @default(0.00) @map("current_balance") @db.Decimal(12, 2)
 
-  ledgers Ledger[]
+  ledgers     Ledger[]
+  inventories Inventory[]
 
   @@map("distributors_tbl")
 }
