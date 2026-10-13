@@ -9,6 +9,72 @@ import {
 } from "../utils/id.helpers.js";
 
 // Helper to format inventory database record into rich response
+
+// ============================================================
+// CASE-INSENSITIVE MEDICINE + BATCH DUPLICATE CHECK
+// ============================================================
+
+const normalizeInventoryDuplicateKey = (
+  value: unknown
+): string => {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+};
+
+
+const findDuplicateMedicineBatchSafe = async (
+  medicineBrand: string,
+  batchNumber: string,
+  excludeId?: number
+) => {
+
+  const targetBrand =
+    normalizeInventoryDuplicateKey(
+      medicineBrand
+    );
+
+  const targetBatch =
+    normalizeInventoryDuplicateKey(
+      batchNumber
+    );
+
+  const inventory =
+    await prisma.inventory.findMany({
+      select: {
+        id: true,
+        medicineBrand: true,
+        batchNumber: true,
+      },
+    });
+
+  return (
+    inventory.find((item) => {
+
+      if (
+        excludeId !== undefined &&
+        item.id === excludeId
+      ) {
+        return false;
+      }
+
+      const sameBrand =
+        normalizeInventoryDuplicateKey(
+          item.medicineBrand
+        ) === targetBrand;
+
+      const sameBatch =
+        normalizeInventoryDuplicateKey(
+          item.batchNumber
+        ) === targetBatch;
+
+      return sameBrand && sameBatch;
+
+    }) ?? null
+  );
+};
+
+
 export const formatInventoryItem = (inv: any) => {
   const medicineCode = formatMedicineCode(inv.id);
   return {
@@ -286,6 +352,30 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    
+    // ========================================================
+    // DUPLICATE MEDICINE + BATCH PROTECTION
+    //
+    // Brand + batch identifies one physical medicine batch.
+    // Comparison is case-insensitive and trimmed.
+    // ========================================================
+
+    const duplicateMedicineOnCreate =
+      await findDuplicateMedicineBatchSafe(
+        brand,
+        batch
+      );
+
+    if (duplicateMedicineOnCreate) {
+      res.status(409).json({
+        success: false,
+        message:
+          `Medicine '${brand}' with batch '${batch}' already exists as ${formatMedicineCode(duplicateMedicineOnCreate.id)}. Update the existing record or use bulk import merge.`,
+      });
+      return;
+    }
+
+
     // 1. Resolve Generic ID
     let finalGenericId: number;
     if (genericId && !isNaN(parseInt(genericId, 10))) {
@@ -553,6 +643,36 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       updateData.hasvat = Boolean(hasvat ?? isVatApplicable);
     }
 
+
+    const candidateBrandForDuplicateCheck =
+      String(
+        updateData.medicineBrand ??
+        existing.medicineBrand
+      ).trim();
+
+    const candidateBatchForDuplicateCheck =
+      String(
+        updateData.batchNumber ??
+        existing.batchNumber
+      ).trim();
+
+    const duplicateAfterUpdate =
+      await findDuplicateMedicineBatchSafe(
+        candidateBrandForDuplicateCheck,
+        candidateBatchForDuplicateCheck,
+        id
+      );
+
+    if (duplicateAfterUpdate) {
+      res.status(409).json({
+        success: false,
+        message:
+          `Another inventory record already uses medicine '${candidateBrandForDuplicateCheck}' with batch '${candidateBatchForDuplicateCheck}' (${formatMedicineCode(duplicateAfterUpdate.id)}).`,
+      });
+      return;
+    }
+
+
     const updated = await prisma.inventory.update({
       where: { id },
       data: updateData,
@@ -652,8 +772,8 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
     });
 
     const now = new Date();
-    const threeMonthsAhead = new Date();
-    threeMonthsAhead.setMonth(now.getMonth() + 3);
+    const sixMonthsAhead = new Date();
+    sixMonthsAhead.setMonth(now.getMonth() + 6);
 
     let totalPacks = 0;
     let totalLoose = 0;
@@ -683,15 +803,101 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
         if (!isNaN(expDate.getTime())) {
           if (expDate <= now) {
             expiredCount++;
-          } else if (expDate <= threeMonthsAhead) {
+          } else if (expDate <= sixMonthsAhead) {
             nearExpiryCount++;
           }
         }
       }
 
       // Valuations
-      totalCostValuation += packs * cost;
-      totalRetailValuation += packs * selling;
+      const loosePackEquivalent =
+        item.unitPerPack > 0
+          ? loose / item.unitPerPack
+          : 0;
+
+const isValidInventoryDate = (
+  value: string
+): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(
+    value + 'T00:00:00'
+  );
+
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+
+  return (
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+const normalizeInventoryKey = (
+  value: unknown
+): string =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+
+const findDuplicateMedicineBatch = async (
+  medicineBrand: string,
+  batchNumber: string,
+  excludeId?: number
+) => {
+  const targetBrand =
+    normalizeInventoryKey(
+      medicineBrand
+    );
+
+  const targetBatch =
+    normalizeInventoryKey(
+      batchNumber
+    );
+
+  const records =
+    await prisma.inventory.findMany({
+      select: {
+        id: true,
+        medicineBrand: true,
+        batchNumber: true,
+      },
+    });
+
+  return (
+    records.find((item) => {
+      if (
+        excludeId !== undefined &&
+        item.id === excludeId
+      ) {
+        return false;
+      }
+
+      return (
+        normalizeInventoryKey(
+          item.medicineBrand
+        ) === targetBrand &&
+        normalizeInventoryKey(
+          item.batchNumber
+        ) === targetBatch
+      );
+    }) ?? null
+  );
+};
+;
+
+
+      const effectivePacks =
+        packs + loosePackEquivalent;
+
+      totalCostValuation +=
+        effectivePacks * cost;
+
+      totalRetailValuation +=
+        effectivePacks * selling;
     }
 
     res.status(200).json({
