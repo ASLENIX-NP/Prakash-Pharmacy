@@ -21,7 +21,9 @@ export const LoginView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
 
     setErrorMessage(null);
@@ -30,29 +32,35 @@ export const LoginView: React.FC = () => {
     const cleanPassword = password.trim();
 
     if (!cleanUsername || !cleanPassword) {
-      setErrorMessage('Please enter both username and password.');
+      setErrorMessage(
+        'Please enter both username and password.'
+      );
       return;
     }
 
     setIsLoading(true);
 
-    /*
-      Keeping a tiny delay for the current local login system.
-
-      Later, when authentication is moved to the Express API,
-      this will become an async TanStack Query mutation.
-    */
-    window.setTimeout(() => {
-      const result = login(cleanUsername, cleanPassword);
+    try {
+      const result = await login(
+        cleanUsername,
+        cleanPassword
+      );
 
       if (!result.success) {
         setErrorMessage(
-          result.message || 'Invalid username or password. Please try again.'
+          result.message ||
+            'Invalid username or password. Please try again.'
         );
       }
-
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'Unable to connect to the pharmacy server.'
+      );
+    } finally {
       setIsLoading(false);
-    }, 250);
+    }
   };
 
   return (
