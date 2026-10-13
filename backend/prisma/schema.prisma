@@ -25,8 +25,8 @@ model Generic {
 // 2. Category Table
 // ==========================================
 model Category {
-  id           Int                          @id @default(autoincrement())
-  name         String                       @unique // A-Z name
+  id           Int                       @id @default(autoincrement())
+  name         String                    @unique // A-Z name
   inventories  Inventory[]
   salesReports CategoryWiseSalesReport[]
 
@@ -39,7 +39,7 @@ model Category {
 model Rack {
   id          Int         @id @default(autoincrement())
   name        String      @unique // A-Z name
-  description String?     // A-Z description
+  description String? // A-Z description
   inventories Inventory[]
 
   @@map("rack_tbl")
@@ -49,39 +49,40 @@ model Rack {
 // 4. Inventory Table
 // ==========================================
 model Inventory {
-  id             Int         @id @default(autoincrement())
-  medicineBrand  String      @map("medicine_brand") // A-Z medicine_brand
-  batchNumber    String      @map("batch_number")   // A-Z batch_number
-  expiryDate     String      @map("expiry_date")    // expiry_date
+  id            Int    @id @default(autoincrement())
+  medicineBrand String @map("medicine_brand") // A-Z medicine_brand
+  batchNumber   String @map("batch_number") // A-Z batch_number
+  expiryDate    String @map("expiry_date") // expiry_date
 
   // Foreign Keys
-  genericId      Int         @map("generic_id")
-  generic        Generic     @relation(fields: [genericId], references: [id], onDelete: Restrict)
+  genericId Int     @map("generic_id")
+  generic   Generic @relation(fields: [genericId], references: [id], onDelete: Restrict)
 
-  categoryId     Int         @map("category_id")
-  category       Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  categoryId Int      @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
-  rackId         Int?        @map("rack_id")
-  rack           Rack?       @relation(fields: [rackId], references: [id], onDelete: SetNull)
+  rackId Int?  @map("rack_id")
+  rack   Rack? @relation(fields: [rackId], references: [id], onDelete: SetNull)
 
   // Quantities
-  unitPerPack    Int         @default(10) @map("unit_per_pack")
-  packInStock    Int         @default(0) @map("pack_in_stock")
-  unitInStock    Int         @default(0) @map("unit_in_stock")
-  packAlertLevel Int         @default(15) @map("pack_alert_level")
+  unitPerPack    Int @default(10) @map("unit_per_pack")
+  packInStock    Int @default(0) @map("pack_in_stock")
+  unitInStock    Int @default(0) @map("unit_in_stock")
+  packAlertLevel Int @default(15) @map("pack_alert_level")
 
   // Pricing
-  costPrice      Decimal     @db.Decimal(10, 2) @map("cost_price")
-  sellingPrice   Decimal     @db.Decimal(10, 2) @map("selling_price")
+  costPrice    Decimal @map("cost_price") @db.Decimal(10, 2)
+  sellingPrice Decimal @map("selling_price") @db.Decimal(10, 2)
 
   // Statutory VAT
-  hasvat         Boolean     @default(false) @map("hasvat")
+  hasvat Boolean @default(false) @map("hasvat")
 
   // Relations
-  billItems      BillItem[]
+  billItems BillItem[]
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
 
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
+  stockAdjustmentLogs StockAdjustmentLog[]
 
   @@index([medicineBrand])
   @@index([genericId])
@@ -108,7 +109,7 @@ model User {
   status      String   @default("active") @map("status")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  bills       Bill[]
+  bills Bill[]
 
   @@map("user_tbl")
 }
@@ -117,30 +118,30 @@ model User {
 // 6. Bill / Invoice Table
 // ==========================================
 model Bill {
-  id                Int        @id @default(autoincrement())
-  invoiceNumber     String     @unique @map("invoice_number")
-  transactionDate   DateTime   @default(now()) @map("transaction_date")
-  customerName      String?    @map("customer_name")
-  customerPhone     String?    @map("customer_phone")
-  customerPan       String?    @map("customer_pan")
-  prescribingDoctor String?    @map("prescribing_doctor")
-  paymentMethod     String     @default("cash") @map("payment_method")
-  paymentStatus     String     @default("paid") @map("payment_status")
+  id                Int      @id @default(autoincrement())
+  invoiceNumber     String   @unique @map("invoice_number")
+  transactionDate   DateTime @default(now()) @map("transaction_date")
+  customerName      String?  @map("customer_name")
+  customerPhone     String?  @map("customer_phone")
+  customerPan       String?  @map("customer_pan")
+  prescribingDoctor String?  @map("prescribing_doctor")
+  paymentMethod     String   @default("cash") @map("payment_method")
+  paymentStatus     String   @default("paid") @map("payment_status")
 
   // Financial amounts
-  subTotal          Decimal    @db.Decimal(12, 2) @map("sub_total")
-  discountAmount    Decimal    @default(0.00) @db.Decimal(12, 2) @map("discount_amount")
-  vatAmount         Decimal    @default(0.00) @db.Decimal(12, 2) @map("vat_amount")
-  grandTotal        Decimal    @db.Decimal(12, 2) @map("grand_total")
-  amountReceived    Decimal    @default(0.00) @db.Decimal(12, 2) @map("amount_received")
-  changeReturned    Decimal    @default(0.00) @db.Decimal(12, 2) @map("change_returned")
+  subTotal       Decimal @map("sub_total") @db.Decimal(12, 2)
+  discountAmount Decimal @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  vatAmount      Decimal @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
+  grandTotal     Decimal @map("grand_total") @db.Decimal(12, 2)
+  amountReceived Decimal @default(0.00) @map("amount_received") @db.Decimal(12, 2)
+  changeReturned Decimal @default(0.00) @map("change_returned") @db.Decimal(12, 2)
 
   // Cashier Foreign Key
-  cashierId         String     @map("cashier_id")
-  cashier           User       @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+  cashierId String @map("cashier_id")
+  cashier   User   @relation(fields: [cashierId], references: [id], onDelete: Restrict)
 
   // Line items
-  items             BillItem[]
+  items BillItem[]
 
   @@index([invoiceNumber])
   @@index([transactionDate])
@@ -152,24 +153,24 @@ model Bill {
 // 7. Bill Line Items Table
 // ==========================================
 model BillItem {
-  id             Int       @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
   // Foreign Keys
-  invoiceId      Int       @map("invoice_id")
-  invoice        Bill      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId Int  @map("invoice_id")
+  invoice   Bill @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
-  inventoryId    Int       @map("inventory_id")
-  inventory      Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+  inventoryId Int       @map("inventory_id")
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
 
   // Quantities sold
-  quantityInPack Int       @default(0) @map("quantity_in_pack")
-  quantityInUnit Int       @default(0) @map("quantity_in_unit")
+  quantityInPack Int @default(0) @map("quantity_in_pack")
+  quantityInUnit Int @default(0) @map("quantity_in_unit")
 
   // Prices
-  packPrice      Decimal   @db.Decimal(10, 2) @map("pack_price")
-  vatitemPrice   Decimal   @default(0.00) @db.Decimal(12, 2) @map("vatitem_price")
-  grossItemPrice Decimal   @db.Decimal(12, 2) @map("gross_item_price")
-  netItemPrice   Decimal   @db.Decimal(12, 2) @map("net_item_price")
+  packPrice      Decimal @map("pack_price") @db.Decimal(10, 2)
+  vatitemPrice   Decimal @default(0.00) @map("vatitem_price") @db.Decimal(12, 2)
+  grossItemPrice Decimal @map("gross_item_price") @db.Decimal(12, 2)
+  netItemPrice   Decimal @map("net_item_price") @db.Decimal(12, 2)
 
   @@index([invoiceId])
   @@index([inventoryId])
@@ -180,20 +181,20 @@ model BillItem {
 // 8. Category Wise Sales Report Table
 // ==========================================
 model CategoryWiseSalesReport {
-  id             Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  categoryId     Int      @map("category_id")
-  category       Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId Int      @map("category_id")
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  medicineCount  Int      @default(0) @map("medicine_count")
-  packetsCount   Int      @default(0) @map("packets_count")
-  unitsCount     Int      @default(0) @map("units_count")
+  medicineCount Int @default(0) @map("medicine_count")
+  packetsCount  Int @default(0) @map("packets_count")
+  unitsCount    Int @default(0) @map("units_count")
 
-  costValuation  Decimal  @default(0.00) @db.Decimal(12, 2) @map("cost_valuation")
-  saleValuation  Decimal  @default(0.00) @db.Decimal(12, 2) @map("sale_valuation")
-  grossMargin    Decimal  @default(0.00) @db.Decimal(12, 2) @map("gross_margin")
+  costValuation Decimal @default(0.00) @map("cost_valuation") @db.Decimal(12, 2)
+  saleValuation Decimal @default(0.00) @map("sale_valuation") @db.Decimal(12, 2)
+  grossMargin   Decimal @default(0.00) @map("gross_margin") @db.Decimal(12, 2)
 
-  createdAt      DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([categoryId])
   @@map("category_wise_sales_report_tbl")
@@ -203,15 +204,15 @@ model CategoryWiseSalesReport {
 // 9. Distributors Table
 // ==========================================
 model Distributor {
-  id             Int      @id @default(autoincrement())
-  name           String   @map("name")
-  pannumber      String?  @map("pannumber")
-  phone          String   @map("phone")
-  address        String?  @map("address")
-  creditLimit    Decimal  @default(0.00) @db.Decimal(12, 2) @map("credit_limit")
-  currentBalance Decimal  @default(0.00) @db.Decimal(12, 2) @map("current_balance")
+  id             Int     @id @default(autoincrement())
+  name           String  @map("name")
+  pannumber      String? @map("pannumber")
+  phone          String  @map("phone")
+  address        String? @map("address")
+  creditLimit    Decimal @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance Decimal @default(0.00) @map("current_balance") @db.Decimal(12, 2)
 
-  ledgers        Ledger[]
+  ledgers Ledger[]
 
   @@map("distributors_tbl")
 }
@@ -220,22 +221,43 @@ model Distributor {
 // 10. Ledger Table
 // ==========================================
 model Ledger {
-  id             Int          @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  distributorId  Int?         @map("distributor_id")
-  distributor    Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+  distributorId Int?         @map("distributor_id")
+  distributor   Distributor? @relation(fields: [distributorId], references: [id], onDelete: SetNull)
 
-  invoiceId      Int?         @map("invoice_id")
-  dateOfCreation DateTime     @default(now()) @map("date_of_creation")
-  description    String?      @map("description")
-  ledgerType     String       @map("ledger_type") // e.g. "purchase", "payment", "return"
-  referenceNo    String?      @map("reference_no")
+  invoiceId      Int?     @map("invoice_id")
+  dateOfCreation DateTime @default(now()) @map("date_of_creation")
+  description    String?  @map("description")
+  ledgerType     String   @map("ledger_type") // e.g. "purchase", "payment", "return"
+  referenceNo    String?  @map("reference_no")
 
-  debitAmount    Decimal      @default(0.00) @db.Decimal(12, 2) @map("debit_amount")
-  creditAmount   Decimal      @default(0.00) @db.Decimal(12, 2) @map("credit_amount")
-  balance        Decimal      @default(0.00) @db.Decimal(12, 2) @map("balance")
+  debitAmount  Decimal @default(0.00) @map("debit_amount") @db.Decimal(12, 2)
+  creditAmount Decimal @default(0.00) @map("credit_amount") @db.Decimal(12, 2)
+  balance      Decimal @default(0.00) @map("balance") @db.Decimal(12, 2)
 
   @@index([distributorId])
   @@index([dateOfCreation])
   @@map("ledger_tbl")
+}
+
+model StockAdjustmentLog {
+  id                 Int      @id @default(autoincrement())
+  medicineId         Int
+  adjustmentType     String
+  previousPacks      Int
+  newPacks           Int
+  variancePacks      Int
+  previousLooseUnits Int
+  newLooseUnits      Int
+  varianceLooseUnits Int
+  reason             String
+  recordedBy         String
+  createdAt          DateTime @default(now())
+
+  medicine Inventory @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+
+  @@index([medicineId])
+  @@index([createdAt])
+  @@map("stock_adjustment_logs_tbl")
 }

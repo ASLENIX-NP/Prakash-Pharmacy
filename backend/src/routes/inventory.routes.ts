@@ -1,3 +1,4 @@
+import { adjustInventoryStock, getInventoryAdjustmentLogs } from "../controllers/inventoryAdjustment.controller.js";
 ﻿import { Router } from "express";
 import {
   getAllInventory,
@@ -56,6 +57,19 @@ router.get(
   "/",
   requireAuth,
   getAllInventory
+);
+
+
+router.get(
+  "/:id/adjustments",
+  requireAuth,
+  getInventoryAdjustmentLogs
+);
+
+router.post(
+  "/:id/adjust",
+  requireAuth,
+  adjustInventoryStock
 );
 
 router.get(
