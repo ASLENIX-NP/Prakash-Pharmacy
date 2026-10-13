@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiRequest } from '../services/api';
 import {
   Medicine,
   StockAdjustmentLog,
@@ -27,7 +28,7 @@ import {
 interface PharmacyContextType {
   // Authentication & Credentials
   isAuthenticated: boolean;
-  login: (username: string, password: string) => { success: boolean; message?: string };
+  login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   isAdmin: boolean;
   changeStaffPassword: (userId: string, newPassword: string) => { success: boolean; message: string };
@@ -323,80 +324,195 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
 
+
+  // ==========================================================
+  // LIVE BACKEND DATA LOADER
+  // ==========================================================
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadBackendData = async () => {
+
+      // ------------------------------------------------------
+      // INVENTORY
+      // ------------------------------------------------------
+      try {
+        const res = await apiRequest<{ data: any[] }>(
+          '/inventory?limit=all'
+        );
+
+        if (!cancelled) {
+          const liveMedicines: Medicine[] = res.data.map(
+            (item: any) => ({
+              ...item,
+
+              // Backend already provides frontend aliases.
+              // Supplier is not yet part of backend inventory DTO.
+              supplierId: item.supplierId || '',
+              supplierName: item.supplierName || ''
+            })
+          );
+
+          setMedicines(liveMedicines);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching live inventory:',
+          error
+        );
+      }
+
+
+      // ------------------------------------------------------
+      // RACKS
+      // ------------------------------------------------------
+      try {
+        const res = await apiRequest<{ data: any[] }>(
+          '/racks'
+        );
+
+        if (!cancelled) {
+          const liveRacks: RackLocation[] = res.data.map(
+            (rack: any) => ({
+              id: rack.id,
+              name: rack.name,
+              description: rack.description || '',
+              createdAt:
+                rack.createdAt ||
+                new Date().toISOString()
+            })
+          );
+
+          setRacks(liveRacks);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching live racks:',
+          error
+        );
+      }
+
+
+      // ------------------------------------------------------
+      // STAFF ? ADMIN ONLY
+      // ------------------------------------------------------
+      if (isAdmin) {
+        try {
+          const res = await apiRequest<{
+            users: any[];
+          }>('/auth/users');
+
+          if (!cancelled) {
+            const liveUsers: PharmacyUser[] =
+              res.users.map((user: any) => ({
+                ...user,
+
+                // Password is intentionally never returned
+                // by the backend.
+                password: ''
+              }));
+
+            setUsers(liveUsers);
+          }
+        } catch (error) {
+          console.error(
+            'Error fetching live staff:',
+            error
+          );
+        }
+      }
+    };
+
+    void loadBackendData();
+
+    return () => {
+      cancelled = true;
+    };
+
+  }, [isAuthenticated, isAdmin]);
+
   // Auth methods
   const resetDefaultCredentials = () => {
     setUsers(initialUsers);
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(initialUsers));
   };
 
-  const login = (username: string, password: string) => {
-    const trimmedU = username.trim().toLowerCase();
-    const trimmedP = password.trim();
+  const login = async (username: string, password: string) => {
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        token: string;
+        user: PharmacyUser;
+        message?: string;
+      }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: username.trim(),
+          password
+        }),
+      });
 
-    // Flexible identifier check: username, id (usr-1), email, full name, or phone number
-    let matched = users.find(u => {
-      const matchUsername = u.username && u.username.toLowerCase() === trimmedU;
-      const matchId = u.id && u.id.toLowerCase() === trimmedU;
-      const matchEmail = u.email && u.email.toLowerCase() === trimmedU;
-      const matchName = u.name && u.name.toLowerCase().includes(trimmedU);
-      const cleanPhone = (u.phone || '').replace(/[^0-9]/g, '');
-      const cleanInput = trimmedU.replace(/[^0-9]/g, '');
-      const matchPhone = cleanPhone && cleanInput && cleanPhone.includes(cleanInput);
-
-      return matchUsername || matchId || matchEmail || matchName || matchPhone;
-    });
-
-    // Fallback: if not found in current users list, check initialUsers in case storage was cleared or out of sync
-    if (!matched) {
-      const fallbackInit = initialUsers.find(
-        init => init.username.toLowerCase() === trimmedU ||
-                init.id.toLowerCase() === trimmedU ||
-                (init.email && init.email.toLowerCase() === trimmedU)
-      );
-      if (fallbackInit) {
-        matched = fallbackInit;
-        setUsers(prev => [...prev.filter(u => u.id !== fallbackInit.id), fallbackInit]);
+      if (!res.success || !res.token || !res.user) {
+        return {
+          success: false,
+          message: res.message || 'Invalid credentials'
+        };
       }
-    }
 
-    if (!matched) {
-      return { 
-        success: false, 
-        message: 'Invalid User ID / Username! Please use "admin" or "suman.staff" (or your email/phone).' 
+      // Backend never sends password hashes/plain passwords.
+      // Keep frontend type compatible without storing the real password.
+      const liveUser: PharmacyUser = {
+        ...res.user,
+        password: res.user.password || ''
+      };
+
+      localStorage.setItem('prakash_auth_token', res.token);
+
+      // Keep current frontend user model working.
+      setUsers(prev => {
+        const exists = prev.some(user => user.id === liveUser.id);
+
+        if (exists) {
+          return prev.map(user =>
+            user.id === liveUser.id
+              ? { ...user, ...liveUser }
+              : user
+          );
+        }
+
+        return [...prev, liveUser];
+      });
+
+      setCurrentUserId(liveUser.id);
+
+      localStorage.setItem(
+        STORAGE_KEYS.CURRENT_USER_ID,
+        liveUser.id
+      );
+
+      setIsAuthenticated(true);
+
+      return { success: true };
+
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : 'Unable to connect to the pharmacy server';
+
+      return {
+        success: false,
+        message
       };
     }
-
-    if (!matched.isActive) {
-      return { success: false, message: 'This staff account has been deactivated. Please contact Admin.' };
-    }
-
-    // Flexible password check: current password, PIN code (e.g. 1234), or admin/staff fallback
-    const isPasswordCorrect = 
-      matched.password === trimmedP ||
-      (matched.pinCode && matched.pinCode === trimmedP) ||
-      (matched.role === 'Admin' && (trimmedP === 'admin123' || trimmedP === 'admin' || trimmedP === '1234')) ||
-      (matched.role === 'Staff' && (trimmedP === 'staff123' || trimmedP === 'staff'));
-
-    if (!isPasswordCorrect) {
-      return { 
-        success: false, 
-        message: 'Incorrect password! For Admin use "admin123" (or PIN 1234), for Staff use "staff123".' 
-      };
-    }
-
-    // Ensure password is saved if it was missing in cached state
-    const validPassword = matched.password || trimmedP;
-
-    setCurrentUserId(matched.id);
-    setIsAuthenticated(true);
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, matched.id);
-    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
-
-    setUsers(prev => prev.map(u => u.id === matched!.id ? { ...u, password: validPassword, lastLoginAt: new Date().toISOString() } : u));
-    return { success: true };
   };
 
   const logout = () => {
+    localStorage.removeItem('prakash_auth_token');
     setIsAuthenticated(false);
     localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
   };
