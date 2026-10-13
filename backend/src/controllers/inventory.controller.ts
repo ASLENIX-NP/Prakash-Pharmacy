@@ -9,9 +9,233 @@ import {
 } from "../utils/id.helpers.js";
 
 // Helper to format inventory database record into rich response
+
+// ============================================================
+// CASE-INSENSITIVE MEDICINE + BATCH DUPLICATE CHECK
+// ============================================================
+
+const normalizeInventoryDuplicateKey = (
+  value: unknown
+): string => {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+};
+
+
+const findDuplicateMedicineBatchSafe = async (
+  medicineBrand: string,
+  batchNumber: string,
+  excludeId?: number
+) => {
+
+  const targetBrand =
+    normalizeInventoryDuplicateKey(
+      medicineBrand
+    );
+
+  const targetBatch =
+    normalizeInventoryDuplicateKey(
+      batchNumber
+    );
+
+  const inventory =
+    await prisma.inventory.findMany({
+      select: {
+        id: true,
+        medicineBrand: true,
+        batchNumber: true,
+      },
+    });
+
+  return (
+    inventory.find((item) => {
+
+      if (
+        excludeId !== undefined &&
+        item.id === excludeId
+      ) {
+        return false;
+      }
+
+      const sameBrand =
+        normalizeInventoryDuplicateKey(
+          item.medicineBrand
+        ) === targetBrand;
+
+      const sameBatch =
+        normalizeInventoryDuplicateKey(
+          item.batchNumber
+        ) === targetBatch;
+
+      return sameBrand && sameBatch;
+
+    }) ?? null
+  );
+};
+
+
+
+type DistributorResolution = {
+  provided: boolean;
+  id: number | null;
+  name: string;
+  error?: string;
+};
+
+
+const resolveInventoryDistributor = async (
+  body: any
+): Promise<DistributorResolution> => {
+
+  const rawId =
+    body.distributorId ??
+    body.supplierId;
+
+  const supplierName =
+    String(
+      body.supplierName ??
+      body.distributorName ??
+      ""
+    ).trim();
+
+
+  // Explicit blank/null means clear relation.
+  if (
+    rawId === null ||
+    rawId === ""
+  ) {
+    return {
+      provided: true,
+      id: null,
+      name: "",
+    };
+  }
+
+
+  // Resolve by ID.
+  if (rawId !== undefined) {
+
+    const match =
+      String(rawId)
+        .trim()
+        .match(/(\d+)$/);
+
+    const numericPart =
+      match?.[1];
+
+    if (!numericPart) {
+      return {
+        provided: true,
+        id: null,
+        name: "",
+        error:
+          "Invalid distributor/supplier ID.",
+      };
+    }
+
+    const id =
+      Number.parseInt(
+        numericPart,
+        10
+      );
+
+    const distributor =
+      await prisma.distributor.findUnique({
+        where: {
+          id,
+        },
+      });
+
+    if (!distributor) {
+      return {
+        provided: true,
+        id: null,
+        name: "",
+        error:
+          `Distributor with ID ${id} not found.`,
+      };
+    }
+
+    return {
+      provided: true,
+      id:
+        distributor.id,
+      name:
+        distributor.name,
+    };
+  }
+
+
+  // Resolve by supplier/distributor name.
+  if (supplierName) {
+
+    const distributor =
+      await prisma.distributor.findFirst({
+        where: {
+          name: {
+            equals:
+              supplierName,
+
+            mode:
+              "insensitive",
+          },
+        },
+      });
+
+    if (!distributor) {
+      return {
+        provided: true,
+        id: null,
+        name:
+          supplierName,
+        error:
+          `Distributor '${supplierName}' not found.`,
+      };
+    }
+
+    return {
+      provided: true,
+      id:
+        distributor.id,
+      name:
+        distributor.name,
+    };
+  }
+
+
+  return {
+    provided: false,
+    id: null,
+    name: "",
+  };
+};
+
+
 export const formatInventoryItem = (inv: any) => {
   const medicineCode = formatMedicineCode(inv.id);
   return {
+
+    distributorId:
+      inv.distributorId ?? null,
+
+    supplierId:
+      inv.distributorId
+        ? String(inv.distributorId)
+        : "",
+
+    distributorName:
+      inv.distributor?.name ?? "",
+
+    supplierName:
+      inv.distributor?.name ?? "",
+
+    barcode:
+      inv.barcode ?? "",
+
+    notes:
+      inv.notes ?? "",
+
     id: medicineCode, // Formatted ID e.g. "MED-001"
     medicineCode,
     medicineBrand: inv.medicineBrand,
@@ -38,7 +262,9 @@ export const formatInventoryItem = (inv: any) => {
         }
       : null,
     rackLocation: inv.rack ? inv.rack.name : "Unassigned",
-    batchNumber: inv.batchNumber,
+
+
+batchNumber: inv.batchNumber,
     expiryDate: inv.expiryDate,
     unitPerPack: inv.unitPerPack,
     unitsPerPack: inv.unitPerPack, // Frontend compatibility alias
@@ -143,7 +369,8 @@ export const getAllInventory = async (req: Request, res: Response): Promise<void
           generic: true,
           category: true,
           rack: true,
-        },
+        
+        distributor: true,},
         orderBy,
         skip: isAll || isLowStockRequested ? undefined : (parsedPage - 1) * (parsedLimit || 50),
         take: isAll || isLowStockRequested ? undefined : parsedLimit,
@@ -201,7 +428,8 @@ export const getInventoryById = async (req: Request, res: Response): Promise<voi
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     if (!item) {
@@ -285,6 +513,69 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       });
       return;
     }
+
+    
+    // ========================================================
+    // DUPLICATE MEDICINE + BATCH PROTECTION
+    //
+    // Brand + batch identifies one physical medicine batch.
+    // Comparison is case-insensitive and trimmed.
+    // ========================================================
+
+    const duplicateMedicineOnCreate =
+      await findDuplicateMedicineBatchSafe(
+        brand,
+        batch
+      );
+
+    if (duplicateMedicineOnCreate) {
+      res.status(409).json({
+        success: false,
+        message:
+          `Medicine '${brand}' with batch '${batch}' already exists as ${formatMedicineCode(duplicateMedicineOnCreate.id)}. Update the existing record or use bulk import merge.`,
+      });
+      return;
+    }
+
+
+    
+    const distributorResolutionOnCreate =
+      await resolveInventoryDistributor(
+        req.body
+      );
+
+    if (
+      distributorResolutionOnCreate.error
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          distributorResolutionOnCreate.error,
+      });
+      return;
+    }
+
+    const finalDistributorId =
+      distributorResolutionOnCreate.provided
+        ? distributorResolutionOnCreate.id
+        : null;
+
+    const normalizedBarcode =
+      req.body.barcode === undefined ||
+      req.body.barcode === null
+        ? null
+        : String(
+            req.body.barcode
+          ).trim() || null;
+
+    const normalizedNotes =
+      req.body.notes === undefined ||
+      req.body.notes === null
+        ? null
+        : String(
+            req.body.notes
+          ).trim() || null;
+
 
     // 1. Resolve Generic ID
     let finalGenericId: number;
@@ -373,6 +664,16 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         genericId: finalGenericId,
         categoryId: finalCategoryId,
         rackId: finalRackId,
+        
+        distributorId:
+          finalDistributorId,
+
+        barcode:
+          normalizedBarcode,
+
+        notes:
+          normalizedNotes,
+
         unitPerPack: Math.max(1, finalUnitPerPack),
         packInStock: Math.max(0, finalPackInStock),
         unitInStock: Math.max(0, finalUnitInStock),
@@ -385,7 +686,8 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     res.status(201).json({
@@ -553,6 +855,89 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       updateData.hasvat = Boolean(hasvat ?? isVatApplicable);
     }
 
+
+    const candidateBrandForDuplicateCheck =
+      String(
+        updateData.medicineBrand ??
+        existing.medicineBrand
+      ).trim();
+
+    const candidateBatchForDuplicateCheck =
+      String(
+        updateData.batchNumber ??
+        existing.batchNumber
+      ).trim();
+
+    const duplicateAfterUpdate =
+      await findDuplicateMedicineBatchSafe(
+        candidateBrandForDuplicateCheck,
+        candidateBatchForDuplicateCheck,
+        id
+      );
+
+    if (duplicateAfterUpdate) {
+      res.status(409).json({
+        success: false,
+        message:
+          `Another inventory record already uses medicine '${candidateBrandForDuplicateCheck}' with batch '${candidateBatchForDuplicateCheck}' (${formatMedicineCode(duplicateAfterUpdate.id)}).`,
+      });
+      return;
+    }
+
+
+    
+    const distributorResolutionOnUpdate =
+      await resolveInventoryDistributor(
+        req.body
+      );
+
+    if (
+      distributorResolutionOnUpdate.error
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          distributorResolutionOnUpdate.error,
+      });
+      return;
+    }
+
+    if (
+      distributorResolutionOnUpdate.provided
+    ) {
+      updateData.distributorId =
+        distributorResolutionOnUpdate.id;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        req.body,
+        "barcode"
+      )
+    ) {
+      updateData.barcode =
+        req.body.barcode === null
+          ? null
+          : String(
+              req.body.barcode
+            ).trim() || null;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        req.body,
+        "notes"
+      )
+    ) {
+      updateData.notes =
+        req.body.notes === null
+          ? null
+          : String(
+              req.body.notes
+            ).trim() || null;
+    }
+
+
     const updated = await prisma.inventory.update({
       where: { id },
       data: updateData,
@@ -560,7 +945,8 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      },
+      
+        distributor: true,},
     });
 
     res.status(200).json({
@@ -652,8 +1038,8 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
     });
 
     const now = new Date();
-    const threeMonthsAhead = new Date();
-    threeMonthsAhead.setMonth(now.getMonth() + 3);
+    const sixMonthsAhead = new Date();
+    sixMonthsAhead.setMonth(now.getMonth() + 6);
 
     let totalPacks = 0;
     let totalLoose = 0;
@@ -683,15 +1069,101 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
         if (!isNaN(expDate.getTime())) {
           if (expDate <= now) {
             expiredCount++;
-          } else if (expDate <= threeMonthsAhead) {
+          } else if (expDate <= sixMonthsAhead) {
             nearExpiryCount++;
           }
         }
       }
 
       // Valuations
-      totalCostValuation += packs * cost;
-      totalRetailValuation += packs * selling;
+      const loosePackEquivalent =
+        item.unitPerPack > 0
+          ? loose / item.unitPerPack
+          : 0;
+
+const isValidInventoryDate = (
+  value: string
+): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const parsed = new Date(
+    value + 'T00:00:00'
+  );
+
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
+
+  return (
+    parsed.toISOString().slice(0, 10) === value
+  );
+}
+
+const normalizeInventoryKey = (
+  value: unknown
+): string =>
+  String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+
+const findDuplicateMedicineBatch = async (
+  medicineBrand: string,
+  batchNumber: string,
+  excludeId?: number
+) => {
+  const targetBrand =
+    normalizeInventoryKey(
+      medicineBrand
+    );
+
+  const targetBatch =
+    normalizeInventoryKey(
+      batchNumber
+    );
+
+  const records =
+    await prisma.inventory.findMany({
+      select: {
+        id: true,
+        medicineBrand: true,
+        batchNumber: true,
+      },
+    });
+
+  return (
+    records.find((item) => {
+      if (
+        excludeId !== undefined &&
+        item.id === excludeId
+      ) {
+        return false;
+      }
+
+      return (
+        normalizeInventoryKey(
+          item.medicineBrand
+        ) === targetBrand &&
+        normalizeInventoryKey(
+          item.batchNumber
+        ) === targetBatch
+      );
+    }) ?? null
+  );
+};
+;
+
+
+      const effectivePacks =
+        packs + loosePackEquivalent;
+
+      totalCostValuation +=
+        effectivePacks * cost;
+
+      totalRetailValuation +=
+        effectivePacks * selling;
     }
 
     res.status(200).json({
