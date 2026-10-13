@@ -44,8 +44,8 @@ interface PharmacyContextType {
 
   // Racks Management (Admin can Add or Deduce)
   racks: RackLocation[];
-  addRack: (name: string, description?: string) => { success: boolean; message: string };
-  deduceRack: (rackId: string) => { success: boolean; message: string };
+  addRack: (name: string, description?: string) => Promise<{ success: boolean; message: string }>;
+  deduceRack: (rackId: string) => Promise<{ success: boolean; message: string }>;
 
   // Medicines & Inventory
   medicines: Medicine[];
@@ -549,55 +549,394 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // Racks management (Admin can Add or Deduce)
-  const addRack = (name: string, description?: string) => {
+  const addRack = async (
+    name: string,
+    description?: string
+  ): Promise<{ success: boolean; message: string }> => {
+
     if (!isAdmin) {
-      return { success: false, message: 'Only Admin can add new inventory racks!' };
+      return {
+        success: false,
+        message:
+          'Only Admin can add new inventory racks!'
+      };
     }
-    const cleanName = name.trim();
+
+    const cleanName =
+      name.trim();
+
     if (!cleanName) {
-      return { success: false, message: 'Rack name cannot be empty!' };
+      return {
+        success: false,
+        message:
+          'Rack name cannot be empty!'
+      };
     }
 
-    const exists = racks.some(r => r.name.toLowerCase() === cleanName.toLowerCase());
+    const exists =
+      racks.some(
+        rack =>
+          rack.name
+            .toLowerCase() ===
+          cleanName.toLowerCase()
+      );
+
     if (exists) {
-      return { success: false, message: `Rack "${cleanName}" already exists!` };
+      return {
+        success: false,
+        message:
+          `Rack "${cleanName}" already exists!`
+      };
     }
 
-    const newRack: RackLocation = {
-      id: `rck-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      name: cleanName,
-      description: description?.trim() || `Shelf storage rack`,
-      createdAt: new Date().toISOString()
-    };
+    try {
 
-    setRacks(prev => [...prev, newRack]);
-    return { success: true, message: `Rack "${cleanName}" added to inventory successfully!` };
-  };
+      const res =
+        await apiRequest<{
+          success: boolean;
+          message?: string;
+          data: {
+            id: string;
+            rackCode?: string;
+            name: string;
+            description?: string;
+            itemCount?: number;
+            createdAt?: string;
+          };
+        }>('/racks', {
+          method: 'POST',
 
-  const deduceRack = (rackId: string) => {
-    if (!isAdmin) {
-      return { success: false, message: 'Only Admin can deduce/remove inventory racks!' };
-    }
+          body: JSON.stringify({
+            name:
+              cleanName,
 
-    const targetRack = racks.find(r => r.id === rackId);
-    if (!targetRack) {
-      return { success: false, message: 'Rack not found!' };
-    }
+            description:
+              description?.trim() ||
+              'Shelf storage rack'
+          })
+        });
 
-    // Check if any medicines are currently located in this rack
-    const medicinesInRack = medicines.filter(m => m.rackLocation.toLowerCase() === targetRack.name.toLowerCase());
-    if (medicinesInRack.length > 0) {
-      medicinesInRack.forEach(m => {
-        updateMedicine(m.id, { rackLocation: 'General Shelf' });
+
+      const createdRack: RackLocation = {
+        id:
+          res.data.id,
+
+        name:
+          res.data.name,
+
+        description:
+          res.data.description ||
+          '',
+
+        createdAt:
+          res.data.createdAt ||
+          new Date().toISOString()
+      };
+
+
+      setRacks(prev => {
+
+        const withoutDuplicate =
+          prev.filter(
+            rack =>
+              rack.id !==
+                createdRack.id &&
+              rack.name
+                .toLowerCase() !==
+                createdRack.name
+                  .toLowerCase()
+          );
+
+        return [
+          ...withoutDuplicate,
+          createdRack
+        ];
       });
+
+
+      return {
+        success: true,
+
+        message:
+          res.message ||
+          `Rack "${cleanName}" added to inventory successfully!`
+      };
+
+    } catch (error) {
+
+      console.error(
+        'Error creating rack:',
+        error
+      );
+
+      return {
+        success: false,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to create rack.'
+      };
+    }
+  };
+
+
+  const deduceRack = async (
+    rackId: string
+  ): Promise<{ success: boolean; message: string }> => {
+
+    if (!isAdmin) {
+      return {
+        success: false,
+        message:
+          'Only Admin can deduce/remove inventory racks!'
+      };
     }
 
-    setRacks(prev => prev.filter(r => r.id !== rackId));
-    return { 
-      success: true, 
-      message: `Rack "${targetRack.name}" deduced from inventory. (${medicinesInRack.length} items moved to General Shelf).` 
-    };
+
+    const targetRack =
+      racks.find(
+        rack =>
+          rack.id === rackId
+      );
+
+
+    if (!targetRack) {
+      return {
+        success: false,
+        message:
+          'Rack not found!'
+      };
+    }
+
+
+    // General Shelf is our persistent fallback location.
+    if (
+      targetRack.name
+        .trim()
+        .toLowerCase() ===
+      'general shelf'
+    ) {
+      return {
+        success: false,
+        message:
+          'General Shelf is the default fallback rack and cannot be removed.'
+      };
+    }
+
+
+    const medicinesInRack =
+      medicines.filter(
+        medicine =>
+          medicine.rackLocation
+            .toLowerCase() ===
+          targetRack.name
+            .toLowerCase()
+      );
+
+
+    try {
+
+      // ------------------------------------------------------
+      // Ensure General Shelf exists in PostgreSQL.
+      // ------------------------------------------------------
+
+      let generalShelf =
+        racks.find(
+          rack =>
+            rack.name
+              .trim()
+              .toLowerCase() ===
+            'general shelf'
+        );
+
+
+      if (
+        medicinesInRack.length > 0 &&
+        !generalShelf
+      ) {
+
+        const shelfResponse =
+          await apiRequest<{
+            success: boolean;
+            message?: string;
+            data: {
+              id: string;
+              rackCode?: string;
+              name: string;
+              description?: string;
+              createdAt?: string;
+            };
+          }>('/racks', {
+            method:
+              'POST',
+
+            body:
+              JSON.stringify({
+                name:
+                  'General Shelf',
+
+                description:
+                  'Default inventory shelf for unassigned medicines'
+              })
+          });
+
+
+        generalShelf = {
+          id:
+            shelfResponse.data.id,
+
+          name:
+            shelfResponse.data.name,
+
+          description:
+            shelfResponse.data.description ||
+            'Default inventory shelf for unassigned medicines',
+
+          createdAt:
+            shelfResponse.data.createdAt ||
+            new Date().toISOString()
+        };
+
+
+        const newGeneralShelf =
+          generalShelf;
+
+
+        setRacks(prev => {
+
+          const alreadyExists =
+            prev.some(
+              rack =>
+                rack.id ===
+                  newGeneralShelf.id ||
+                rack.name
+                  .trim()
+                  .toLowerCase() ===
+                  'general shelf'
+            );
+
+          return alreadyExists
+            ? prev
+            : [
+                ...prev,
+                newGeneralShelf
+              ];
+        });
+      }
+
+
+      // ------------------------------------------------------
+      // Persist every affected medicine to General Shelf
+      // BEFORE deleting its previous rack.
+      //
+      // This preserves existing pharmacy business logic and
+      // avoids backend onDelete:SetNull changing them to
+      // unassigned.
+      // ------------------------------------------------------
+
+      for (
+        const medicine of
+        medicinesInRack
+      ) {
+
+        await apiRequest<{
+          success: boolean;
+          message?: string;
+          data: Medicine;
+        }>(
+          `/inventory/${encodeURIComponent(
+            medicine.id
+          )}`,
+          {
+            method:
+              'PUT',
+
+            body:
+              JSON.stringify({
+                rackLocation:
+                  'General Shelf'
+              })
+          }
+        );
+
+
+        // Update local state only after PostgreSQL succeeds.
+        setMedicines(prev =>
+          prev.map(item =>
+            item.id ===
+            medicine.id
+              ? {
+                  ...item,
+                  rackLocation:
+                    'General Shelf'
+                }
+              : item
+          )
+        );
+      }
+
+
+      // ------------------------------------------------------
+      // Delete the old rack from PostgreSQL.
+      // ------------------------------------------------------
+
+      const deleteResponse =
+        await apiRequest<{
+          success: boolean;
+          message?: string;
+        }>(
+          `/racks/${encodeURIComponent(
+            rackId
+          )}`,
+          {
+            method:
+              'DELETE'
+          }
+        );
+
+
+      // Remove rack locally only after backend confirms delete.
+      setRacks(prev =>
+        prev.filter(
+          rack =>
+            rack.id !==
+            rackId
+        )
+      );
+
+
+      return {
+        success: true,
+
+        message:
+          medicinesInRack.length > 0
+            ? `Rack "${targetRack.name}" removed successfully. (${medicinesInRack.length} items moved to General Shelf).`
+            : (
+                deleteResponse.message ||
+                `Rack "${targetRack.name}" removed successfully.`
+              )
+      };
+
+    } catch (error) {
+
+      console.error(
+        'Error removing rack:',
+        error
+      );
+
+
+      return {
+        success: false,
+
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to remove rack.'
+      };
+    }
   };
+
 
   // User actions
   const setCurrentUser = (user: PharmacyUser) => {

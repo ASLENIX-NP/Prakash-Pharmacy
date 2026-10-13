@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
+import { ForgotPasswordView } from './ForgotPasswordView';
 
 export const LoginView: React.FC = () => {
   const { login, settings } = usePharmacy();
@@ -20,6 +21,7 @@ export const LoginView: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>
@@ -62,6 +64,15 @@ export const LoginView: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (showForgotPassword) {
+    return (
+      <ForgotPasswordView
+        onBackToLogin={() => setShowForgotPassword(false)}
+        initialEmail=""
+      />
+    );
+  }
 
   return (
     <main className="relative min-h-[100svh] overflow-hidden bg-[#f3fbfc] font-sans text-slate-900">
@@ -365,6 +376,20 @@ export const LoginView: React.FC = () => {
                   )}
                 </button>
               </div>
+            </div>
+
+            {/* Forgot password section with admin note */}
+            <div className="flex flex-col items-end gap-1 -mt-1 mb-2">
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(true)}
+                className="text-[13px] font-bold text-teal-700 transition hover:text-teal-800 hover:underline focus:outline-none"
+              >
+                Forgot password? (Admin only)
+              </button>
+              <p className="text-[11.5px] leading-tight text-slate-500 text-right">
+                <span className="font-semibold text-slate-700">Note:</span> Staff accounts must contact the administrator for password resets.
+              </p>
             </div>
 
             {/* Login button */}
