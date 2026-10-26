@@ -33,6 +33,7 @@ export interface Medicine {
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
   barcode?: string;
   notes?: string;
+  providedFields?: Record<string, boolean>;
 }
 
 export type AuditAdjustmentType = 'reconcile' | 'add' | 'deduce';

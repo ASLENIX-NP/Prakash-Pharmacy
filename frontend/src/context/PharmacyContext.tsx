@@ -52,7 +52,26 @@ interface PharmacyContextType {
   addMedicine: (medicine: Omit<Medicine, 'id'>) => Medicine;
   updateMedicine: (id: string, updates: Partial<Medicine>) => void;
   deleteMedicine: (id: string) => void;
-  bulkImportMedicines: (newMedicines: Medicine[]) => void;
+  bulkImportMedicines: (
+    newMedicines: Medicine[],
+    mode?: 'merge' | 'replace' | 'skip'
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    summary?: {
+      received: number;
+      created: number;
+      updated: number;
+      skipped: number;
+      errors: number;
+    };
+    data?: {
+      created: any[];
+      updated: any[];
+      skipped: any[];
+      errors: any[];
+    };
+  }>;
 
   // Physical Stock Count & Audits
   stockAdjustments: StockAdjustmentLog[];
@@ -183,8 +202,9 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
+      const token = localStorage.getItem('prakash_auth_token');
       const session = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
-      return session === 'true';
+      return Boolean(token && session === 'true');
     } catch {
       return false;
     }
@@ -513,6 +533,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         liveUser.id
       );
 
+      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
       setIsAuthenticated(true);
 
       return { success: true };
@@ -1314,32 +1335,51 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       });
   };
 
-  const bulkImportMedicines = (newMeds: Medicine[]) => {
-    setMedicines(prev => {
-      // Merge or append: if same name + batch exists, update it, otherwise prepend
-      const updatedList = [...prev];
-      newMeds.forEach(imported => {
-        const existingIdx = updatedList.findIndex(
-          m => m.name.toLowerCase() === imported.name.toLowerCase() && 
-               m.batchNumber.toLowerCase() === imported.batchNumber.toLowerCase()
-        );
-        if (existingIdx >= 0) {
-          updatedList[existingIdx] = {
-            ...updatedList[existingIdx],
-            stockPacks: updatedList[existingIdx].stockPacks + imported.stockPacks,
-            stockLooseUnits: updatedList[existingIdx].stockLooseUnits + imported.stockLooseUnits,
-            costPrice: imported.costPrice || updatedList[existingIdx].costPrice,
-            mrpPrice: imported.mrpPrice || updatedList[existingIdx].mrpPrice,
-            expiryDate: imported.expiryDate || updatedList[existingIdx].expiryDate,
-            rackLocation: imported.rackLocation || updatedList[existingIdx].rackLocation,
-            isVatApplicable: imported.isVatApplicable
-          };
-        } else {
-          updatedList.unshift(imported);
-        }
-      });
-      return updatedList;
+  const bulkImportMedicines = async (
+    newMeds: Medicine[],
+    mode: 'merge' | 'replace' | 'skip' = 'merge'
+  ) => {
+    const res = await apiRequest<{
+      success: boolean;
+      message: string;
+      mode: string;
+      summary: {
+        received: number;
+        created: number;
+        updated: number;
+        skipped: number;
+        errors: number;
+      };
+      data: {
+        created: any[];
+        updated: any[];
+        skipped: any[];
+        errors: any[];
+      };
+    }>('/inventory/bulk', {
+      method: 'POST',
+      body: JSON.stringify({
+        mode,
+        items: newMeds,
+      }),
     });
+
+    // Re-fetch fresh live inventory from PostgreSQL
+    try {
+      const invRes = await apiRequest<{ data: any[] }>('/inventory?limit=all');
+      if (Array.isArray(invRes.data)) {
+        const liveMedicines: Medicine[] = invRes.data.map((item: any) => ({
+          ...item,
+          supplierId: item.supplierId || '',
+          supplierName: item.supplierName || '',
+        }));
+        setMedicines(liveMedicines);
+      }
+    } catch (fetchErr) {
+      console.error('Failed to reload inventory after bulk import:', fetchErr);
+    }
+
+    return res;
   };
 
   // Physical Stock Count & Audits (Reconcile / Add / Deduce)

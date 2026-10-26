@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { formatInventoryItem } from "./inventory.controller.js";
 
@@ -93,20 +93,33 @@ async function resolveGeneric(item: AnyRecord): Promise<number> {
     }
   }
 
-  const genericName = cleanString(
+  const rawGeneric = cleanString(
     item.genericName ??
     item.generic?.name ??
     item.generic
   );
 
-  if (!genericName) {
-    throw new Error("Generic Salt / Molecule is required.");
+  const brand = cleanString(item.medicineBrand ?? item.name);
+
+  // If generic is not provided, empty, or literally the brand name, link to canonical "Unassigned" generic
+  if (
+    !rawGeneric ||
+    rawGeneric.toLowerCase() === "unassigned" ||
+    rawGeneric.toLowerCase() === "null" ||
+    (brand && rawGeneric.toLowerCase() === brand.toLowerCase())
+  ) {
+    const unassigned = await prisma.generic.upsert({
+      where: { name: "Unassigned" },
+      update: {},
+      create: { name: "Unassigned" },
+    });
+    return unassigned.id;
   }
 
   const generic = await prisma.generic.upsert({
-    where: { name: genericName },
+    where: { name: rawGeneric },
     update: {},
-    create: { name: genericName },
+    create: { name: rawGeneric },
   });
 
   return generic.id;
@@ -366,12 +379,8 @@ export const bulkImportInventory = async (
         item.name
       );
 
-      const batchNumber = cleanString(
+      const rawBatch = cleanString(
         item.batchNumber
-      );
-
-      const expiryDate = cleanString(
-        item.expiryDate
       );
 
       try {
@@ -381,83 +390,82 @@ export const bulkImportInventory = async (
           );
         }
 
-        if (!batchNumber) {
-          throw new Error(
-            "Batch Number is required."
-          );
-        }
+        const provided =
+          typeof item.providedFields === "object" && item.providedFields !== null
+            ? item.providedFields
+            : null;
 
-        if (!expiryDate) {
-          throw new Error(
-            "Expiry Date is required."
-          );
-        }
+        const hasBatch = provided
+          ? Boolean(provided.batchNumber)
+          : Boolean(rawBatch);
 
-        const genericId =
-          await resolveGeneric(item);
+        const hasExpiry = provided
+          ? Boolean(provided.expiryDate)
+          : Boolean(cleanString(item.expiryDate));
 
-        const categoryId =
-          await resolveCategory(item);
+        const hasCostPrice = provided
+          ? Boolean(provided.costPrice)
+          : (item.costPrice !== undefined && item.costPrice !== null && item.costPrice !== "");
 
-        const rackId =
-          await resolveRack(item);
+        const hasSellingPrice = provided
+          ? Boolean(provided.mrpPrice ?? provided.sellingPrice)
+          : ((item.sellingPrice ?? item.mrpPrice) !== undefined &&
+             (item.sellingPrice ?? item.mrpPrice) !== null &&
+             (item.sellingPrice ?? item.mrpPrice) !== "");
 
-        const unitPerPack = toInt(
-          item.unitPerPack ??
-          item.unitsPerPack,
-          10,
-          1
-        );
+        const hasStockPacks = provided
+          ? Boolean(provided.stockPacks ?? provided.packInStock)
+          : ((item.packInStock ?? item.stockPacks) !== undefined &&
+             (item.packInStock ?? item.stockPacks) !== null &&
+             (item.packInStock ?? item.stockPacks) !== "");
 
-        const packInStock = toInt(
-          item.packInStock ??
-          item.stockPacks,
-          0,
-          0
-        );
+        const hasStockLoose = provided
+          ? Boolean(provided.stockLooseUnits ?? provided.unitInStock)
+          : ((item.unitInStock ?? item.stockLooseUnits) !== undefined &&
+             (item.unitInStock ?? item.stockLooseUnits) !== null &&
+             (item.unitInStock ?? item.stockLooseUnits) !== "");
 
-        const unitInStock = toInt(
-          item.unitInStock ??
-          item.stockLooseUnits,
-          0,
-          0
-        );
+        const hasUnitsPerPack = provided
+          ? Boolean(provided.unitsPerPack ?? provided.unitPerPack)
+          : ((item.unitPerPack ?? item.unitsPerPack) !== undefined &&
+             (item.unitPerPack ?? item.unitsPerPack) !== null &&
+             (item.unitPerPack ?? item.unitsPerPack) !== "");
 
-        const packAlertLevel = toInt(
-          item.packAlertLevel ??
-          item.reorderLevel,
-          15,
-          0
-        );
+        const hasGeneric = provided
+          ? Boolean(provided.genericName)
+          : Boolean(cleanString(item.genericName ?? item.generic?.name ?? item.generic));
 
-        const costPrice = toNumber(
-          item.costPrice,
-          0,
-          0
-        );
+        const hasCategory = provided
+          ? Boolean(provided.category)
+          : Boolean(cleanString(item.category ?? item.categoryName ?? item.categoryDetails?.name));
 
-        const sellingPrice = toNumber(
-          item.sellingPrice ??
-          item.mrpPrice,
-          0,
-          0
-        );
+        const hasRack = provided
+          ? Boolean(provided.rackLocation)
+          : Boolean(cleanString(item.rackLocation ?? item.rack?.name ?? item.rack));
 
-        const hasvat = toBoolean(
-          item.hasvat ??
-          item.isVatApplicable,
-          false
-        );
+        const hasVat = provided
+          ? Boolean(provided.isVatApplicable)
+          : (item.hasvat !== undefined || item.isVatApplicable !== undefined);
 
-        const existing =
-          await prisma.inventory.findFirst({
+        const hasBarcode = provided
+          ? Boolean(provided.barcode)
+          : Boolean(cleanString(item.barcode));
+
+        const hasNotes = provided
+          ? Boolean(provided.notes)
+          : Boolean(cleanString(item.notes));
+
+        // 1. Try to match existing medicine by brand + batch (if batch provided)
+        let existing = null;
+        if (hasBatch && rawBatch) {
+          existing = await prisma.inventory.findFirst({
             where: {
               medicineBrand: {
                 equals: brand,
                 mode: "insensitive",
               },
               batchNumber: {
-                equals: batchNumber,
+                equals: rawBatch,
                 mode: "insensitive",
               },
             },
@@ -465,9 +473,31 @@ export const bulkImportInventory = async (
               generic: true,
               category: true,
               rack: true,
+              distributor: true,
             },
           });
+        }
 
+        // 2. If no match by batch or batch was not specified in the sheet, match by brand name alone
+        if (!existing) {
+          existing = await prisma.inventory.findFirst({
+            where: {
+              medicineBrand: {
+                equals: brand,
+                mode: "insensitive",
+              },
+            },
+            orderBy: { id: "desc" },
+            include: {
+              generic: true,
+              category: true,
+              rack: true,
+              distributor: true,
+            },
+          });
+        }
+
+        // Handle skip mode
         if (existing && mode === "skip") {
           skipped.push({
             row,
@@ -477,50 +507,229 @@ export const bulkImportInventory = async (
             batchNumber:
               existing.batchNumber,
             reason:
-              "Duplicate medicine + batch skipped.",
+              "Duplicate medicine record skipped.",
           });
 
           continue;
         }
 
+        // Handle update (replace or merge mode)
         if (existing) {
-          const saved =
-            await prisma.inventory.update({
-              where: {
-                id: existing.id,
-              },
+          if (mode === "replace") {
+            // Replace Mode: Fully overwrite record with the uploaded row data.
+            // Omitted fields are reset to clean defaults so old data (generic, rack, etc.) is not left behind.
+            let genericId: number;
+            if (hasGeneric && cleanString(item.genericName)) {
+              genericId = await resolveGeneric(item);
+            } else {
+              const unassigned = await prisma.generic.upsert({
+                where: { name: "Unassigned" },
+                update: {},
+                create: { name: "Unassigned" },
+              });
+              genericId = unassigned.id;
+            }
+
+            let categoryId: number;
+            if (hasCategory) {
+              categoryId = await resolveCategory(item);
+            } else {
+              const cat = await prisma.category.upsert({
+                where: { name: "Tablet" },
+                update: {},
+                create: { name: "Tablet" },
+              });
+              categoryId = cat.id;
+            }
+
+            // If rack is not in the uploaded sheet, clear old rack (set null / unassigned)
+            const rackId = hasRack ? await resolveRack(item) : null;
+            const finalBatch = hasBatch && rawBatch ? rawBatch : "BAT-DEFAULT";
+            const finalExpiry = hasExpiry && cleanString(item.expiryDate)
+              ? cleanString(item.expiryDate)
+              : "2028-12-31";
+
+            const unitPerPack = hasUnitsPerPack
+              ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
+              : 10;
+
+            const packInStock = hasStockPacks
+              ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+              : 0;
+
+            const unitInStock = hasStockLoose
+              ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+              : 0;
+
+            const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
+              ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)
+              : 15;
+
+            const sellingPrice = hasSellingPrice
+              ? toNumber(item.sellingPrice ?? item.mrpPrice, 0, 0)
+              : 0;
+
+            const costPrice = hasCostPrice
+              ? toNumber(item.costPrice, 0, 0)
+              : (sellingPrice > 0 ? Math.round(sellingPrice * 0.75 * 100) / 100 : 0);
+
+            const hasvat = hasVat
+              ? toBoolean(item.hasvat ?? item.isVatApplicable, false)
+              : false;
+
+            const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
+            const notes = hasNotes ? cleanString(item.notes) || null : null;
+
+            const saved = await prisma.inventory.update({
+              where: { id: existing.id },
               data: {
                 medicineBrand: brand,
-                batchNumber,
-                expiryDate,
+                batchNumber: finalBatch,
+                expiryDate: finalExpiry,
                 genericId,
                 categoryId,
                 rackId,
                 unitPerPack,
-
-                packInStock:
-                  mode === "merge"
-                    ? existing.packInStock +
-                      packInStock
-                    : packInStock,
-
-                unitInStock:
-                  mode === "merge"
-                    ? existing.unitInStock +
-                      unitInStock
-                    : unitInStock,
-
+                packInStock,
+                unitInStock,
                 packAlertLevel,
                 costPrice,
                 sellingPrice,
                 hasvat,
+                barcode,
+                notes,
               },
               include: {
                 generic: true,
                 category: true,
                 rack: true,
+                distributor: true,
               },
             });
+
+            updated.push(
+              formatInventoryItem(saved)
+            );
+
+            continue;
+          }
+
+          // Merge Mode: Update provided fields and add stock, preserving existing unmentioned fields
+          const updateData: any = {
+            medicineBrand: brand,
+          };
+
+          if (hasBatch && rawBatch) {
+            updateData.batchNumber = rawBatch;
+          }
+
+          const cleanExpiry = cleanString(item.expiryDate);
+          if (hasExpiry && cleanExpiry) {
+            updateData.expiryDate = cleanExpiry;
+          }
+
+          if (hasGeneric) {
+            try {
+              const genericId = await resolveGeneric(item);
+              if (genericId) updateData.genericId = genericId;
+            } catch {
+              // Preserve existing generic on error
+            }
+          }
+
+          if (hasCategory) {
+            try {
+              const categoryId = await resolveCategory(item);
+              if (categoryId) updateData.categoryId = categoryId;
+            } catch {
+              // Preserve existing category on error
+            }
+          }
+
+          if (hasRack) {
+            try {
+              const rackId = await resolveRack(item);
+              updateData.rackId = rackId;
+            } catch {
+              // Preserve existing rack on error
+            }
+          }
+
+          if (hasUnitsPerPack) {
+            updateData.unitPerPack = toInt(
+              item.unitPerPack ?? item.unitsPerPack,
+              existing.unitPerPack,
+              1
+            );
+          }
+
+          if (hasStockPacks) {
+            const inputPacks = toInt(
+              item.packInStock ?? item.stockPacks,
+              0,
+              0
+            );
+            updateData.packInStock = existing.packInStock + inputPacks;
+          }
+
+          if (hasStockLoose) {
+            const inputLoose = toInt(
+              item.unitInStock ?? item.stockLooseUnits,
+              0,
+              0
+            );
+            updateData.unitInStock = existing.unitInStock + inputLoose;
+          }
+
+          if (item.packAlertLevel !== undefined || item.reorderLevel !== undefined) {
+            updateData.packAlertLevel = toInt(
+              item.packAlertLevel ?? item.reorderLevel,
+              existing.packAlertLevel,
+              0
+            );
+          }
+
+          if (hasCostPrice) {
+            updateData.costPrice = toNumber(
+              item.costPrice,
+              Number(existing.costPrice),
+              0
+            );
+          }
+
+          if (hasSellingPrice) {
+            updateData.sellingPrice = toNumber(
+              item.sellingPrice ?? item.mrpPrice,
+              Number(existing.sellingPrice),
+              0
+            );
+          }
+
+          if (hasVat) {
+            updateData.hasvat = toBoolean(
+              item.hasvat ?? item.isVatApplicable,
+              existing.hasvat
+            );
+          }
+
+          if (hasBarcode) {
+            updateData.barcode = cleanString(item.barcode) || null;
+          }
+
+          if (hasNotes) {
+            updateData.notes = cleanString(item.notes) || null;
+          }
+
+          const saved = await prisma.inventory.update({
+            where: { id: existing.id },
+            data: updateData,
+            include: {
+              generic: true,
+              category: true,
+              rack: true,
+              distributor: true,
+            },
+          });
 
           updated.push(
             formatInventoryItem(saved)
@@ -529,29 +738,95 @@ export const bulkImportInventory = async (
           continue;
         }
 
-        const saved =
-          await prisma.inventory.create({
-            data: {
-              medicineBrand: brand,
-              batchNumber,
-              expiryDate,
-              genericId,
-              categoryId,
-              rackId,
-              unitPerPack,
-              packInStock,
-              unitInStock,
-              packAlertLevel,
-              costPrice,
-              sellingPrice,
-              hasvat,
-            },
-            include: {
-              generic: true,
-              category: true,
-              rack: true,
-            },
+        // New item creation (sensible defaults for fields omitted from Excel)
+        let genericId: number;
+        if (hasGeneric && cleanString(item.genericName)) {
+          genericId = await resolveGeneric(item);
+        } else {
+          const unassigned = await prisma.generic.upsert({
+            where: { name: "Unassigned" },
+            update: {},
+            create: { name: "Unassigned" },
           });
+          genericId = unassigned.id;
+        }
+
+        let categoryId: number;
+        if (hasCategory) {
+          categoryId = await resolveCategory(item);
+        } else {
+          const cat = await prisma.category.upsert({
+            where: { name: "Tablet" },
+            update: {},
+            create: { name: "Tablet" },
+          });
+          categoryId = cat.id;
+        }
+
+        const rackId = hasRack ? await resolveRack(item) : null;
+        const finalBatch = hasBatch && rawBatch ? rawBatch : "BAT-DEFAULT";
+
+        let finalExpiry = cleanString(item.expiryDate);
+        if (!finalExpiry) {
+          finalExpiry = "2028-12-31";
+        }
+
+        const unitPerPack = hasUnitsPerPack
+          ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
+          : 10;
+
+        const packInStock = hasStockPacks
+          ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+          : 0;
+
+        const unitInStock = hasStockLoose
+          ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+          : 0;
+
+        const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
+          ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)
+          : 15;
+
+        const sellingPrice = hasSellingPrice
+          ? toNumber(item.sellingPrice ?? item.mrpPrice, 0, 0)
+          : 0;
+
+        const costPrice = hasCostPrice
+          ? toNumber(item.costPrice, 0, 0)
+          : (sellingPrice > 0 ? Math.round(sellingPrice * 0.75 * 100) / 100 : 0);
+
+        const hasvat = hasVat
+          ? toBoolean(item.hasvat ?? item.isVatApplicable, false)
+          : false;
+
+        const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
+        const notes = hasNotes ? cleanString(item.notes) || null : null;
+
+        const saved = await prisma.inventory.create({
+          data: {
+            medicineBrand: brand,
+            batchNumber: finalBatch,
+            expiryDate: finalExpiry,
+            genericId,
+            categoryId,
+            rackId,
+            unitPerPack,
+            packInStock,
+            unitInStock,
+            packAlertLevel,
+            costPrice,
+            sellingPrice,
+            hasvat,
+            barcode,
+            notes,
+          },
+          include: {
+            generic: true,
+            category: true,
+            rack: true,
+            distributor: true,
+          },
+        });
 
         created.push(
           formatInventoryItem(saved)
@@ -560,7 +835,7 @@ export const bulkImportInventory = async (
         errors.push({
           row,
           medicine: brand || undefined,
-          batch: batchNumber || undefined,
+          batch: rawBatch || undefined,
           reason:
             error instanceof Error
               ? error.message

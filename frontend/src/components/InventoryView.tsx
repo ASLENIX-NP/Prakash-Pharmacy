@@ -72,6 +72,19 @@ export const InventoryView: React.FC = () => {
   const [importErrors, setImportErrors] = useState<{ row: number; reason: string }[]>([]);
   const [parsedImportItems, setParsedImportItems] = useState<Medicine[]>([]);
   const [isImporting, setIsImporting] = useState(false);
+  const [importMode, setImportMode] = useState<'merge' | 'replace' | 'skip'>('merge');
+  const [isSubmittingImport, setIsSubmittingImport] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    message: string;
+    summary?: {
+      received: number;
+      created: number;
+      updated: number;
+      skipped: number;
+      errors: number;
+    };
+    errors?: any[];
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Add / Edit Medicine Modal State
@@ -93,6 +106,7 @@ export const InventoryView: React.FC = () => {
     reorderLevel: 15,
     rackLocation: 'Rack A-1',
     isVatApplicable: false,
+    barcode: '',
     notes: ''
   });
 
@@ -172,6 +186,7 @@ export const InventoryView: React.FC = () => {
       reorderLevel: 15,
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
+      barcode: '',
       notes: ''
     });
     setShowEditModal(true);
@@ -204,6 +219,7 @@ export const InventoryView: React.FC = () => {
 
     try {
       setIsImporting(true);
+      setImportResult(null);
       const res = await parseMedicinesFromExcel(file);
       setParsedImportItems(res.success);
       setImportErrors(res.errors);
@@ -214,13 +230,28 @@ export const InventoryView: React.FC = () => {
     }
   };
 
-  // Confirm Import
-  const handleConfirmImport = () => {
-    if (parsedImportItems.length > 0) {
-      bulkImportMedicines(parsedImportItems);
-      setShowImportModal(false);
+  // Confirm Import (Saves directly into PostgreSQL via backend API)
+  const handleConfirmImport = async () => {
+    if (parsedImportItems.length === 0) return;
+
+    try {
+      setIsSubmittingImport(true);
+      const res = await bulkImportMedicines(parsedImportItems, importMode);
+      setImportResult({
+        message: res.message,
+        summary: res.summary,
+        errors: res.data?.errors || [],
+      });
       setParsedImportItems([]);
       setImportErrors([]);
+    } catch (err: any) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : 'Bulk inventory import failed. Please verify admin privileges.'
+      );
+    } finally {
+      setIsSubmittingImport(false);
     }
   };
 
@@ -508,97 +539,216 @@ export const InventoryView: React.FC = () => {
                 <h3 className="font-bold text-base">Bulk Medicine Excel (.xlsx / .csv) Import</h3>
               </div>
               <button 
-                onClick={() => { setShowImportModal(false); setParsedImportItems([]); setImportErrors([]); }}
+                onClick={() => { setShowImportModal(false); setParsedImportItems([]); setImportErrors([]); setImportResult(null); }}
                 className="text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
-                <p className="text-xs font-semibold text-slate-700">
-                  Select or drag &amp; drop your Excel file here
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Supported formats: Microsoft Excel (.xlsx, .xls) and CSV (.csv)
-                </p>
+            {/* When Import is Successfully Finished */}
+            {importResult ? (
+              <div className="p-6 space-y-4">
+                <div className="bg-emerald-50 border border-emerald-300 p-5 rounded-2xl text-center space-y-2">
+                  <div className="w-12 h-12 bg-emerald-100 text-emerald-800 rounded-full flex items-center justify-center mx-auto">
+                    <Check className="w-6 h-6 text-emerald-700" />
+                  </div>
+                  <h4 className="text-base font-bold text-emerald-900">
+                    Import Completed Successfully!
+                  </h4>
+                  <p className="text-xs text-emerald-700">
+                    {importResult.message}
+                  </p>
+                </div>
+
+                {/* Summary stat cards */}
+                {importResult.summary && (
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="text-slate-500 text-[10px] uppercase font-bold">Processed</div>
+                      <div className="text-lg font-bold text-slate-800">{importResult.summary.received}</div>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <div className="text-emerald-600 text-[10px] uppercase font-bold">New Created</div>
+                      <div className="text-lg font-bold text-emerald-800">{importResult.summary.created}</div>
+                    </div>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                      <div className="text-blue-600 text-[10px] uppercase font-bold">Updated / Merged</div>
+                      <div className="text-lg font-bold text-blue-800">{importResult.summary.updated}</div>
+                    </div>
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                      <div className="text-amber-600 text-[10px] uppercase font-bold">Skipped</div>
+                      <div className="text-lg font-bold text-amber-800">{importResult.summary.skipped}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Errors if any occurred */}
+                {importResult.errors && importResult.errors.length > 0 && (
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-xs text-rose-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-700" />
+                      <span>Errors reported ({importResult.errors.length}):</span>
+                    </div>
+                    <ul className="list-disc pl-5 text-[11px] space-y-0.5 max-h-32 overflow-y-auto">
+                      {importResult.errors.map((err, i) => (
+                        <li key={i}>Row {err.row}: {err.medicine ? `${err.medicine} - ` : ''}{err.reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    onClick={() => { setShowImportModal(false); setImportResult(null); }}
+                    className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Done &amp; View Updated Inventory
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 space-y-4">
+                <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                  <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+                  <p className="text-xs font-semibold text-slate-700">
+                    Select or drag &amp; drop your Excel file here
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Supported formats: Microsoft Excel (.xlsx, .xls) and CSV (.csv)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="mt-3 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Choose Excel File
+                  </button>
+                </div>
+
+                {/* Parsing status */}
+                {isImporting && (
+                  <div className="text-center py-4 text-xs font-semibold text-teal-700">
+                    Parsing and validating spreadsheet rows...
+                  </div>
+                )}
+
+                {/* Parsed summary */}
+                {parsedImportItems.length > 0 && (
+                  <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-3">
+                    <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                      <Check className="w-4 h-4 text-emerald-700" />
+                      <span>Successfully parsed {parsedImportItems.length} medicine records ready to import!</span>
+                    </div>
+
+                    {/* Import Mode Selector */}
+                    <div className="bg-white p-3 rounded-lg border border-emerald-200">
+                      <label className="block text-[11px] font-bold text-slate-800 mb-1.5">
+                        Duplicate Batch Handling Mode:
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setImportMode('merge')}
+                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                            importMode === 'merge'
+                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div>Merge Stock</div>
+                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Add stock &amp; keep existing details</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportMode('replace')}
+                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                            importMode === 'replace'
+                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div>Full Replace</div>
+                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Overwrite record (resets unlisted fields)</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImportMode('skip')}
+                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                            importMode === 'skip'
+                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div>Skip Existing</div>
+                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Keep existing records untouched</div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="max-h-36 overflow-y-auto divide-y divide-emerald-100 text-[11px]">
+                      {parsedImportItems.slice(0, 5).map((item, i) => (
+                        <div key={i} className="py-1 flex justify-between">
+                          <span>{item.name} {item.genericName ? `(${item.genericName})` : ''}</span>
+                          <span className="font-mono">{item.stockPacks} packs @ Rs. {item.mrpPrice}</span>
+                        </div>
+                      ))}
+                      {parsedImportItems.length > 5 && (
+                        <div className="pt-1 text-slate-500 italic">...and {parsedImportItems.length - 5} more</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Errors report */}
+                {importErrors.length > 0 && (
+                  <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-xs text-rose-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-rose-700" />
+                      <span>Validation notices found ({importErrors.length}):</span>
+                    </div>
+                    <ul className="list-disc pl-5 text-[11px] space-y-0.5 max-h-28 overflow-y-auto">
+                      {importErrors.slice(0, 5).map((err, i) => (
+                        <li key={i}>Row {err.row}: {err.reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!importResult && (
+              <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end gap-2">
                 <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mt-3 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-colors"
+                  onClick={() => { setShowImportModal(false); setParsedImportItems([]); setImportErrors([]); }}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+                  disabled={isSubmittingImport}
                 >
-                  Choose Excel File
+                  Cancel
+                </button>
+                <button
+                  disabled={parsedImportItems.length === 0 || isSubmittingImport}
+                  onClick={handleConfirmImport}
+                  className="px-5 py-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer flex items-center gap-2"
+                >
+                  {isSubmittingImport ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Saving to PostgreSQL...</span>
+                    </>
+                  ) : (
+                    <span>Import {parsedImportItems.length} Medicines into Database</span>
+                  )}
                 </button>
               </div>
-
-              {/* Parsing status */}
-              {isImporting && (
-                <div className="text-center py-4 text-xs font-semibold text-teal-700">
-                  Parsing and validating spreadsheet rows...
-                </div>
-              )}
-
-              {/* Parsed summary */}
-              {parsedImportItems.length > 0 && (
-                <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-2">
-                  <div className="font-bold flex items-center gap-1.5 text-emerald-800">
-                    <Check className="w-4 h-4 text-emerald-700" />
-                    <span>Successfully parsed {parsedImportItems.length} medicine records ready to import!</span>
-                  </div>
-                  <div className="max-h-40 overflow-y-auto divide-y divide-emerald-100 text-[11px]">
-                    {parsedImportItems.slice(0, 5).map((item, i) => (
-                      <div key={i} className="py-1 flex justify-between">
-                        <span>{item.name} ({item.genericName})</span>
-                        <span className="font-mono">{item.stockPacks} packs @ Rs. {item.mrpPrice}</span>
-                      </div>
-                    ))}
-                    {parsedImportItems.length > 5 && (
-                      <div className="pt-1 text-slate-500 italic">...and {parsedImportItems.length - 5} more</div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Errors report */}
-              {importErrors.length > 0 && (
-                <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl text-xs text-rose-900 space-y-1">
-                  <div className="font-bold flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-rose-700" />
-                    <span>Validation notices found ({importErrors.length}):</span>
-                  </div>
-                  <ul className="list-disc pl-5 text-[11px] space-y-0.5">
-                    {importErrors.slice(0, 5).map((err, i) => (
-                      <li key={i}>Row {err.row}: {err.reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end gap-2">
-              <button
-                onClick={() => { setShowImportModal(false); setParsedImportItems([]); setImportErrors([]); }}
-                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100"
-              >
-                Cancel
-              </button>
-              <button
-                disabled={parsedImportItems.length === 0}
-                onClick={handleConfirmImport}
-                className="px-5 py-2 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs"
-              >
-                Import {parsedImportItems.length} Medicines into Inventory
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -637,12 +787,11 @@ export const InventoryView: React.FC = () => {
 
                 <div className="col-span-2">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Generic Salt / Molecule: *
+                    Generic Salt / Molecule:
                   </label>
                   <input
                     type="text"
-                    required
-                    placeholder="e.g. Amoxicillin + Clavulanic Acid, Paracetamol 500mg, Pantoprazole 40mg"
+                    placeholder="e.g. Amoxicillin + Clavulanic Acid, Paracetamol 500mg (leave blank if unassigned)"
                     value={formData.genericName}
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
@@ -668,6 +817,17 @@ export const InventoryView: React.FC = () => {
                     type="text"
                     value={formData.batchNumber}
                     onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Barcode / EAN:</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 8901083001234"
+                    value={formData.barcode || ''}
+                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -743,14 +903,15 @@ export const InventoryView: React.FC = () => {
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Rack / Shelf Location:</label>
                   <div className="flex gap-1.5">
                     <select
-                      value={formData.rackLocation || 'Rack A-1'}
+                      value={formData.rackLocation || 'Unassigned'}
                       onChange={(e) => setFormData({ ...formData, rackLocation: e.target.value })}
                       className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden"
                     >
+                      <option value="Unassigned">Unassigned (No rack allocated)</option>
                       {racks.map(r => (
                         <option key={r.id} value={r.name}>{r.name} {r.description ? `(${r.description})` : ''}</option>
                       ))}
-                      {!racks.some(r => r.name === formData.rackLocation) && formData.rackLocation && (
+                      {!racks.some(r => r.name === formData.rackLocation) && formData.rackLocation && formData.rackLocation !== 'Unassigned' && (
                         <option value={formData.rackLocation}>{formData.rackLocation}</option>
                       )}
                     </select>
@@ -888,7 +1049,11 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
               <tr key={m.id} className="hover:bg-slate-50/70 transition-colors">
                 <td className="py-3 px-4">
                   <div className="font-bold text-slate-900">{m.name}</div>
-                  <div className="text-[11px] text-slate-500">{m.genericName}</div>
+                  {m.genericName ? (
+                    <div className="text-[11px] text-slate-500">{m.genericName}</div>
+                  ) : (
+                    <div className="text-[10px] text-amber-600 font-medium italic">Generic not assigned</div>
+                  )}
                   <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded mt-0.5 inline-block">
                     {m.category} • {m.unitsPerPack} u/pack
                   </span>

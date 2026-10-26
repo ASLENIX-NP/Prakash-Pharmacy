@@ -1,4 +1,4 @@
-﻿const BASE_URL = '/api';
+const BASE_URL = '/api';
 
 export class ApiError extends Error {
   status: number;
@@ -62,6 +62,11 @@ export async function apiRequest<T>(
   }
 
   if (!response.ok) {
+    if (response.status === 401 && !endpoint.includes('/auth/login')) {
+      localStorage.removeItem('prakash_auth_token');
+      localStorage.setItem('prakash_pharmacy_auth_v2', 'false');
+    }
+
     throw new ApiError(
       data?.message ||
         data?.error ||

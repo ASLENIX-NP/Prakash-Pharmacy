@@ -241,11 +241,21 @@ export const formatInventoryItem = (inv: any) => {
     medicineBrand: inv.medicineBrand,
     name: inv.medicineBrand, // friendly alias
     generic: {
-      id: formatGenericCode(inv.generic.id), // "GEN-001"
-      genericCode: formatGenericCode(inv.generic.id),
-      name: inv.generic.name,
+      id: formatGenericCode(inv.generic?.id ?? 0), // "GEN-001"
+      genericCode: formatGenericCode(inv.generic?.id ?? 0),
+      name:
+        !inv.generic?.name ||
+        inv.generic.name === "Unassigned" ||
+        inv.generic.name.trim().toLowerCase() === String(inv.medicineBrand).trim().toLowerCase()
+          ? ""
+          : inv.generic.name,
     },
-    genericName: inv.generic.name,
+    genericName:
+      !inv.generic?.name ||
+      inv.generic.name === "Unassigned" ||
+      inv.generic.name.trim().toLowerCase() === String(inv.medicineBrand).trim().toLowerCase()
+        ? ""
+        : inv.generic.name,
     category: inv.category.name, // "Tablet", "Capsule" (matches frontend MedicineCategory)
     categoryName: inv.category.name,
     categoryDetails: {
@@ -776,13 +786,23 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     // Resolve Generic if provided
     if (genericId !== undefined && !isNaN(parseInt(genericId, 10))) {
       updateData.genericId = parseInt(genericId, 10);
-    } else if (genericName && String(genericName).trim()) {
-      const gRecord = await prisma.generic.upsert({
-        where: { name: String(genericName).trim() },
-        update: {},
-        create: { name: String(genericName).trim() },
-      });
-      updateData.genericId = gRecord.id;
+    } else if (genericName !== undefined) {
+      const cleanGen = String(genericName).trim();
+      if (!cleanGen || cleanGen.toLowerCase() === "unassigned") {
+        const unassignedGen = await prisma.generic.upsert({
+          where: { name: "Unassigned" },
+          update: {},
+          create: { name: "Unassigned" },
+        });
+        updateData.genericId = unassignedGen.id;
+      } else {
+        const gRecord = await prisma.generic.upsert({
+          where: { name: cleanGen },
+          update: {},
+          create: { name: cleanGen },
+        });
+        updateData.genericId = gRecord.id;
+      }
     }
 
     // Resolve Category if provided
