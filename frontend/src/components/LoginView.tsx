@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import prakashLogo from '../assets/prakash-logo.png';
 import {
   AlertCircle,
@@ -11,7 +11,12 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
-import { ForgotPasswordView } from './ForgotPasswordView';
+
+const ForgotPasswordView = lazy(() =>
+  import('./ForgotPasswordView').then(({ ForgotPasswordView }) => ({
+    default: ForgotPasswordView,
+  }))
+);
 
 export const LoginView: React.FC = () => {
   const { login, settings } = usePharmacy();
@@ -67,10 +72,21 @@ export const LoginView: React.FC = () => {
 
   if (showForgotPassword) {
     return (
-      <ForgotPasswordView
-        onBackToLogin={() => setShowForgotPassword(false)}
-        initialEmail=""
-      />
+      <Suspense
+        fallback={
+          <div
+            className="flex min-h-[100svh] items-center justify-center text-sm text-slate-500"
+            role="status"
+          >
+            Loading password recovery…
+          </div>
+        }
+      >
+        <ForgotPasswordView
+          onBackToLogin={() => setShowForgotPassword(false)}
+          initialEmail=""
+        />
+      </Suspense>
     );
   }
 

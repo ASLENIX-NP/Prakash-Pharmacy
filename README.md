@@ -18,3 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/07093fba-927b-41aa-bdab-44b75
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Backend initial administrator
+
+The database seed no longer creates demo staff, inventory, categories, or racks. To create the first administrator, configure `SEED_ADMIN_USERNAME`, `SEED_ADMIN_PASSWORD`, `SEED_ADMIN_FIRST_NAME`, and `SEED_ADMIN_LAST_NAME` in the backend environment (see [backend/.env.example](./backend/.env.example)), then run `npm run seed` from the `backend` directory. `SEED_ADMIN_EMAIL` is optional. The seed leaves an existing account with that username unchanged.

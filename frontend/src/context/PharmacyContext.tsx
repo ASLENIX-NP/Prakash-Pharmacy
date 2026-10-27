@@ -10,20 +10,9 @@ import {
   SaleInvoice,
   PharmacySettings,
   PharmacyUser,
-  RackLocation,
-  UserRole
+  RackLocation
 } from '../types/pharmacy';
-import {
-  initialMedicines,
-  initialStockists,
-  initialPurchaseInvoices,
-  initialStockistLedgers,
-  initialAdjustmentLogs,
-  initialSalesInvoices,
-  initialSettings,
-  initialUsers,
-  initialRacks
-} from '../data/initialData';
+import { defaultSettings } from '../data/defaultSettings';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -32,7 +21,6 @@ interface PharmacyContextType {
   logout: () => void;
   isAdmin: boolean;
   changeStaffPassword: (userId: string, newPassword: string) => { success: boolean; message: string };
-  resetDefaultCredentials: () => void;
 
   // Users & Roles
   users: PharmacyUser[];
@@ -136,7 +124,7 @@ interface PharmacyContextType {
   setActiveDebitNoteToPrint: (dn: StockistReturnVoucher | null) => void;
 
   // Reset
-  resetToDefaultData: () => void;
+  clearLocalData: () => void;
 }
 
 const PharmacyContext = createContext<PharmacyContextType | undefined>(undefined);
@@ -156,148 +144,181 @@ const STORAGE_KEYS = {
   SETTINGS: 'prakash_pharmacy_settings_v2',
 };
 
+const LEGACY_DEMO_IDS = new Set([
+  ...Array.from({ length: 23 }, (_, index) => `med-${index + 1}`),
+  ...Array.from({ length: 4 }, (_, index) => `stk-${index + 1}`),
+  'inv-101',
+  'inv-102',
+  ...Array.from({ length: 7 }, (_, index) => `led-${index + 1}`),
+  'adj-1',
+  'adj-2',
+  'sal-101',
+  'sal-102',
+  ...Array.from({ length: 3 }, (_, index) => `usr-${index + 1}`),
+  ...Array.from({ length: 12 }, (_, index) => `rck-${index + 1}`),
+]);
+
+function readStoredCollection<T extends { id: string }>(key: string): T[] {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) {
+      return [];
+    }
+
+    const parsed: unknown = JSON.parse(saved);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const collection = parsed.filter(
+      (item): item is T =>
+        Boolean(
+          item &&
+          typeof item === 'object' &&
+          typeof item.id === 'string' &&
+          !LEGACY_DEMO_IDS.has(item.id)
+        )
+    );
+
+    return collection;
+  } catch (error) {
+    console.error(`Unable to load cached data for ${key}:`, error);
+    return [];
+  }
+}
+
+function readStoredSettings(): PharmacySettings {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    if (!saved) {
+      return defaultSettings;
+    }
+
+    const settings: PharmacySettings = {
+      ...defaultSettings,
+      ...JSON.parse(saved),
+    };
+    const legacySettings: PharmacySettings = {
+      storeName: 'Prakash Pharmacy',
+      address: 'Hetauda-5, Sanopokhara, Makwanpur, Nepal',
+      phoneNumber: '+977-057-521480',
+      emailId: 'prakashpharmacy2021@gmail.com',
+      panNumber: '123798907',
+      ddaLicenceNumber: '3780516073935',
+      currency: 'NPR',
+      fiscalYear: '2081/82',
+      invoicePrefix: 'PP-2081/82-',
+      receiptFooterNote:
+        'Thank you for choosing Prakash Pharmacy! Medicines cannot be refunded after 7 days without bill.',
+      defaultLowStockThreshold: 15,
+      nearExpiryThresholdMonths: 6,
+    };
+
+    for (const key of Object.keys(legacySettings) as (keyof PharmacySettings)[]) {
+      if (settings[key] === legacySettings[key]) {
+        Object.assign(settings, { [key]: defaultSettings[key] });
+      }
+    }
+
+    return settings;
+  } catch (error) {
+    console.error('Unable to load cached pharmacy settings:', error);
+    return defaultSettings;
+  }
+}
+
 export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<PharmacyUser[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          // Auto-repair any cached user missing password or invalid structure
-          const repaired: PharmacyUser[] = parsed.map((u: PharmacyUser) => {
-            const def = initialUsers.find(initU => initU.id === u.id || initU.username === u.username);
-            return {
-              ...u,
-              password: u.password || (def ? def.password : (u.role === 'Admin' ? 'admin123' : 'staff123')),
-              pinCode: u.pinCode || (def ? def.pinCode : '1234'),
-              role: (u.role === 'Admin' ? 'Admin' : 'Staff') as UserRole,
-              isActive: u.isActive !== undefined ? u.isActive : true
-            };
-          });
-          // Ensure admin user exists
-          if (!repaired.some(u => u.role === 'Admin' || u.username === 'admin')) {
-            repaired.unshift(initialUsers[0]);
-          }
-          return repaired;
-        }
-      }
-      return initialUsers;
-    } catch {
-      return initialUsers;
-    }
+    return readStoredCollection<PharmacyUser>(STORAGE_KEYS.USERS).map(user => ({
+      ...user,
+      password: '',
+    }));
   });
 
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
-      return saved || (initialUsers[0] ? initialUsers[0].id : 'usr-1');
-    } catch {
-      return initialUsers[0] ? initialUsers[0].id : 'usr-1';
+      if (saved && LEGACY_DEMO_IDS.has(saved)) {
+        return '';
+      }
+      return saved || '';
+    } catch (error) {
+      console.error('Unable to load the cached current user:', error);
+      return '';
     }
   });
 
-  const currentUser = React.useMemo(() => {
-    return users.find(u => u.id === currentUserId) || users[0] || initialUsers[0];
+  const currentUser = React.useMemo<PharmacyUser | null>(() => {
+    return users.find(u => u.id === currentUserId) || users[0] || null;
   }, [users, currentUserId]);
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     try {
       const token = localStorage.getItem('prakash_auth_token');
       const session = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
-      return Boolean(token && session === 'true');
-    } catch {
+      return (
+        Boolean(token) &&
+        session === 'true' &&
+        Boolean(localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID)) &&
+        !LEGACY_DEMO_IDS.has(
+          localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID) || ''
+        )
+      );
+    } catch (error) {
+      console.error('Unable to load the cached authentication state:', error);
       return false;
     }
   });
 
-  const [racks, setRacks] = useState<RackLocation[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.RACKS);
-      return saved ? JSON.parse(saved) : initialRacks;
-    } catch {
-      return initialRacks;
-    }
-  });
+  const [racks, setRacks] = useState<RackLocation[]>(() =>
+    readStoredCollection<RackLocation>(STORAGE_KEYS.RACKS)
+  );
 
   const isAdmin = currentUser?.role === 'Admin';
 
-  const [medicines, setMedicines] = useState<Medicine[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.MEDICINES);
-      return saved ? JSON.parse(saved) : initialMedicines;
-    } catch {
-      return initialMedicines;
-    }
-  });
+  const [medicines, setMedicines] = useState<Medicine[]>(() =>
+    readStoredCollection<Medicine>(STORAGE_KEYS.MEDICINES)
+  );
 
-  const [stockists, setStockists] = useState<Stockist[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.STOCKISTS);
-      return saved ? JSON.parse(saved) : initialStockists;
-    } catch {
-      return initialStockists;
-    }
-  });
+  const [stockists, setStockists] = useState<Stockist[]>(() =>
+    readStoredCollection<Stockist>(STORAGE_KEYS.STOCKISTS)
+  );
 
-  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.INVOICES);
-      return saved ? JSON.parse(saved) : initialPurchaseInvoices;
-    } catch {
-      return initialPurchaseInvoices;
-    }
-  });
+  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>(() =>
+    readStoredCollection<StockistPurchaseInvoice>(STORAGE_KEYS.INVOICES)
+  );
 
-  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.LEDGERS);
-      return saved ? JSON.parse(saved) : initialStockistLedgers;
-    } catch {
-      return initialStockistLedgers;
-    }
-  });
+  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>(() =>
+    readStoredCollection<StockistLedgerEntry>(STORAGE_KEYS.LEDGERS)
+  );
 
-  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.ADJUSTMENTS);
-      return saved ? JSON.parse(saved) : initialAdjustmentLogs;
-    } catch {
-      return initialAdjustmentLogs;
-    }
-  });
+  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>(() =>
+    readStoredCollection<StockAdjustmentLog>(STORAGE_KEYS.ADJUSTMENTS)
+  );
 
-  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.RETURNS);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() =>
+    readStoredCollection<StockistReturnVoucher>(STORAGE_KEYS.RETURNS)
+  );
 
-  const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SALES);
-      return saved ? JSON.parse(saved) : initialSalesInvoices;
-    } catch {
-      return initialSalesInvoices;
-    }
-  });
+  const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
+    readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
+  );
 
-  const [settings, setSettings] = useState<PharmacySettings>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      return saved ? JSON.parse(saved) : initialSettings;
-    } catch {
-      return initialSettings;
-    }
-  });
+  const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
 
   // Modal states
   const [activeVatInfoMedicine, setActiveVatInfoMedicine] = useState<Medicine | null>(null);
   const [activeAuditMedicine, setActiveAuditMedicine] = useState<Medicine | null>(null);
   const [activeInvoiceToPrint, setActiveInvoiceToPrint] = useState<SaleInvoice | null>(null);
   const [activeDebitNoteToPrint, setActiveDebitNoteToPrint] = useState<StockistReturnVoucher | null>(null);
+
+  useEffect(() => {
+    const savedUserId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID);
+    if (savedUserId && LEGACY_DEMO_IDS.has(savedUserId)) {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
+      localStorage.removeItem('prakash_auth_token');
+    }
+  }, []);
 
   // Sync to localStorage
   useEffect(() => {
@@ -475,11 +496,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, [isAuthenticated, isAdmin]);
 
   // Auth methods
-  const resetDefaultCredentials = () => {
-    setUsers(initialUsers);
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(initialUsers));
-  };
-
   const login = async (username: string, password: string) => {
     try {
       const res = await apiRequest<{
@@ -1791,19 +1807,20 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setSettings(prev => ({ ...prev, ...updates }));
   };
 
-  const resetToDefaultData = () => {
-    setMedicines(initialMedicines);
-    setStockists(initialStockists);
-    setPurchaseInvoices(initialPurchaseInvoices);
-    setStockistLedgers(initialStockistLedgers);
-    setStockAdjustments(initialAdjustmentLogs);
+  const clearLocalData = () => {
+    setMedicines([]);
+    setStockists([]);
+    setPurchaseInvoices([]);
+    setStockistLedgers([]);
+    setStockAdjustments([]);
     setStockistReturns([]);
-    setSalesInvoices(initialSalesInvoices);
-    setSettings(initialSettings);
-    setUsers(initialUsers);
-    setCurrentUserId(initialUsers[0].id);
-    setRacks(initialRacks);
+    setSalesInvoices([]);
+    setSettings(defaultSettings);
+    setUsers([]);
+    setCurrentUserId('');
+    setRacks([]);
     setIsAuthenticated(false);
+    localStorage.removeItem('prakash_auth_token');
 
     localStorage.removeItem(STORAGE_KEYS.MEDICINES);
     localStorage.removeItem(STORAGE_KEYS.STOCKISTS);
@@ -1827,7 +1844,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         logout,
         isAdmin,
         changeStaffPassword,
-        resetDefaultCredentials,
 
         users,
         currentUser,
@@ -1878,7 +1894,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         activeDebitNoteToPrint,
         setActiveDebitNoteToPrint,
 
-        resetToDefaultData
+        clearLocalData
       }}
     >
       {children}
@@ -1893,4 +1909,3 @@ export const usePharmacy = () => {
   }
   return context;
 };
-

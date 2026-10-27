@@ -1,9 +1,13 @@
-﻿import app from "../src/app.js";
+import "dotenv/config";
+import app from "../src/app.js";
 
 type JsonObject = Record<string, any>;
 
-const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "admin123";
+const ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME;
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+  throw new Error("Set SEED_ADMIN_USERNAME and SEED_ADMIN_PASSWORD before running this smoke test.");
+}
 
 let token = "";
 let createdMedicineId: string | null = null;

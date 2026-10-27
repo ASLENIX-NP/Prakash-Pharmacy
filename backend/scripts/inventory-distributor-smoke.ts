@@ -1,6 +1,12 @@
-﻿import app from "../src/app.js";
+﻿import "dotenv/config";
+import app from "../src/app.js";
 import { prisma } from "../src/db.js";
 
+const ADMIN_USERNAME = process.env.SEED_ADMIN_USERNAME;
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+  throw new Error("Set SEED_ADMIN_USERNAME and SEED_ADMIN_PASSWORD before running this smoke test.");
+}
 
 function assert(
   condition: unknown,
@@ -142,10 +148,10 @@ async function main() {
           body:
             JSON.stringify({
               username:
-                "admin",
+                ADMIN_USERNAME,
 
               password:
-                "admin123",
+                ADMIN_PASSWORD,
             }),
         }
       );

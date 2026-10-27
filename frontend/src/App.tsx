@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 
 import {
@@ -10,22 +10,63 @@ import {
   Sidebar,
   ActiveTab,
 } from './components/Sidebar';
-
-import { DashboardView } from './components/DashboardView';
-import { InventoryView } from './components/InventoryView';
-import { PhysicalStockWorksheetView } from './components/PhysicalStockWorksheetView';
-import { PosView } from './components/PosView';
-import { StockistManagementView } from './components/StockistManagementView';
-import { SalesHistoryView } from './components/SalesHistoryView';
-import { ReportsView } from './components/ReportsView';
-import { SettingsView } from './components/SettingsView';
-import { UserManagementView } from './components/UserManagementView';
 import { LoginView } from './components/LoginView';
 import { TopInfoBar } from './components/TopInfoBar';
-
 import { VatTaxInfoModal } from './components/VatTaxInfoModal';
 import { PhysicalStockAuditModal } from './components/PhysicalStockAuditModal';
 import { TaxInvoiceModal } from './components/TaxInvoiceModal';
+
+const DashboardView = lazy(() =>
+  import('./components/DashboardView').then(({ DashboardView }) => ({
+    default: DashboardView,
+  }))
+);
+const InventoryView = lazy(() =>
+  import('./components/InventoryView').then(({ InventoryView }) => ({
+    default: InventoryView,
+  }))
+);
+const PhysicalStockWorksheetView = lazy(() =>
+  import('./components/PhysicalStockWorksheetView').then(
+    ({ PhysicalStockWorksheetView }) => ({
+      default: PhysicalStockWorksheetView,
+    })
+  )
+);
+const PosView = lazy(() =>
+  import('./components/PosView').then(({ PosView }) => ({
+    default: PosView,
+  }))
+);
+const StockistManagementView = lazy(() =>
+  import('./components/StockistManagementView').then(
+    ({ StockistManagementView }) => ({
+      default: StockistManagementView,
+    })
+  )
+);
+const SalesHistoryView = lazy(() =>
+  import('./components/SalesHistoryView').then(({ SalesHistoryView }) => ({
+    default: SalesHistoryView,
+  }))
+);
+const ReportsView = lazy(() =>
+  import('./components/ReportsView').then(({ ReportsView }) => ({
+    default: ReportsView,
+  }))
+);
+const SettingsView = lazy(() =>
+  import('./components/SettingsView').then(({ SettingsView }) => ({
+    default: SettingsView,
+  }))
+);
+const UserManagementView = lazy(() =>
+  import('./components/UserManagementView').then(
+    ({ UserManagementView }) => ({
+      default: UserManagementView,
+    })
+  )
+);
 
 const PharmacyAppContent: React.FC = () => {
   const {
@@ -140,84 +181,95 @@ const PharmacyAppContent: React.FC = () => {
           =================================================== */}
 
           <main className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-7 lg:py-7">
-              {/* Dashboard */}
+            <Suspense
+              fallback={
+                <div
+                  className="flex min-h-64 items-center justify-center text-sm text-slate-500"
+                  role="status"
+                >
+                  Loading page…
+                </div>
+              }
+            >
+              <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-7 lg:py-7">
+                {/* Dashboard */}
 
-              {activeTab === 'dashboard' &&
-                (isAdmin ? (
-                  <DashboardView
-                    setActiveTab={setActiveTab}
-                  />
-                ) : (
+                {activeTab === 'dashboard' &&
+                  (isAdmin ? (
+                    <DashboardView
+                      setActiveTab={setActiveTab}
+                    />
+                  ) : (
+                    <PosView />
+                  ))}
+
+                {/* POS */}
+
+                {activeTab === 'pos' && (
                   <PosView />
-                ))}
+                )}
 
-              {/* POS */}
+                {/* Inventory */}
 
-              {activeTab === 'pos' && (
-                <PosView />
-              )}
+                {activeTab === 'inventory' &&
+                  (isAdmin ? (
+                    <InventoryView />
+                  ) : (
+                    <PosView />
+                  ))}
 
-              {/* Inventory */}
+                {/* Physical Stock */}
 
-              {activeTab === 'inventory' &&
-                (isAdmin ? (
-                  <InventoryView />
-                ) : (
-                  <PosView />
-                ))}
+                {activeTab === 'physical_audit' &&
+                  (isAdmin ? (
+                    <PhysicalStockWorksheetView />
+                  ) : (
+                    <PosView />
+                  ))}
 
-              {/* Physical Stock */}
+                {/* Stockists */}
 
-              {activeTab === 'physical_audit' &&
-                (isAdmin ? (
-                  <PhysicalStockWorksheetView />
-                ) : (
-                  <PosView />
-                ))}
+                {activeTab === 'stockists' &&
+                  (isAdmin ? (
+                    <StockistManagementView />
+                  ) : (
+                    <PosView />
+                  ))}
 
-              {/* Stockists */}
+                {/* Sales History */}
 
-              {activeTab === 'stockists' &&
-                (isAdmin ? (
-                  <StockistManagementView />
-                ) : (
-                  <PosView />
-                ))}
+                {activeTab === 'sales_history' && (
+                  <SalesHistoryView />
+                )}
 
-              {/* Sales History */}
+                {/* Reports */}
 
-              {activeTab === 'sales_history' && (
-                <SalesHistoryView />
-              )}
+                {activeTab === 'reports' &&
+                  (isAdmin ? (
+                    <ReportsView />
+                  ) : (
+                    <PosView />
+                  ))}
 
-              {/* Reports */}
+                {/* Users */}
 
-              {activeTab === 'reports' &&
-                (isAdmin ? (
-                  <ReportsView />
-                ) : (
-                  <PosView />
-                ))}
+                {activeTab === 'users' &&
+                  (isAdmin ? (
+                    <UserManagementView />
+                  ) : (
+                    <PosView />
+                  ))}
 
-              {/* Users */}
+                {/* Settings */}
 
-              {activeTab === 'users' &&
-                (isAdmin ? (
-                  <UserManagementView />
-                ) : (
-                  <PosView />
-                ))}
-
-              {/* Settings */}
-
-              {activeTab === 'settings' &&
-                (isAdmin ? (
-                  <SettingsView />
-                ) : (
-                  <PosView />
-                ))}
-            </div>
+                {activeTab === 'settings' &&
+                  (isAdmin ? (
+                    <SettingsView />
+                  ) : (
+                    <PosView />
+                  ))}
+              </div>
+            </Suspense>
           </main>
 
           {/* ==================================================

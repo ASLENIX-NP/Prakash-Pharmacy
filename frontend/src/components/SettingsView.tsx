@@ -12,12 +12,13 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
+import { defaultSettings } from '../data/defaultSettings';
 
 export const SettingsView: React.FC = () => {
   const { 
     settings, 
     updateSettings, 
-    resetToDefaultData, 
+    clearLocalData,
     medicines, 
     stockists, 
     purchaseInvoices, 
@@ -224,10 +225,10 @@ export const SettingsView: React.FC = () => {
       {/* Database Backup & Restore */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
         <h3 className="font-bold text-sm text-slate-900">
-          Data Backup, Export &amp; Factory Reset
+          Data Backup &amp; Local Data Reset
         </h3>
         <p className="text-xs text-slate-500">
-          Export your entire pharmacy database (inventory, stock adjustments, purchase bills, and sales invoices) to keep local offline archives or restore demo dataset.
+          Export the pharmacy data currently cached in this browser. Reset clears this browser's cached data and signs you out; it does not delete database records.
         </p>
 
         <div className="flex flex-wrap items-center gap-3 pt-2">
@@ -241,16 +242,16 @@ export const SettingsView: React.FC = () => {
 
           <button
             onClick={() => {
-              if (confirm('Reset all pharmacy data back to initial Prakash Pharmacy sample dataset? Any unsaved edits will be refreshed.')) {
-                resetToDefaultData();
-                setFormData({ ...settings });
-                alert('System restored to default sample dataset!');
+              if (confirm('Clear locally cached pharmacy data and sign out? This does not delete database records.')) {
+                clearLocalData();
+                setFormData({ ...defaultSettings });
+                alert('Locally cached pharmacy data has been cleared.');
               }
             }}
             className="bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ml-auto"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>Reset to Authentic Default Demo Data</span>
+            <span>Clear Local Data</span>
           </button>
         </div>
       </div>

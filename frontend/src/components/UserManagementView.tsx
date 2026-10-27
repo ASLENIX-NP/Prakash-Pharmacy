@@ -70,8 +70,8 @@ export const UserManagementView: React.FC = () => {
     phone: '',
     email: '',
     role: 'Staff',
-    pinCode: '2233',
-    shiftTiming: 'Morning Shift (7:00 AM - 3:00 PM)',
+    pinCode: '',
+    shiftTiming: '',
     isActive: true
   });
 
@@ -91,12 +91,12 @@ export const UserManagementView: React.FC = () => {
     setFormData({
       name: '',
       username: '',
-      password: 'staff123',
+      password: '',
       phone: '',
       email: '',
       role: 'Staff',
       pinCode: `${Math.floor(1000 + Math.random() * 9000)}`,
-      shiftTiming: 'Morning Shift (7:00 AM - 3:00 PM)',
+      shiftTiming: '',
       isActive: true
     });
     setShowAddModal(true);
