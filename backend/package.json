@@ -15,7 +15,8 @@
     "smoke:inventory-generic": "tsx scripts/inventory-generic-smoke.ts",
     "cleanup:inventory-smoke": "tsx scripts/cleanup-inventory-smoke.ts",
     "smoke:stock-adjustment": "tsx scripts/stock-adjustment-smoke.ts",
-    "smoke:inventory-distributor": "tsx scripts/inventory-distributor-smoke.ts"
+    "smoke:inventory-distributor": "tsx scripts/inventory-distributor-smoke.ts",
+    "smoke:distributor-purchase": "tsx scripts/distributor-purchase-smoke.ts"
   },
   "keywords": [],
   "author": "",

@@ -19,6 +19,12 @@ export const formatCategoryCode = (id: number): string =>
 export const formatGenericCode = (id: number): string =>
   `GEN-${String(id).padStart(3, "0")}`;
 
+export const formatDistributorCode = (id: number): string =>
+  `DIST-${String(id).padStart(3, "0")}`;
+
+export const formatPurchaseCode = (id: number): string =>
+  `PUR-${String(id).padStart(3, "0")}`;
+
 /**
  * Parses route parameter into integer database ID.
  * Supports:

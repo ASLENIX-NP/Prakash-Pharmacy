@@ -1,6 +1,7 @@
-﻿import type { Request, Response } from "express";
+import type { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { formatInventoryItem } from "./inventory.controller.js";
+import { formatMedicineCode } from "../utils/id.helpers.js";
 
 
 const ALLOWED_ADJUSTMENT_TYPES =
@@ -470,3 +471,72 @@ export const getInventoryAdjustmentLogs = async (
     });
   }
 };
+
+export const getAllStockAdjustmentLogs = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { limit = 100 } = req.query;
+    const take = limit === "all" ? undefined : parseInt(String(limit), 10) || 100;
+
+    const logs = await prisma.stockAdjustmentLog.findMany({
+      include: {
+        medicine: {
+          select: {
+            id: true,
+            medicineBrand: true,
+            batchNumber: true,
+            unitPerPack: true,
+            generic: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: take && !isNaN(take) ? take : undefined,
+    });
+
+    const formatted = logs.map((log) => {
+      const unitsPerPack = log.medicine?.unitPerPack || 10;
+      const prevTotal = log.previousPacks * unitsPerPack + log.previousLooseUnits;
+      const newTotal = log.newPacks * unitsPerPack + log.newLooseUnits;
+      const netVariance = newTotal - prevTotal;
+
+      return {
+        id: `adj-${log.id}`,
+        adjustmentId: log.id,
+        medicineId: formatMedicineCode(log.medicineId),
+        medicineName: log.medicine?.medicineBrand || "Medicine",
+        genericName: log.medicine?.generic?.name || "",
+        batchNumber: log.medicine?.batchNumber || "",
+        type: log.adjustmentType.toLowerCase(),
+        previousPacks: log.previousPacks,
+        previousLoose: log.previousLooseUnits,
+        previousTotalUnits: prevTotal,
+        addedPacks: log.variancePacks,
+        addedLoose: log.varianceLooseUnits,
+        newPacks: log.newPacks,
+        newLoose: log.newLooseUnits,
+        newTotalUnits: newTotal,
+        netVarianceUnits: netVariance,
+        reason: log.reason,
+        notes: log.reason,
+        timestamp: log.createdAt.toISOString(),
+        recordedBy: log.recordedBy,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+  } catch (error) {
+    console.error("Get all stock adjustment logs error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve stock adjustment history.",
+    });
+  }
+};
+
