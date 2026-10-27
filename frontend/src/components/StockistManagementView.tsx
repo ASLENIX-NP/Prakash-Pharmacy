@@ -37,6 +37,8 @@ import { exportStockistLedgerToExcel, exportWholesalerAnalyticsToExcel } from '.
 export const StockistManagementView: React.FC = () => {
   const { 
     stockists, 
+    isStockistDemoDataActive,
+    clearStockistDemoData,
     addStockist, 
     medicines, 
     purchaseInvoices, 
@@ -53,6 +55,7 @@ export const StockistManagementView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'directory' | 'new_invoice' | 'ledger' | 'return' | 'analytics'>('directory');
   const [selectedStockistId, setSelectedStockistId] = useState<string>(stockists[0]?.id || '');
   const [searchQuery, setSearchQuery] = useState('');
+  const [ledgerFilter, setLedgerFilter] = useState<'all' | 'bills' | 'payments'>('all');
 
   // Add Stockist Modal
   const [showAddStockistModal, setShowAddStockistModal] = useState(false);
@@ -122,8 +125,45 @@ export const StockistManagementView: React.FC = () => {
   // Ledger entries for active stockist
   const filteredLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
-    return stockistLedgers.filter(e => e.stockistId === currentSelectedStockist.id);
-  }, [stockistLedgers, currentSelectedStockist]);
+    return stockistLedgers
+      .filter(entry => entry.stockistId === currentSelectedStockist.id)
+      .filter(entry => {
+        if (ledgerFilter === 'bills') return entry.refType === 'purchase_invoice';
+        if (ledgerFilter === 'payments') return entry.refType === 'payment_made';
+        return true;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [stockistLedgers, currentSelectedStockist, ledgerFilter]);
+
+  const visibleStockists = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return stockists;
+    return stockists.filter(stockist =>
+      [stockist.name, stockist.panNumber, stockist.phone, stockist.contactPerson]
+        .some(value => value.toLowerCase().includes(query))
+    );
+  }, [searchQuery, stockists]);
+
+  const directorySummary = useMemo(() => ({
+    totalPayable: stockists.reduce((total, stockist) => total + Math.max(0, stockist.currentBalance), 0),
+    totalCreditLimit: stockists.reduce((total, stockist) => total + stockist.creditLimit, 0),
+    accountsWithDues: stockists.filter(stockist => stockist.currentBalance > 0).length,
+  }), [stockists]);
+
+  const ledgerSummary = useMemo(() => {
+    const entries = currentSelectedStockist
+      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id)
+      : [];
+    return {
+      totalPurchases: entries
+        .filter(entry => entry.refType === 'purchase_invoice')
+        .reduce((total, entry) => total + entry.credit, 0),
+      totalPaidOrReturned: entries.reduce((total, entry) => total + entry.debit, 0),
+    };
+  }, [currentSelectedStockist, stockistLedgers]);
+
+  const currency = (amount: number) =>
+    `Rs. ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
@@ -443,6 +483,27 @@ export const StockistManagementView: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {isStockistDemoDataActive && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950"
+        >
+          <div>
+            <strong className="font-extrabold">Demo data is active.</strong>
+            <span className="ml-1">
+              These sample stockists, invoices, and ledger entries are stored in this browser only; they are not backend records.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={clearStockistDemoData}
+            className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 font-bold text-amber-900 hover:bg-amber-100"
+          >
+            Remove demo data
+          </button>
+        </div>
+      )}
+
       {/* View Header */}
       <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -513,31 +574,80 @@ export const StockistManagementView: React.FC = () => {
       {/* 1. STOCKISTS DIRECTORY */}
       {activeTab === 'directory' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-sm font-bold text-slate-800">
-              Registered Wholesalers &amp; Distributors ({stockists.length})
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: 'Registered stockists', value: stockists.length.toString(), color: 'text-slate-900' },
+              { label: 'Total payable', value: currency(directorySummary.totalPayable), color: 'text-rose-700' },
+              { label: 'Total credit limit', value: currency(directorySummary.totalCreditLimit), color: 'text-teal-800' },
+              { label: 'Accounts with dues', value: `${directorySummary.accountsWithDues} of ${stockists.length}`, color: 'text-amber-700' },
+            ].map(item => (
+              <div key={item.label} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                <span className="text-xs font-medium text-slate-500">{item.label}</span>
+                <strong className={`mt-1 block font-mono text-xl font-extrabold ${item.color}`}>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-base font-extrabold text-slate-900">
+              Registered wholesalers &amp; distributors ({stockists.length})
             </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="relative block">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  aria-label="Search stockists"
+                  value={searchQuery}
+                  onChange={event => setSearchQuery(event.target.value)}
+                  placeholder="Search name, PAN, or phone"
+                  className="w-full min-w-[220px] rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 sm:w-64"
+                />
+              </label>
             <button
               onClick={() => setShowAddStockistModal(true)}
-              className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs"
+              className="flex items-center gap-1.5 rounded-xl border border-slate-900 bg-slate-900 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Add New Stockist</span>
             </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {stockists.map(stk => (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {visibleStockists.map((stk, index) => {
+              const creditUsed = stk.creditLimit > 0
+                ? Math.min(100, Math.max(0, (stk.currentBalance / stk.creditLimit) * 100))
+                : 0;
+              const initials = stk.name
+                .replace(/^DEMO\s*-\s*/i, '')
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map(word => word[0])
+                .join('')
+                .toUpperCase();
+              const avatarStyles = [
+                'bg-teal-100 text-teal-800',
+                'bg-violet-100 text-violet-800',
+                'bg-orange-100 text-orange-800',
+                'bg-sky-100 text-sky-800',
+              ];
+
+              return (
               <div 
                 key={stk.id}
-                className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3 hover:border-teal-400 transition-colors"
+                className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-sm">{stk.name}</h4>
-                    <span className="text-[11px] text-slate-500 font-mono">PAN: {stk.panNumber}</span>
+                <div className="flex items-start gap-3">
+                  <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-sm font-extrabold ${avatarStyles[index % avatarStyles.length]}`}>
+                    {initials || 'ST'}
                   </div>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                  <div className="min-w-0 flex-1">
+                    <h4 className="break-words text-[15px] font-bold leading-snug text-slate-900">{stk.name}</h4>
+                    <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || '—'}</span>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
                     stk.currentBalance > 0
                       ? 'bg-rose-50 text-rose-800 border border-rose-200'
                       : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
@@ -546,37 +656,62 @@ export const StockistManagementView: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="space-y-1 text-xs text-slate-600 border-t border-slate-100 pt-2">
-                  <div className="flex items-center gap-1.5">
-                    <Phone className="w-3 h-3 text-slate-400" />
-                    <span>{stk.phone}</span>
+                <div className="grid gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span>{stk.phone || 'Phone not provided'}</span>
                   </div>
-                  <div className="text-[11px] text-slate-500">{stk.address}</div>
-                  <div className="text-[11px] text-slate-500">Contact: {stk.contactPerson}</div>
+                  <div className="flex items-start gap-2">
+                    <Building className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span>{stk.address || 'Address not provided'}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-3.5 shrink-0 text-center text-slate-400">@</span>
+                    <span>Contact: {stk.contactPerson || 'Not provided'}</span>
+                  </div>
+                  {stk.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="break-all">{stk.email}</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Balances */}
-                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs flex justify-between items-center">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block">Current Balance:</span>
-                    <strong className={`font-mono text-sm ${stk.currentBalance > 0 ? 'text-rose-700' : 'text-slate-800'}`}>
-                      Rs. {stk.currentBalance.toFixed(2)}
-                    </strong>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <span className="block text-[10px] font-medium text-slate-500">Current balance</span>
+                      <strong className={`mt-0.5 block font-mono text-lg ${stk.currentBalance > 0 ? 'text-rose-700' : 'text-slate-800'}`}>
+                        {currency(stk.currentBalance)}
+                      </strong>
+                    </div>
+                    <div className="text-right">
+                      <span className="block text-[10px] font-medium text-slate-500">Credit limit</span>
+                      <span className="mt-0.5 block font-mono text-sm font-semibold text-slate-700">{currency(stk.creditLimit)}</span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-500 block">Credit Limit:</span>
-                    <span className="font-mono text-slate-600">Rs. {stk.creditLimit.toLocaleString()}</span>
+                  <div
+                    className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200"
+                    role="img"
+                    aria-label={`${Math.round(creditUsed)} percent of credit limit used`}
+                  >
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        creditUsed > 80 ? 'bg-rose-600' : creditUsed > 50 ? 'bg-amber-500' : 'bg-teal-600'
+                      }`}
+                      style={{ width: `${creditUsed}%` }}
+                    />
                   </div>
+                  <span className="mt-1.5 block text-[10px] text-slate-500">{Math.round(creditUsed)}% of credit limit used</span>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-1.5 pt-1">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       setSelectedStockistId(stk.id);
                       setActiveTab('ledger');
                     }}
-                    className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold text-center transition-colors"
+                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-800 transition hover:border-teal-600 hover:bg-teal-50"
                   >
                     View Ledger
                   </button>
@@ -585,13 +720,20 @@ export const StockistManagementView: React.FC = () => {
                       setSelectedStockistId(stk.id);
                       setShowPaymentModal(true);
                     }}
-                    className="flex-1 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg text-xs font-bold text-center transition-colors"
+                    disabled={stk.currentBalance <= 0}
+                    className="flex-1 rounded-xl border border-teal-700 bg-teal-50 py-2 text-xs font-bold text-teal-800 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Pay Balance
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
+            {visibleStockists.length === 0 && (
+              <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
+                {stockists.length === 0 ? 'No stockists yet. Add a stockist to get started.' : 'No stockists match your search.'}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -889,30 +1031,34 @@ export const StockistManagementView: React.FC = () => {
       {/* 3. STOCKIST LEDGER */}
       {activeTab === 'ledger' && (
         <div className="space-y-4">
-          {/* Stockist Selector Bar */}
-          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-slate-700">Select Stockist:</span>
+          <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div>
+              <label htmlFor="ledger-stockist" className="mb-1.5 block text-xs font-bold text-slate-700">
+                Select stockist
+              </label>
               <select
+                id="ledger-stockist"
                 value={selectedStockistId}
                 onChange={(e) => setSelectedStockistId(e.target.value)}
-                className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-hidden"
+                disabled={stockists.length === 0}
+                className="min-w-[260px] max-w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-teal-600 disabled:opacity-50"
               >
                 {stockists.map(s => (
                   <option key={s.id} value={s.id}>
-                    {s.name} (Balance: Rs. {s.currentBalance.toFixed(2)})
+                    {s.name} (Balance: {currency(s.currentBalance)})
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setShowPaymentModal(true)}
-                className="bg-teal-700 hover:bg-teal-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs"
+                disabled={!currentSelectedStockist || currentSelectedStockist.currentBalance <= 0}
+                className="flex items-center gap-1.5 rounded-xl border border-transparent bg-gradient-to-r from-teal-800 to-teal-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <DollarSign className="w-3.5 h-3.5" />
-                <span>Record Payment (Debit)</span>
+                <span>Record payment (debit)</span>
               </button>
               {currentSelectedStockist && (
                 <button
@@ -921,86 +1067,153 @@ export const StockistManagementView: React.FC = () => {
                     currentSelectedStockist.panNumber,
                     filteredLedgerEntries
                   )}
-                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1"
+                  className="flex items-center gap-1.5 rounded-xl border border-teal-700 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-100"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  <span>Export Ledger (.xlsx)</span>
+                  <span>Export ledger (.xlsx)</span>
                 </button>
               )}
             </div>
           </div>
 
-          {/* Ledger Statement Table */}
           {currentSelectedStockist && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: 'Total purchases', value: currency(ledgerSummary.totalPurchases), color: 'text-slate-900' },
+                { label: 'Total paid / returned', value: currency(ledgerSummary.totalPaidOrReturned), color: 'text-emerald-700' },
+                { label: 'Outstanding', value: currency(currentSelectedStockist.currentBalance), color: currentSelectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-900' },
+                { label: 'Credit available', value: currency(Math.max(0, currentSelectedStockist.creditLimit - currentSelectedStockist.currentBalance)), color: 'text-teal-800' },
+              ].map(item => (
+                <div key={item.label} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                  <span className="text-xs font-medium text-slate-500">{item.label}</span>
+                  <strong className={`mt-1 block font-mono text-lg font-extrabold ${item.color}`}>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {currentSelectedStockist && (
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4">
                 <div>
-                  <h4 className="font-bold text-slate-900 text-base">{currentSelectedStockist.name}</h4>
-                  <p className="text-xs text-slate-500">
-                    PAN: {currentSelectedStockist.panNumber} • Phone: {currentSelectedStockist.phone} • {currentSelectedStockist.address}
+                  <h4 className="text-lg font-extrabold text-slate-900">{currentSelectedStockist.name}</h4>
+                  <p className="mt-1 text-xs text-slate-500">
+                    PAN: {currentSelectedStockist.panNumber || '—'} <span className="px-1">·</span>
+                    Phone: {currentSelectedStockist.phone || '—'} <span className="px-1">·</span>
+                    {currentSelectedStockist.address || 'Address not provided'}
                   </p>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-500 block">Current Outstanding Balance:</span>
-                  <span className={`text-lg font-extrabold font-mono ${
+                <div className="min-w-44 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:text-right">
+                  <span className="block text-[11px] text-slate-500">Current outstanding balance</span>
+                  <span className={`font-mono text-xl font-extrabold ${
                     currentSelectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-emerald-700'
                   }`}>
-                    Rs. {currentSelectedStockist.currentBalance.toFixed(2)}
+                    {currency(currentSelectedStockist.currentBalance)}
                   </span>
                 </div>
               </div>
 
+              <div className="flex flex-wrap gap-2 border-b border-slate-200 px-4 py-3">
+                {([
+                  ['all', 'All entries'],
+                  ['bills', 'Purchase bills'],
+                  ['payments', 'Payments'],
+                ] as const).map(([filter, label]) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setLedgerFilter(filter)}
+                    aria-pressed={ledgerFilter === filter}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      ledgerFilter === filter
+                        ? 'border-teal-700 bg-teal-700 text-white'
+                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-teal-600 hover:text-teal-800'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+                <table className="w-full min-w-[900px] border-collapse text-left text-xs">
+                  <thead className="border-b border-slate-200 bg-white text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="py-2.5 px-4">Date</th>
-                      <th className="py-2.5 px-3">Type</th>
-                      <th className="py-2.5 px-3">Ref / Bill #</th>
-                      <th className="py-2.5 px-4">Particulars / Description</th>
-                      <th className="py-2.5 px-3 text-right">Debit (Payment / Return)</th>
-                      <th className="py-2.5 px-3 text-right">Credit (Purchase Bill)</th>
-                      <th className="py-2.5 px-4 text-right">Balance</th>
+                      <th className="whitespace-nowrap px-4 py-3">Date</th>
+                      <th className="whitespace-nowrap px-3 py-3">Type</th>
+                      <th className="whitespace-nowrap px-3 py-3">Ref / bill #</th>
+                      <th className="px-4 py-3">Particulars</th>
+                      <th className="whitespace-nowrap px-3 py-3 text-right">Debit (payment / return)</th>
+                      <th className="whitespace-nowrap px-3 py-3 text-right">Credit (purchase bill)</th>
+                      <th className="whitespace-nowrap px-4 py-3 text-right">Balance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredLedgerEntries.map(entry => (
-                      <tr key={entry.id} className="hover:bg-slate-50/60">
-                        <td className="py-3 px-4 font-mono text-slate-600">{entry.date}</td>
-                        <td className="py-3 px-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      <tr key={entry.id} className="transition hover:bg-slate-50">
+                        <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">{entry.date}</td>
+                        <td className="px-3 py-3">
+                          <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
                             entry.refType === 'payment_made'
-                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              ? 'bg-emerald-50 text-emerald-800'
                               : entry.refType === 'return_debit_note'
-                              ? 'bg-purple-50 text-purple-800 border border-purple-200'
-                              : 'bg-blue-50 text-blue-800 border border-blue-200'
+                              ? 'bg-violet-50 text-violet-800'
+                              : 'bg-blue-50 text-blue-800'
                           }`}>
-                            {entry.refType.replace('_', ' ')}
+                            {entry.refType === 'purchase_invoice'
+                              ? 'Purchase invoice'
+                              : entry.refType === 'payment_made'
+                                ? 'Payment made'
+                                : 'Return debit note'}
                           </span>
                         </td>
-                        <td className="py-3 px-3 font-mono font-bold text-slate-900">{entry.refNumber}</td>
-                        <td className="py-3 px-4 text-slate-700">{entry.description}</td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700">
-                          {entry.debit > 0 ? `Rs. ${entry.debit.toFixed(2)}` : '—'}
+                        <td className="whitespace-nowrap px-3 py-3 font-mono font-bold text-slate-900">{entry.refNumber}</td>
+                        <td className="px-4 py-3 text-slate-700">{entry.description}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-emerald-700">
+                          {entry.debit > 0 ? currency(entry.debit) : '—'}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-rose-700">
-                          {entry.credit > 0 ? `Rs. ${entry.credit.toFixed(2)}` : '—'}
+                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-rose-700">
+                          {entry.credit > 0 ? currency(entry.credit) : '—'}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-extrabold text-slate-900">
-                          Rs. {entry.balance.toFixed(2)}
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-extrabold text-slate-900">
+                          {currency(entry.balance)}
                         </td>
                       </tr>
                     ))}
                     {filteredLedgerEntries.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">
-                          No ledger transactions recorded for this stockist yet.
+                        <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                          {ledgerFilter === 'all'
+                            ? 'No ledger transactions recorded for this stockist yet.'
+                            : `No ${ledgerFilter === 'bills' ? 'purchase bills' : 'payments'} recorded for this stockist.`}
                         </td>
                       </tr>
                     )}
                   </tbody>
+                  {stockistLedgers.some(entry => entry.stockistId === currentSelectedStockist.id) && (
+                    <tfoot className="border-t border-slate-200 bg-slate-50 font-bold">
+                      <tr>
+                        <td colSpan={4} className="px-4 py-3 text-slate-700">Account totals</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-emerald-700">
+                          {currency(ledgerSummary.totalPaidOrReturned)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-rose-700">
+                          {currency(ledgerSummary.totalPurchases)}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-slate-900">
+                          {currency(currentSelectedStockist.currentBalance)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
+            </div>
+          )}
+
+          {!currentSelectedStockist && (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
+              Add a stockist before viewing a ledger.
             </div>
           )}
         </div>
@@ -1444,6 +1657,3 @@ export const StockistManagementView: React.FC = () => {
     </div>
   );
 };
-
-
-

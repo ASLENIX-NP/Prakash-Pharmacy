@@ -13,6 +13,10 @@ import {
   RackLocation
 } from '../types/pharmacy';
 import { defaultSettings } from '../data/defaultSettings';
+import {
+  stockistDemoData,
+  STOCKIST_DEMO_STATUS_KEY,
+} from '../data/stockistDemoData';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -63,6 +67,10 @@ interface PharmacyContextType {
 
   // Physical Stock Count & Audits
   stockAdjustments: StockAdjustmentLog[];
+  inventoryBackendStatus: 'idle' | 'loading' | 'connected' | 'error';
+  inventoryBackendError: string;
+  stockAdjustmentHistoryBackendStatus: 'idle' | 'loading' | 'connected' | 'error';
+  stockAdjustmentHistoryBackendError: string;
   recordStockAdjustment: (data: {
     medicineId: string;
     type: 'reconcile' | 'add' | 'deduce';
@@ -74,6 +82,16 @@ interface PharmacyContextType {
     notes: string;
     recordedBy?: string;
   }) => void;
+  submitStockAdjustment: (data: {
+    medicineId: string;
+    type: 'reconcile' | 'add' | 'deduce';
+    countedPacks?: number;
+    countedLoose?: number;
+    addedPacks?: number;
+    addedLoose?: number;
+    reason: StockAdjustmentLog['reason'];
+    notes: string;
+  }) => Promise<void>;
   batchReconcileRack: (adjustments: {
     medicineId: string;
     countedPacks: number;
@@ -158,6 +176,39 @@ const LEGACY_DEMO_IDS = new Set([
   ...Array.from({ length: 12 }, (_, index) => `rck-${index + 1}`),
 ]);
 
+function mapBackendAdjustment(item: any): StockAdjustmentLog {
+  const variance = Number(item.netVarianceUnits ?? 0);
+  const backendType = String(item.type ?? item.adjustmentType ?? '').toLowerCase();
+  const type: StockAdjustmentLog['type'] =
+    backendType === 'audit' || backendType === 'reconcile'
+      ? 'reconcile'
+      : variance >= 0
+        ? 'add'
+        : 'deduce';
+
+  return {
+    id: String(item.id ?? `adj-${item.adjustmentId}`),
+    medicineId: String(item.medicineId),
+    medicineName: String(item.medicineName ?? 'Medicine'),
+    genericName: String(item.genericName ?? ''),
+    batchNumber: String(item.batchNumber ?? ''),
+    type,
+    previousPacks: Number(item.previousPacks ?? 0),
+    previousLoose: Number(item.previousLoose ?? item.previousLooseUnits ?? 0),
+    previousTotalUnits: Number(item.previousTotalUnits ?? 0),
+    addedPacks: Number(item.addedPacks ?? item.variancePacks ?? 0),
+    addedLoose: Number(item.addedLoose ?? item.varianceLooseUnits ?? 0),
+    newPacks: Number(item.newPacks ?? 0),
+    newLoose: Number(item.newLoose ?? item.newLooseUnits ?? 0),
+    newTotalUnits: Number(item.newTotalUnits ?? 0),
+    netVarianceUnits: variance,
+    reason: item.reason as StockAdjustmentLog['reason'],
+    notes: String(item.notes ?? item.reason ?? ''),
+    timestamp: String(item.timestamp ?? item.createdAt ?? new Date().toISOString()),
+    recordedBy: String(item.recordedBy ?? 'Unknown'),
+  };
+}
+
 function readStoredCollection<T extends { id: string }>(key: string): T[] {
   try {
     const saved = localStorage.getItem(key);
@@ -185,6 +236,29 @@ function readStoredCollection<T extends { id: string }>(key: string): T[] {
     console.error(`Unable to load cached data for ${key}:`, error);
     return [];
   }
+}
+
+function initializeStockistDemoData(): Stockist[] {
+  const savedStockists = readStoredCollection<Stockist>(STORAGE_KEYS.STOCKISTS);
+  const savedInvoices = readStoredCollection<StockistPurchaseInvoice>(STORAGE_KEYS.INVOICES);
+  const savedLedgers = readStoredCollection<StockistLedgerEntry>(STORAGE_KEYS.LEDGERS);
+  const demoStatus = localStorage.getItem(STOCKIST_DEMO_STATUS_KEY);
+
+  if (
+    savedStockists.length === 0 &&
+    savedInvoices.length === 0 &&
+    savedLedgers.length === 0 &&
+    demoStatus !== 'active' &&
+    demoStatus !== 'dismissed'
+  ) {
+    localStorage.setItem(STORAGE_KEYS.STOCKISTS, JSON.stringify(stockistDemoData.stockists));
+    localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(stockistDemoData.invoices));
+    localStorage.setItem(STORAGE_KEYS.LEDGERS, JSON.stringify(stockistDemoData.ledgers));
+    localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'active');
+    return stockistDemoData.stockists;
+  }
+
+  return savedStockists;
 }
 
 function readStoredSettings(): PharmacySettings {
@@ -348,12 +422,20 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // ==========================================================
   useEffect(() => {
     if (!isAuthenticated) {
+      setInventoryBackendStatus('idle');
+      setInventoryBackendError('');
+      setStockAdjustmentHistoryBackendStatus('idle');
+      setStockAdjustmentHistoryBackendError('');
       return;
     }
 
     let cancelled = false;
 
     const loadBackendData = async () => {
+      setInventoryBackendStatus('loading');
+      setInventoryBackendError('');
+      setStockAdjustmentHistoryBackendStatus('loading');
+      setStockAdjustmentHistoryBackendError('');
 
       // ------------------------------------------------------
       // INVENTORY
@@ -376,8 +458,15 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           );
 
           setMedicines(liveMedicines);
+          setInventoryBackendStatus('connected');
         }
       } catch (error) {
+        if (!cancelled) {
+          setInventoryBackendStatus('error');
+          setInventoryBackendError(
+            error instanceof Error ? error.message : 'Unable to load inventory from the backend.'
+          );
+        }
         console.error(
           'Error fetching live inventory:',
           error
@@ -429,6 +518,33 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } catch (error) {
         console.error(
           'Error fetching live sales invoices:',
+          error
+        );
+      }
+
+      // ------------------------------------------------------
+      // STOCK ADJUSTMENT HISTORY
+      // ------------------------------------------------------
+      try {
+        const res = await apiRequest<{ data: any[] }>(
+          '/inventory/adjustments?limit=all'
+        );
+
+        if (!cancelled) {
+          setStockAdjustments(res.data.map(mapBackendAdjustment));
+          setStockAdjustmentHistoryBackendStatus('connected');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setStockAdjustmentHistoryBackendStatus('error');
+          setStockAdjustmentHistoryBackendError(
+            error instanceof Error
+              ? error.message
+              : 'Unable to load stock adjustment history from the backend.'
+          );
+        }
+        console.error(
+          'Error fetching stock adjustment history:',
           error
         );
       }
@@ -1579,6 +1695,103 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setStockAdjustments(prev => [log, ...prev]);
   };
 
+  const submitStockAdjustment = async (data: {
+    medicineId: string;
+    type: 'reconcile' | 'add' | 'deduce';
+    countedPacks?: number;
+    countedLoose?: number;
+    addedPacks?: number;
+    addedLoose?: number;
+    reason: StockAdjustmentLog['reason'];
+    notes: string;
+  }) => {
+    const target = medicines.find(medicine => medicine.id === data.medicineId);
+    if (!target) {
+      throw new Error('The selected medicine is no longer in inventory.');
+    }
+
+    const currentUnits =
+      target.stockPacks * target.unitsPerPack + target.stockLooseUnits;
+    let newPacks: number;
+    let newLooseUnits: number;
+
+    if (data.type === 'reconcile') {
+      newPacks = Math.max(0, data.countedPacks ?? target.stockPacks);
+      newLooseUnits = Math.max(0, data.countedLoose ?? target.stockLooseUnits);
+    } else {
+      const packChange = Math.max(0, data.addedPacks ?? 0) * target.unitsPerPack;
+      const looseChange = Math.max(0, data.addedLoose ?? 0);
+      const nextUnits = data.type === 'add'
+        ? currentUnits + packChange + looseChange
+        : currentUnits - packChange - looseChange;
+
+      if (nextUnits < 0) {
+        throw new Error('Stock deduction cannot exceed the current inventory.');
+      }
+
+      newPacks = Math.floor(nextUnits / target.unitsPerPack);
+      newLooseUnits = nextUnits % target.unitsPerPack;
+    }
+
+    const reasonType: Record<StockAdjustmentLog['reason'], string> = {
+      'Physical Count Audit': 'AUDIT',
+      'Damaged / Broken Strip': 'DAMAGE',
+      'Expired Medicine Disposal': 'DISPOSAL',
+      'Found Unrecorded Stock / Bonus': 'OTHER',
+      'Theft / Shrinkage Loss': 'SHRINKAGE',
+      'Supplier Return / Correction': 'CORRECTION',
+      'Breakage in Transit': 'CORRECTION',
+      'Sample / Free Dispensation': 'OTHER',
+      'Other Adjustment': 'OTHER',
+    };
+
+    const response = await apiRequest<{
+      data: {
+        inventory: any;
+        adjustment: any;
+      };
+    }>(`/inventory/${encodeURIComponent(target.id)}/adjust`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: reasonType[data.reason],
+        newPacks,
+        newLooseUnits,
+        reason: data.reason,
+      }),
+    });
+
+    const updatedInventory = response.data.inventory;
+    setMedicines(previous =>
+      previous.map(medicine =>
+        medicine.id === target.id
+          ? {
+              ...medicine,
+              ...updatedInventory,
+              supplierId: updatedInventory.supplierId || '',
+              supplierName: updatedInventory.supplierName || '',
+            }
+          : medicine
+      )
+    );
+
+    const adjustment = mapBackendAdjustment({
+      ...response.data.adjustment,
+      medicineId: target.id,
+      medicineName: target.name,
+      genericName: target.genericName,
+      batchNumber: target.batchNumber,
+      previousTotalUnits: target.stockPacks * target.unitsPerPack + target.stockLooseUnits,
+      newTotalUnits: newPacks * target.unitsPerPack + newLooseUnits,
+      netVarianceUnits:
+        newPacks * target.unitsPerPack +
+        newLooseUnits -
+        (target.stockPacks * target.unitsPerPack + target.stockLooseUnits),
+      notes: data.notes || data.reason,
+      timestamp: response.data.adjustment.createdAt,
+    });
+    setStockAdjustments(previous => [adjustment, ...previous]);
+  };
+
   // Batch shelf worksheet audit
   const batchReconcileRack = (adjustments: {
     medicineId: string;
@@ -1732,7 +1945,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return liveStockists;
   };
 
-
+ 
   const refreshLiveLedgers = async (
     distributorList: Stockist[]
   ): Promise<StockistLedgerEntry[]> => {
@@ -2181,6 +2394,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
     localStorage.removeItem(STORAGE_KEYS.RACKS);
+    localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
+    setIsStockistDemoDataActive(false);
   };
 
   return (
@@ -2210,10 +2425,17 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         bulkImportMedicines,
 
         stockAdjustments,
+        inventoryBackendStatus,
+        inventoryBackendError,
+        stockAdjustmentHistoryBackendStatus,
+        stockAdjustmentHistoryBackendError,
         recordStockAdjustment,
+        submitStockAdjustment,
         batchReconcileRack,
 
         stockists,
+        isStockistDemoDataActive,
+        clearStockistDemoData,
         addStockist,
         updateStockist,
 
