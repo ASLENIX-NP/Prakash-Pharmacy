@@ -84,12 +84,12 @@ interface PharmacyContextType {
 
   // Stockists & Wholesalers
   stockists: Stockist[];
-  addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Stockist;
-  updateStockist: (id: string, updates: Partial<Stockist>) => void;
+  addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Promise<Stockist>;
+  updateStockist: (id: string, updates: Partial<Stockist>) => Promise<void>;
   
   // Purchase Invoices
   purchaseInvoices: StockistPurchaseInvoice[];
-  addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => StockistPurchaseInvoice;
+  addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => Promise<StockistPurchaseInvoice>;
 
   // Stockist Ledger & Payments
   stockistLedgers: StockistLedgerEntry[];
@@ -99,7 +99,7 @@ interface PharmacyContextType {
     paymentMode: string,
     refNumber: string,
     notes: string
-  ) => void;
+  ) => Promise<void>;
 
   // Returns to Wholesaler (Damaged / Expired / Breakage)
   stockistReturns: StockistReturnVoucher[];
@@ -280,21 +280,13 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     readStoredCollection<Medicine>(STORAGE_KEYS.MEDICINES)
   );
 
-  const [stockists, setStockists] = useState<Stockist[]>(() =>
-    readStoredCollection<Stockist>(STORAGE_KEYS.STOCKISTS)
-  );
+  const [stockists, setStockists] = useState<Stockist[]>([]);
 
-  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>(() =>
-    readStoredCollection<StockistPurchaseInvoice>(STORAGE_KEYS.INVOICES)
-  );
+  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>([]);
 
-  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>(() =>
-    readStoredCollection<StockistLedgerEntry>(STORAGE_KEYS.LEDGERS)
-  );
+  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>([]);
 
-  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>(() =>
-    readStoredCollection<StockAdjustmentLog>(STORAGE_KEYS.ADJUSTMENTS)
-  );
+  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>([]);
 
   const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() =>
     readStoredCollection<StockistReturnVoucher>(STORAGE_KEYS.RETURNS)
@@ -325,21 +317,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.MEDICINES, JSON.stringify(medicines));
   }, [medicines]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STOCKISTS, JSON.stringify(stockists));
-  }, [stockists]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(purchaseInvoices));
-  }, [purchaseInvoices]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.LEDGERS, JSON.stringify(stockistLedgers));
-  }, [stockistLedgers]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ADJUSTMENTS, JSON.stringify(stockAdjustments));
-  }, [stockAdjustments]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(stockistReturns));
@@ -485,6 +462,126 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           );
         }
       }
+
+      // ------------------------------------------------------
+      // DISTRIBUTORS / STOCKISTS
+      // ------------------------------------------------------
+      let liveDistributors: Stockist[] = [];
+
+      try {
+        const distRes =
+          await apiRequest<{ data: Stockist[] }>(
+            '/distributors?limit=all'
+          );
+
+        liveDistributors =
+          Array.isArray(distRes.data) ? distRes.data : [];
+
+        if (!cancelled) {
+          setStockists(liveDistributors);
+        }
+      } catch (error) {
+        console.error('Error fetching live stockists:', error);
+      }
+
+      // ------------------------------------------------------
+      // SUPPLIER LEDGERS
+      // ------------------------------------------------------
+      try {
+        const ledgerGroups =
+          await Promise.all(
+            liveDistributors.map(async stockist => {
+              const ledgerRes =
+                await apiRequest<{ data: any[] }>(
+                  '/distributors/' +
+                    encodeURIComponent(stockist.id) +
+                    '/ledger'
+                );
+
+              return (
+                Array.isArray(ledgerRes.data)
+                  ? ledgerRes.data
+                  : []
+              ).map(item => ({
+                ...item,
+                stockistId: stockist.id,
+                refId: item.refId || String(item.id)
+              })) as StockistLedgerEntry[];
+            })
+          );
+
+        if (!cancelled) {
+          setStockistLedgers(ledgerGroups.flat());
+        }
+      } catch (error) {
+        console.error('Error fetching supplier ledgers:', error);
+      }
+
+      // ------------------------------------------------------
+      // INWARD PURCHASE INVOICES
+      // ------------------------------------------------------
+      try {
+        const purchaseRes =
+          await apiRequest<{
+            data: StockistPurchaseInvoice[];
+          }>('/purchases?limit=all');
+
+        if (
+          !cancelled &&
+          Array.isArray(purchaseRes.data)
+        ) {
+          setPurchaseInvoices(purchaseRes.data);
+        }
+      } catch (error) {
+        console.error('Error fetching live purchase bills:', error);
+      }
+
+      // ------------------------------------------------------
+      // PHYSICAL STOCK AUDIT HISTORY
+      // ------------------------------------------------------
+      try {
+        const adjustmentRes =
+          await apiRequest<{ data: any[] }>(
+            '/inventory/adjustments?limit=all'
+          );
+
+        if (
+          !cancelled &&
+          Array.isArray(adjustmentRes.data)
+        ) {
+          const liveAdjustments: StockAdjustmentLog[] =
+            adjustmentRes.data.map(item => {
+              const rawType =
+                String(item.type || '').toLowerCase();
+
+              const type: StockAdjustmentLog['type'] =
+                rawType === 'reconcile' ||
+                rawType === 'audit' ||
+                rawType === 'correction'
+                  ? 'reconcile'
+                  : rawType === 'add'
+                    ? 'add'
+                    : rawType === 'deduce'
+                      ? 'deduce'
+                      : Number(item.netVarianceUnits || 0) >= 0
+                        ? 'add'
+                        : 'deduce';
+
+              return {
+                ...item,
+                type
+              };
+            });
+
+          setStockAdjustments(liveAdjustments);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching physical stock audit history:',
+          error
+        );
+      }
+
     };
 
     void loadBackendData();
@@ -1502,133 +1599,383 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  // Stockists
-  const addStockist = (stkData: Omit<Stockist, 'id' | 'currentBalance'>): Stockist => {
-    const newStockist: Stockist = {
-      ...stkData,
-      id: `stk-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      currentBalance: 0
-    };
-    setStockists(prev => [...prev, newStockist]);
-    return newStockist;
-  };
+  // Stockists / Distributors - PostgreSQL backend
 
-  const updateStockist = (id: string, updates: Partial<Stockist>) => {
-    setStockists(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
-  };
+  const fetchDistributorLedgers = async (
+    distributorList: Stockist[]
+  ): Promise<StockistLedgerEntry[]> => {
 
-  // Purchase Invoices (Entry of stockist bill)
-  const addPurchaseInvoice = (
-    invData: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>
-  ): StockistPurchaseInvoice => {
-    const newInvoice: StockistPurchaseInvoice = {
-      ...invData,
-      id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      createdAt: new Date().toISOString()
-    };
-
-    // 1. Update/Add items into inventory
-    invData.items.forEach(item => {
-      // Find matching item by medicine name and batch
-      const existing = medicines.find(
-        m => m.name.toLowerCase() === item.medicineName.toLowerCase() &&
-             m.batchNumber.toLowerCase() === item.batchNumber.toLowerCase()
-      );
-
-      const receivedPacks = (item.packQty || 0) + (item.freePacks || 0);
-
-      if (existing) {
-        updateMedicine(existing.id, {
-          stockPacks: existing.stockPacks + receivedPacks,
-          costPrice: item.costPrice,
-          mrpPrice: item.mrpPrice > 0 ? item.mrpPrice : existing.mrpPrice,
-          expiryDate: item.expiryDate || existing.expiryDate,
-          supplierId: invData.stockistId,
-          supplierName: invData.stockistName,
-          isVatApplicable: item.isVatApplicable,
-          rackLocation: item.rackLocation || existing.rackLocation
-        });
-      } else {
-        // Create new item
-        addMedicine({
-          name: item.medicineName,
-          genericName: item.genericName || item.medicineName,
-          category: item.category || 'Tablet',
-          batchNumber: item.batchNumber || `BAT-${Date.now().toString().slice(-4)}`,
-          expiryDate: item.expiryDate || '2027-12-31',
-          stockPacks: receivedPacks,
-          stockLooseUnits: 0,
-          unitsPerPack: item.unitsPerPack || 10,
-          costPrice: item.costPrice,
-          mrpPrice: item.mrpPrice || item.costPrice * 1.3,
-          supplierId: invData.stockistId,
-          supplierName: invData.stockistName,
-          reorderLevel: 15,
-          rackLocation: item.rackLocation || 'Rack A-1',
-          isVatApplicable: item.isVatApplicable,
-          notes: `Purchased via Invoice #${invData.invoiceNumber}`
-        });
-      }
-    });
-
-    // 2. Post to Stockist Ledger
-    const stockist = stockists.find(s => s.id === invData.stockistId);
-    const currentBalance = stockist ? stockist.currentBalance : 0;
-    const newBalance = currentBalance + (invData.paymentMode === 'credit' ? invData.grandTotal : 0);
-
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId: invData.stockistId,
-      date: invData.date,
-      refType: 'purchase_invoice',
-      refId: newInvoice.id,
-      refNumber: invData.invoiceNumber,
-      description: `Purchase Bill #${invData.invoiceNumber} (${invData.items.length} items, Mode: ${invData.paymentMode.toUpperCase()})`,
-      debit: invData.paymentMode === 'cash' ? invData.grandTotal : 0,
-      credit: invData.grandTotal,
-      balance: newBalance
-    };
-
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-
-    // 3. Update stockist balance if credit
-    if (stockist && invData.paymentMode === 'credit') {
-      updateStockist(stockist.id, { currentBalance: newBalance });
+    if (distributorList.length === 0) {
+      return [];
     }
 
-    setPurchaseInvoices(prev => [newInvoice, ...prev]);
-    return newInvoice;
+    const ledgerGroups =
+      await Promise.all(
+        distributorList.map(
+          async (
+            stockist
+          ): Promise<StockistLedgerEntry[]> => {
+
+            try {
+
+              const response =
+                await apiRequest<{
+                  data: any[];
+                }>(
+                  '/distributors/' +
+                    encodeURIComponent(
+                      stockist.id
+                    ) +
+                    '/ledger'
+                );
+
+              if (
+                !Array.isArray(
+                  response.data
+                )
+              ) {
+                return [];
+              }
+
+              return response.data.map(
+                (
+                  item: any
+                ): StockistLedgerEntry => ({
+                  id:
+                    String(item.id),
+
+                  // Always use the stockist ID from the
+                  // distributor currently being fetched.
+                  // This guarantees frontend filtering matches.
+                  stockistId:
+                    stockist.id,
+
+                  date:
+                    item.date ||
+                    new Date()
+                      .toISOString()
+                      .split('T')[0],
+
+                  refType:
+                    item.refType,
+
+                  refId:
+                    item.refId ||
+                    String(item.id),
+
+                  refNumber:
+                    item.refNumber || '',
+
+                  description:
+                    item.description || '',
+
+                  debit:
+                    Number(
+                      item.debit || 0
+                    ),
+
+                  credit:
+                    Number(
+                      item.credit || 0
+                    ),
+
+                  balance:
+                    Number(
+                      item.balance || 0
+                    )
+                })
+              );
+
+            } catch (error) {
+
+              console.error(
+                'Failed to load ledger for distributor:',
+                stockist.id,
+                error
+              );
+
+              return [];
+            }
+          }
+        )
+      );
+
+
+    const allLedgers =
+      ledgerGroups.flat();
+
+
+    allLedgers.sort(
+      (a, b) =>
+        new Date(b.date).getTime() -
+        new Date(a.date).getTime()
+    );
+
+
+    return allLedgers;
   };
 
-  // Stockist Payments (Settling balance)
-  const addStockistPayment = (
+
+  const refreshLiveStockists = async (): Promise<Stockist[]> => {
+    const response =
+      await apiRequest<{ data: Stockist[] }>(
+        '/distributors?limit=all'
+      );
+
+    const liveStockists =
+      Array.isArray(response.data)
+        ? response.data
+        : [];
+
+    setStockists(liveStockists);
+
+    return liveStockists;
+  };
+
+
+  const refreshLiveLedgers = async (
+    distributorList: Stockist[]
+  ): Promise<StockistLedgerEntry[]> => {
+
+    const liveLedgers =
+      await fetchDistributorLedgers(
+        distributorList
+      );
+
+    setStockistLedgers(
+      liveLedgers
+    );
+
+    return liveLedgers;
+  };
+
+
+  const refreshLivePurchases =
+    async (): Promise<StockistPurchaseInvoice[]> => {
+
+      const response =
+        await apiRequest<{
+          data: StockistPurchaseInvoice[];
+        }>(
+          '/purchases?limit=all'
+        );
+
+      const livePurchases =
+        Array.isArray(response.data)
+          ? response.data
+          : [];
+
+      setPurchaseInvoices(livePurchases);
+
+      return livePurchases;
+    };
+
+
+  const refreshLiveInventory = async () => {
+    const response =
+      await apiRequest<{ data: any[] }>(
+        '/inventory?limit=all'
+      );
+
+    if (!Array.isArray(response.data)) {
+      return;
+    }
+
+    const liveMedicines: Medicine[] =
+      response.data.map((item: any) => ({
+        ...item,
+        supplierId: item.supplierId || '',
+        supplierName: item.supplierName || ''
+      }));
+
+    setMedicines(liveMedicines);
+  };
+
+
+  const addStockist = async (
+    stkData: Omit<Stockist, 'id' | 'currentBalance'>
+  ): Promise<Stockist> => {
+
+    const response =
+      await apiRequest<{ data?: Stockist }>(
+        '/distributors',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: stkData.name,
+            phone: stkData.phone,
+            panNumber: stkData.panNumber,
+            address: stkData.address,
+            contactPerson: stkData.contactPerson,
+            creditLimit: stkData.creditLimit,
+            email: stkData.email
+          })
+        }
+      );
+
+    const liveStockists =
+      await refreshLiveStockists();
+
+    const created =
+      response.data ||
+      liveStockists.find(
+        stockist =>
+          stockist.name === stkData.name &&
+          stockist.panNumber === stkData.panNumber
+      );
+
+    if (!created) {
+      throw new Error(
+        'Distributor was created but could not be reloaded.'
+      );
+    }
+
+    return created;
+  };
+
+
+  const updateStockist = async (
+    id: string,
+    updates: Partial<Stockist>
+  ): Promise<void> => {
+
+    const payload: Record<string, unknown> = {};
+
+    if (updates.name !== undefined)
+      payload.name = updates.name;
+
+    if (updates.phone !== undefined)
+      payload.phone = updates.phone;
+
+    if (updates.panNumber !== undefined)
+      payload.panNumber = updates.panNumber;
+
+    if (updates.address !== undefined)
+      payload.address = updates.address;
+
+    if (updates.contactPerson !== undefined)
+      payload.contactPerson = updates.contactPerson;
+
+    if (updates.creditLimit !== undefined)
+      payload.creditLimit = updates.creditLimit;
+
+    if (updates.email !== undefined)
+      payload.email = updates.email;
+
+
+    // Some old frontend-only workflows still update only the
+    // displayed balance. Do not send an empty PUT to PostgreSQL.
+    if (Object.keys(payload).length === 0) {
+      setStockists(prev =>
+        prev.map(stockist =>
+          stockist.id === id
+            ? { ...stockist, ...updates }
+            : stockist
+        )
+      );
+
+      return;
+    }
+
+
+    await apiRequest(
+      '/distributors/' + encodeURIComponent(id),
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }
+    );
+
+    await refreshLiveStockists();
+  };
+
+
+  // Purchase Invoices - backend transaction is authoritative.
+  // Do NOT manually update inventory or supplier balance here.
+  const addPurchaseInvoice = async (
+    invData: Omit<
+      StockistPurchaseInvoice,
+      'id' | 'createdAt'
+    >
+  ): Promise<StockistPurchaseInvoice> => {
+
+    const response =
+      await apiRequest<{
+        data?: StockistPurchaseInvoice;
+      }>(
+        '/purchases',
+        {
+          method: 'POST',
+          body: JSON.stringify(invData)
+        }
+      );
+
+
+    const [
+      livePurchases,
+      liveStockists
+    ] = await Promise.all([
+      refreshLivePurchases(),
+      refreshLiveStockists(),
+      refreshLiveInventory()
+    ]);
+
+    await refreshLiveLedgers(
+      liveStockists
+    );
+
+
+    const created =
+      response.data ||
+      livePurchases.find(
+        invoice =>
+          invoice.invoiceNumber ===
+          invData.invoiceNumber
+      );
+
+    if (!created) {
+      throw new Error(
+        'Purchase was saved but could not be reloaded.'
+      );
+    }
+
+    return created;
+  };
+
+
+  // Supplier payment - backend updates running balance
+  // and creates the debit ledger entry transactionally.
+  const addStockistPayment = async (
     stockistId: string,
     amount: number,
     paymentMode: string,
     refNumber: string,
     notes: string
-  ) => {
-    const stockist = stockists.find(s => s.id === stockistId);
-    if (!stockist) return;
+  ): Promise<void> => {
 
-    const newBalance = stockist.currentBalance - amount;
+    await apiRequest(
+      '/distributors/' +
+        encodeURIComponent(stockistId) +
+        '/payments',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          amount,
+          paymentMode,
+          refNumber,
+          notes
+        })
+      }
+    );
 
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-pay-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId,
-      date: new Date().toISOString().split('T')[0],
-      refType: 'payment_made',
-      refId: `pay-${Date.now()}`,
-      refNumber: refNumber || `VOUCHER-${Date.now().toString().slice(-4)}`,
-      description: `Payment made via ${paymentMode.toUpperCase()} ${notes ? `(${notes})` : ''}`,
-      debit: amount,
-      credit: 0,
-      balance: newBalance
-    };
+    const liveStockists =
+      await refreshLiveStockists();
 
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-    updateStockist(stockistId, { currentBalance: newBalance });
+    await refreshLiveLedgers(
+      liveStockists
+    );
   };
+
 
   // Stockist Returns (Return Damaged / Expired / Breakage to wholesaler)
   const recordStockistReturn = (
