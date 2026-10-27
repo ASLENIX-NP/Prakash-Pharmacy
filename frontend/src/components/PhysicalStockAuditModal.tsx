@@ -32,7 +32,7 @@ const AUDIT_REASONS: AuditReason[] = [
 ];
 
 export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = ({ medicine, onClose }) => {
-  const { recordStockAdjustment, currentUser } = usePharmacy();
+  const { submitStockAdjustment, currentUser } = usePharmacy();
 
   const [mode, setMode] = useState<AuditAdjustmentType>('reconcile');
   const [countedPacks, setCountedPacks] = useState<number>(0);
@@ -41,9 +41,8 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
   const [deltaLoose, setDeltaLoose] = useState<number>(0);
   const [reason, setReason] = useState<AuditReason>('Physical Count Audit');
   const [notes, setNotes] = useState<string>('');
-  const [recordedBy, setRecordedBy] = useState<string>(
-    currentUser ? `${currentUser.name} (@${currentUser.username})` : 'Pharmacist'
-  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (medicine) {
@@ -85,42 +84,69 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
 
   const netVarianceUnits = projectedTotalUnits - currentTotalUnits;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setSubmitError('');
+    setIsSubmitting(true);
     if (mode === 'reconcile') {
-      recordStockAdjustment({
-        medicineId: medicine.id,
-        type: 'reconcile',
-        countedPacks,
-        countedLoose,
-        reason,
-        notes: notes || 'Shelf Physical Count Audit',
-        recordedBy
-      });
+      try {
+        await submitStockAdjustment({
+          medicineId: medicine.id,
+          type: 'reconcile',
+          countedPacks,
+          countedLoose,
+          reason,
+          notes: notes || 'Shelf Physical Count Audit',
+        });
+        onClose();
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'Unable to save the stock adjustment.');
+      } finally {
+        setIsSubmitting(false);
+      }
     } else if (mode === 'add') {
-      if (deltaPacks === 0 && deltaLoose === 0) return;
-      recordStockAdjustment({
-        medicineId: medicine.id,
-        type: 'add',
-        addedPacks: deltaPacks,
-        addedLoose: deltaLoose,
-        reason,
-        notes: notes || 'Manual Quick Stock Addition',
-        recordedBy
-      });
+      if (deltaPacks === 0 && deltaLoose === 0) {
+        setIsSubmitting(false);
+        return;
+      }
+      try {
+        await submitStockAdjustment({
+          medicineId: medicine.id,
+          type: 'add',
+          addedPacks: deltaPacks,
+          addedLoose: deltaLoose,
+          reason,
+          notes: notes || 'Manual Quick Stock Addition',
+        });
+        onClose();
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'Unable to save the stock adjustment.');
+      } finally {
+        setIsSubmitting(false);
+      }
     } else if (mode === 'deduce') {
-      if (deltaPacks === 0 && deltaLoose === 0) return;
-      recordStockAdjustment({
-        medicineId: medicine.id,
-        type: 'deduce',
-        addedPacks: deltaPacks,
-        addedLoose: deltaLoose,
-        reason,
-        notes: notes || 'Manual Quick Stock Deduction',
-        recordedBy
-      });
+      if (deltaPacks === 0 && deltaLoose === 0) {
+        setIsSubmitting(false);
+        return;
+      }
+      try {
+        await submitStockAdjustment({
+          medicineId: medicine.id,
+          type: 'deduce',
+          addedPacks: deltaPacks,
+          addedLoose: deltaLoose,
+          reason,
+          notes: notes || 'Manual Quick Stock Deduction',
+        });
+        onClose();
+      } catch (error) {
+        setSubmitError(error instanceof Error ? error.message : 'Unable to save the stock adjustment.');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
-    onClose();
   };
 
   return (
@@ -146,6 +172,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
           </div>
           <button
             onClick={onClose}
+            disabled={isSubmitting}
             className="p-1 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition-colors"
           >
             <X className="w-5 h-5" />
@@ -350,21 +377,20 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Recorded By:
+                Authenticated auditor:
               </label>
               <input
                 type="text"
-                value={recordedBy}
-                onChange={(e) => setRecordedBy(e.target.value)}
-                placeholder="Pharmacist Name"
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
+                value={currentUser ? `${currentUser.name} (@${currentUser.username})` : 'Current signed-in user'}
+                readOnly
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-600"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Audit Notes &amp; Verification Remarks:
+              Audit notes (not saved by the current backend API):
             </label>
             <input
               type="text"
@@ -373,23 +399,34 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
               placeholder="e.g., Found 2 extra strips on bottom shelf tray during Saturday stock audit"
               className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
             />
+            <p className="mt-1 text-[10px] text-slate-500">
+              The backend records the adjustment reason and signed-in auditor, but does not store free-text notes.
+            </p>
           </div>
+
+          {submitError && (
+            <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
+              {submitError}
+            </div>
+          )}
 
           {/* Submit Actions */}
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
+              disabled={isSubmitting || (mode !== 'reconcile' && deltaPacks === 0 && deltaLoose === 0)}
               className="px-5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5"
             >
               <PackageCheck className="w-4 h-4" />
-              <span>Confirm &amp; Update Stock</span>
+              <span>{isSubmitting ? 'Saving…' : 'Confirm &amp; Update Stock'}</span>
             </button>
           </div>
         </form>
