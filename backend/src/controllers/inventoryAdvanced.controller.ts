@@ -479,7 +479,7 @@ export const bulkImportInventory = async (
         }
 
         // 2. If no match by batch or batch was not specified in the sheet, match by brand name alone
-        if (!existing) {
+        if (!existing && (!hasBatch || !rawBatch)) {
           existing = await prisma.inventory.findFirst({
             where: {
               medicineBrand: {

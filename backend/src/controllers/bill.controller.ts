@@ -196,82 +196,398 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         },
       });
 
-      // Process Line Items & Update Stock
+      // Process Line Items & Update Stock using FEFO
+      // FEFO = First Expiry, First Out.
+      // The selected inventory row identifies the medicine, but stock is
+      // always consumed from the earliest non-expired matching batch first.
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const parseExpiryForSale = (value: string): Date => {
+        const text = String(value ?? "").trim();
+
+        const ymd =
+          /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+
+        if (ymd) {
+          return new Date(
+            Number(ymd[1]),
+            Number(ymd[2]) - 1,
+            Number(ymd[3])
+          );
+        }
+
+        return new Date(text);
+      };
+
       for (const item of items) {
-        const inventoryId = parseIdParam(item.medicineId ?? item.inventoryId ?? item.id);
+        const inventoryId =
+          parseIdParam(
+            item.medicineId ??
+            item.inventoryId ??
+            item.id
+          );
+
         if (!inventoryId) {
-          throw new Error(`Invalid medicine identifier: ${item.medicineId || item.name || "Unknown"}`);
+          throw new Error(
+            `Invalid medicine identifier: ${
+              item.medicineId ||
+              item.name ||
+              "Unknown"
+            }`
+          );
         }
 
-        const inv = await tx.inventory.findUnique({
-          where: { id: inventoryId },
-        });
+        const selectedInventory =
+          await tx.inventory.findUnique({
+            where: { id: inventoryId },
+          });
 
-        if (!inv) {
-          throw new Error(`Medicine not found in inventory (ID: ${inventoryId})`);
+        if (!selectedInventory) {
+          throw new Error(
+            `Medicine not found in inventory (ID: ${inventoryId})`
+          );
         }
 
-        const isLoose = Boolean(item.isLooseUnit);
-        const qty = parseInt(String(item.quantity ?? 1), 10) || 1;
-        const unitsPerPack = Math.max(1, inv.unitPerPack || 10);
+        const isLoose =
+          Boolean(item.isLooseUnit);
 
-        // Price Calculation:
-        // Pack MRP price
-        const packSellingPrice = Number(inv.sellingPrice);
-        // Price of 1 Tab = Pack price divided by number of units in a pack
-        const tabPrice = Math.round((packSellingPrice / unitsPerPack) * 100) / 100;
-        const effectiveUnitPrice = isLoose
-          ? (item.unitPrice !== undefined ? Number(item.unitPrice) : tabPrice)
-          : (item.unitPrice !== undefined ? Number(item.unitPrice) : packSellingPrice);
+        const qty =
+          parseInt(
+            String(item.quantity ?? 1),
+            10
+          ) || 1;
 
-        const vatItemPrice = parseFloat(String(item.vatAmount ?? 0)) || 0;
-        const lineTotal = parseFloat(String(item.lineTotal ?? (effectiveUnitPrice * qty))) || (effectiveUnitPrice * qty);
+        if (qty <= 0) {
+          throw new Error(
+            `Invalid sale quantity for '${selectedInventory.medicineBrand}'.`
+          );
+        }
 
-        // Stock Deduction:
-        let newPacks = inv.packInStock;
-        let newLoose = inv.unitInStock;
+        const unitsPerPack =
+          Math.max(
+            1,
+            selectedInventory.unitPerPack || 10
+          );
 
-        if (!isLoose) {
-          // When customer buys a Packet: subtract from pack_in_stock
-          newPacks = Math.max(0, inv.packInStock - qty);
-          // unit_in_stock stays untouched
-        } else {
-          // When customer buys a Tab: subtract directly from unit_in_stock
-          if (inv.unitInStock >= qty) {
-            // Subtract directly from loose units
-            newLoose = inv.unitInStock - qty;
-          } else {
-            // If loose units are insufficient, open required full pack(s)
-            const deficit = qty - inv.unitInStock;
-            const packsToOpen = Math.ceil(deficit / unitsPerPack);
-            newPacks = Math.max(0, inv.packInStock - packsToOpen);
-            newLoose = (inv.unitInStock + (packsToOpen * unitsPerPack)) - qty;
+        // ----------------------------------------------------
+        // Find every batch of the same medicine.
+        // Keep the same pack size so unlike pack formats are
+        // never mixed into one sale allocation.
+        // ----------------------------------------------------
+
+        const candidateBatches =
+          await tx.inventory.findMany({
+            where: {
+              medicineBrand: {
+                equals:
+                  selectedInventory.medicineBrand,
+                mode: "insensitive",
+              },
+
+              unitPerPack:
+                selectedInventory.unitPerPack,
+
+              ...(selectedInventory.genericId
+                ? {
+                    genericId:
+                      selectedInventory.genericId,
+                  }
+                : {}),
+            },
+
+            orderBy: [
+              { expiryDate: "asc" },
+              { id: "asc" },
+            ],
+          });
+
+        // ----------------------------------------------------
+        // Exclude expired / invalid / empty batches.
+        // ----------------------------------------------------
+
+        const validBatches =
+          candidateBatches.filter(batch => {
+            const expiry =
+              parseExpiryForSale(
+                batch.expiryDate
+              );
+
+            if (
+              Number.isNaN(expiry.getTime()) ||
+              expiry < todayStart
+            ) {
+              return false;
+            }
+
+            if (isLoose) {
+              return (
+                batch.packInStock *
+                  batch.unitPerPack +
+                  batch.unitInStock >
+                0
+              );
+            }
+
+            return batch.packInStock > 0;
+          });
+
+        // ----------------------------------------------------
+        // Ensure the TOTAL non-expired stock is sufficient.
+        // Do not silently clamp stock to zero.
+        // ----------------------------------------------------
+
+        const totalAvailable =
+          validBatches.reduce(
+            (sum, batch) => {
+              if (isLoose) {
+                return (
+                  sum +
+                  batch.packInStock *
+                    batch.unitPerPack +
+                  batch.unitInStock
+                );
+              }
+
+              return (
+                sum +
+                batch.packInStock
+              );
+            },
+            0
+          );
+
+        if (totalAvailable < qty) {
+          throw new Error(
+            `Insufficient non-expired stock for '${selectedInventory.medicineBrand}'. ` +
+            `Requested ${qty} ${
+              isLoose
+                ? "unit(s)"
+                : "pack(s)"
+            }, but only ${totalAvailable} available.`
+          );
+        }
+
+        // ----------------------------------------------------
+        // Sale price remains the price shown to the customer.
+        // Actual inventory allocation may span several batches.
+        // ----------------------------------------------------
+
+        const selectedPackPrice =
+          Number(
+            selectedInventory.sellingPrice
+          );
+
+        const requestedUnitPrice =
+          item.unitPrice !== undefined
+            ? Number(item.unitPrice)
+            : Number.NaN;
+
+        const effectiveUnitPrice =
+          Number.isFinite(
+            requestedUnitPrice
+          )
+            ? requestedUnitPrice
+            : isLoose
+              ? selectedPackPrice /
+                unitsPerPack
+              : selectedPackPrice;
+
+        const billItemPackPrice =
+          isLoose
+            ? effectiveUnitPrice *
+              unitsPerPack
+            : effectiveUnitPrice;
+
+        const totalVatAmount =
+          parseFloat(
+            String(
+              item.vatAmount ?? 0
+            )
+          ) || 0;
+
+        const totalLineAmount =
+          parseFloat(
+            String(
+              item.lineTotal ??
+              effectiveUnitPrice * qty
+            )
+          ) ||
+          effectiveUnitPrice * qty;
+
+        let remainingQty = qty;
+        let remainingLineAmount =
+          totalLineAmount;
+        let remainingVatAmount =
+          totalVatAmount;
+
+        // ----------------------------------------------------
+        // FEFO ALLOCATION
+        // candidateBatches is expiry ASC, therefore earliest
+        // valid expiry is always consumed first.
+        // ----------------------------------------------------
+
+        for (
+          const batch of validBatches
+        ) {
+          if (remainingQty <= 0) {
+            break;
           }
+
+          const batchUnitsPerPack =
+            Math.max(
+              1,
+              batch.unitPerPack || 10
+            );
+
+          const availableInBatch =
+            isLoose
+              ? batch.packInStock *
+                  batchUnitsPerPack +
+                batch.unitInStock
+              : batch.packInStock;
+
+          if (
+            availableInBatch <= 0
+          ) {
+            continue;
+          }
+
+          const allocatedQty =
+            Math.min(
+              remainingQty,
+              availableInBatch
+            );
+
+          let newPacks =
+            batch.packInStock;
+
+          let newLoose =
+            batch.unitInStock;
+
+          if (!isLoose) {
+            newPacks =
+              batch.packInStock -
+              allocatedQty;
+          } else {
+            const totalUnits =
+              batch.packInStock *
+                batchUnitsPerPack +
+              batch.unitInStock;
+
+            const unitsAfterSale =
+              totalUnits -
+              allocatedQty;
+
+            newPacks =
+              Math.floor(
+                unitsAfterSale /
+                batchUnitsPerPack
+              );
+
+            newLoose =
+              unitsAfterSale %
+              batchUnitsPerPack;
+          }
+
+          await tx.inventory.update({
+            where: {
+              id: batch.id,
+            },
+
+            data: {
+              packInStock:
+                newPacks,
+
+              unitInStock:
+                newLoose,
+            },
+          });
+
+          const isFinalAllocation =
+            allocatedQty ===
+            remainingQty;
+
+          const allocatedLineAmount =
+            isFinalAllocation
+              ? remainingLineAmount
+              : Math.round(
+                  (
+                    totalLineAmount *
+                    allocatedQty /
+                    qty
+                  ) * 100
+                ) / 100;
+
+          const allocatedVatAmount =
+            isFinalAllocation
+              ? remainingVatAmount
+              : Math.round(
+                  (
+                    totalVatAmount *
+                    allocatedQty /
+                    qty
+                  ) * 100
+                ) / 100;
+
+          await tx.billItem.create({
+            data: {
+              invoiceId:
+                bill.id,
+
+              inventoryId:
+                batch.id,
+
+              quantityInPack:
+                isLoose
+                  ? 0
+                  : allocatedQty,
+
+              quantityInUnit:
+                isLoose
+                  ? allocatedQty
+                  : 0,
+
+              packPrice:
+                billItemPackPrice,
+
+              vatitemPrice:
+                allocatedVatAmount,
+
+              grossItemPrice:
+                allocatedLineAmount,
+
+              netItemPrice:
+                allocatedLineAmount,
+            },
+          });
+
+          remainingQty -=
+            allocatedQty;
+
+          remainingLineAmount =
+            Math.round(
+              (
+                remainingLineAmount -
+                allocatedLineAmount
+              ) * 100
+            ) / 100;
+
+          remainingVatAmount =
+            Math.round(
+              (
+                remainingVatAmount -
+                allocatedVatAmount
+              ) * 100
+            ) / 100;
         }
 
-        await tx.inventory.update({
-          where: { id: inventoryId },
-          data: {
-            packInStock: newPacks,
-            unitInStock: newLoose,
-          },
-        });
-
-        // Insert Line Item
-        await tx.billItem.create({
-          data: {
-            invoiceId: bill.id,
-            inventoryId,
-            quantityInPack: isLoose ? 0 : qty,
-            quantityInUnit: isLoose ? qty : 0,
-            packPrice: packSellingPrice,
-            vatitemPrice: vatItemPrice,
-            grossItemPrice: lineTotal,
-            netItemPrice: lineTotal,
-          },
-        });
+        if (remainingQty > 0) {
+          throw new Error(
+            `FEFO allocation failed for '${selectedInventory.medicineBrand}'.`
+          );
+        }
       }
-
       // Return fully populated bill with relations
       return tx.bill.findUnique({
         where: { id: bill.id },

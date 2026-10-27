@@ -88,6 +88,15 @@ export const PosView: React.FC = () => {
     }
 
     return medicines.filter((medicine) => {
+      // Hide completely out-of-stock batches from POS.
+      // They remain visible in Inventory for history/audit purposes.
+      const hasStock =
+        medicine.stockPacks > 0 ||
+        medicine.stockLooseUnits > 0;
+
+      if (!hasStock) {
+        return false;
+      }
       if (selectedGenericFilter) {
         return (
           medicine.genericName.toLowerCase() ===

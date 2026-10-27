@@ -1685,42 +1685,37 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createdAt: now.toISOString()
     };
 
-    // Deduct inventory items accurately
-    saleData.items.forEach(saleItem => {
-      const med = medicines.find(m => m.id === saleItem.medicineId);
-      if (!med) return;
-
-      if (!saleItem.isLooseUnit) {
-        // Sold in full packets: subtract from stockPacks, stockLooseUnits stays unchanged
-        const remainingPacks = Math.max(0, med.stockPacks - saleItem.quantity);
-        updateMedicine(med.id, { stockPacks: remainingPacks });
-      } else {
-        // Sold loose tabs: subtract directly from stockLooseUnits
-        let newPacks = med.stockPacks;
-        let newLoose = med.stockLooseUnits;
-        const unitsPerPack = Math.max(1, med.unitsPerPack || 10);
-
-        if (med.stockLooseUnits >= saleItem.quantity) {
-          // Direct deduction from loose units
-          newLoose = med.stockLooseUnits - saleItem.quantity;
-        } else {
-          // If loose units are insufficient, open required full pack(s)
-          const deficit = saleItem.quantity - med.stockLooseUnits;
-          const packsToOpen = Math.ceil(deficit / unitsPerPack);
-          newPacks = Math.max(0, med.stockPacks - packsToOpen);
-          newLoose = (med.stockLooseUnits + (packsToOpen * unitsPerPack)) - saleItem.quantity;
-        }
-
-        updateMedicine(med.id, {
-          stockPacks: newPacks,
-          stockLooseUnits: newLoose
-        });
-      }
-    });
-
+    // Do not mutate inventory locally before checkout succeeds.
+    // The backend /bills transaction is the single source of truth
+    // for FEFO allocation and stock deduction.
     setSalesInvoices(prev => [newInvoice, ...prev]);
 
-    // Persist sale invoice to backend database
+    // Reload inventory from PostgreSQL after checkout so the UI always
+    // reflects the stock actually committed by the backend FEFO transaction.
+    const reloadInventoryAfterSale = async () => {
+      const inventoryResponse =
+        await apiRequest<{ data: any[] }>(
+          '/inventory?limit=all'
+        );
+
+      if (Array.isArray(inventoryResponse.data)) {
+        const liveMedicines: Medicine[] =
+          inventoryResponse.data.map((item: any) => ({
+            ...item,
+            supplierId: item.supplierId || '',
+            supplierName: item.supplierName || '',
+          }));
+
+        setMedicines(liveMedicines);
+      }
+    };
+
+    // Persist sale invoice to backend database.
+    // The backend atomically:
+    //   1. validates non-expired stock,
+    //   2. applies FEFO across batches,
+    //   3. deducts inventory,
+    //   4. creates bill + bill items.
     void apiRequest<{
       success: boolean;
       data: SaleInvoice;
@@ -1729,24 +1724,66 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       body: JSON.stringify({
         ...saleData,
         invoiceNumber,
-        cashierId: saleData.cashierId || currentUser?.id,
+        cashierId:
+          saleData.cashierId ||
+          currentUser?.id,
       }),
     })
-      .then(res => {
+      .then(async res => {
         if (res.data) {
           setSalesInvoices(prev =>
             prev.map(inv =>
-              inv.id === newInvoice.id || inv.invoiceNumber === newInvoice.invoiceNumber
+              inv.id === newInvoice.id ||
+              inv.invoiceNumber ===
+                newInvoice.invoiceNumber
                 ? res.data
                 : inv
             )
           );
         }
-      })
-      .catch(error => {
-        console.error('Failed to persist sales bill to database:', error);
-      });
 
+        try {
+          await reloadInventoryAfterSale();
+        } catch (reloadError) {
+          console.error(
+            'Sale succeeded but inventory refresh failed:',
+            reloadError
+          );
+        }
+      })
+      .catch(async error => {
+        // The backend transaction failed, therefore remove the
+        // optimistic invoice from the local sales list.
+        setSalesInvoices(prev =>
+          prev.filter(
+            inv =>
+              inv.id !== newInvoice.id &&
+              inv.invoiceNumber !==
+                newInvoice.invoiceNumber
+          )
+        );
+
+        // Reload real stock from PostgreSQL in case the UI was stale.
+        try {
+          await reloadInventoryAfterSale();
+        } catch (reloadError) {
+          console.error(
+            'Failed to reload inventory after rejected sale:',
+            reloadError
+          );
+        }
+
+        console.error(
+          'Failed to persist sales bill to database:',
+          error
+        );
+
+        alert(
+          error instanceof Error
+            ? error.message
+            : 'Sale could not be completed.'
+        );
+      });
     return newInvoice;
   };
 
