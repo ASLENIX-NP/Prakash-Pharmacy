@@ -85,9 +85,10 @@ model Inventory {
   notes   String? @map("notes")
 
   // Relations
-  billItems BillItem[]
-  createdAt DateTime   @default(now()) @map("created_at")
-  updatedAt DateTime   @updatedAt @map("updated_at")
+  billItems           BillItem[]
+  purchaseInvoiceItems PurchaseInvoiceItem[]
+  createdAt           DateTime   @default(now()) @map("created_at")
+  updatedAt           DateTime   @updatedAt @map("updated_at")
 
   stockAdjustmentLogs StockAdjustmentLog[]
 
@@ -212,16 +213,23 @@ model CategoryWiseSalesReport {
 // 9. Distributors Table
 // ==========================================
 model Distributor {
-  id             Int     @id @default(autoincrement())
-  name           String  @map("name")
-  pannumber      String? @map("pannumber")
-  phone          String  @map("phone")
-  address        String? @map("address")
-  creditLimit    Decimal @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
-  currentBalance Decimal @default(0.00) @map("current_balance") @db.Decimal(12, 2)
+  id             Int      @id @default(autoincrement())
+  name           String   @map("name")
+  pannumber      String?  @map("pannumber")
+  phone          String   @map("phone")
+  email          String?  @map("email")
+  address        String?  @map("address")
+  contactPerson  String?  @map("contact_person")
+  creditLimit    Decimal  @default(0.00) @map("credit_limit") @db.Decimal(12, 2)
+  currentBalance Decimal  @default(0.00) @map("current_balance") @db.Decimal(12, 2)
+  notes          String?  @map("notes")
+  status         String   @default("active") @map("status")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   ledgers     Ledger[]
   inventories Inventory[]
+  purchases   PurchaseInvoice[]
 
   @@map("distributors_tbl")
 }
@@ -270,3 +278,66 @@ model StockAdjustmentLog {
   @@index([createdAt])
   @@map("stock_adjustment_logs_tbl")
 }
+
+// ==========================================
+// 12. Purchase Invoices (Inward Stock Bills)
+// ==========================================
+model PurchaseInvoice {
+  id             Int       @id @default(autoincrement())
+  invoiceNumber  String    @map("invoice_number") // Wholesaler invoice/bill number
+  distributorId  Int       @map("distributor_id")
+  distributor    Distributor @relation(fields: [distributorId], references: [id], onDelete: Restrict)
+  purchaseDate   DateTime  @default(now()) @map("purchase_date")
+  paymentMode    String    @default("credit") @map("payment_mode") // "credit" | "cash"
+  dueDate        DateTime? @map("due_date")
+
+  // Financial amounts
+  subtotal       Decimal   @map("subtotal") @db.Decimal(12, 2)
+  discountAmount Decimal   @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxableAmount  Decimal   @default(0.00) @map("taxable_amount") @db.Decimal(12, 2)
+  vatAmount      Decimal   @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
+  grandTotal     Decimal   @map("grand_total") @db.Decimal(12, 2)
+  notes          String?   @map("notes")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  items          PurchaseInvoiceItem[]
+
+  @@index([invoiceNumber])
+  @@index([distributorId])
+  @@index([purchaseDate])
+  @@map("purchase_invoice_tbl")
+}
+
+// ==========================================
+// 13. Purchase Invoice Items
+// ==========================================
+model PurchaseInvoiceItem {
+  id              Int             @id @default(autoincrement())
+  invoiceId       Int             @map("invoice_id")
+  invoice         PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  inventoryId     Int?            @map("inventory_id")
+  inventory       Inventory?      @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+
+  medicineName    String          @map("medicine_name")
+  genericName     String?         @map("generic_name")
+  categoryName    String?         @map("category_name")
+  batchNumber     String          @map("batch_number")
+  expiryDate      String          @map("expiry_date")
+
+  packQty         Int             @map("pack_qty")
+  freePacks       Int             @default(0) @map("free_packs")
+  unitsPerPack    Int             @default(10) @map("units_per_pack")
+
+  costPrice       Decimal         @map("cost_price") @db.Decimal(10, 2)
+  discountPercent Decimal         @default(0.00) @map("discount_percent") @db.Decimal(5, 2)
+  isVatApplicable Boolean         @default(false) @map("is_vat_applicable")
+  mrpPrice        Decimal         @map("mrp_price") @db.Decimal(10, 2)
+  rackLocation    String?         @map("rack_location")
+  lineTotal       Decimal         @map("line_total") @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+  @@index([inventoryId])
+  @@map("purchase_invoice_items_tbl")
+}
+
