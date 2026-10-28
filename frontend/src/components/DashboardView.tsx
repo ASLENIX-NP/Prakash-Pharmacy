@@ -248,7 +248,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             {lowStockMedicines.slice(0, 6).map((m) => (
               <div
                 key={m.id}
-                className="grid grid-cols-[minmax(0,1fr)_120px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
               >
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-extrabold text-slate-900">
@@ -274,14 +274,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                     Reorder at &le; {m.reorderLevel}
                   </p>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveAuditMedicine(m)}
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800 transition hover:bg-amber-100"
-                >
-                  Count Stock
-                </button>
               </div>
             ))}
 
