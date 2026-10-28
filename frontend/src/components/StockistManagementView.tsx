@@ -265,7 +265,7 @@ export const StockistManagementView: React.FC = () => {
   }, [invoiceItems]);
 
   // Submit Purchase Invoice
-  const handleSubmitPurchaseInvoice = (e: React.FormEvent) => {
+  const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceHeader.invoiceNumber.trim()) {
       alert('Invoice Number is required!');
@@ -279,7 +279,7 @@ export const StockistManagementView: React.FC = () => {
     const stockist = stockists.find(s => s.id === invoiceHeader.stockistId);
     if (!stockist) return;
 
-    addPurchaseInvoice({
+    await addPurchaseInvoice({
       invoiceNumber: invoiceHeader.invoiceNumber,
       stockistId: stockist.id,
       stockistName: stockist.name,
@@ -330,11 +330,11 @@ export const StockistManagementView: React.FC = () => {
   };
 
   // Submit Stockist Payment
-  const handleRecordPayment = (e: React.FormEvent) => {
+  const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentSelectedStockist || paymentAmount <= 0) return;
 
-    addStockistPayment(
+    await addStockistPayment(
       currentSelectedStockist.id,
       paymentAmount,
       paymentMode,
