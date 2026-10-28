@@ -288,6 +288,8 @@ const SettingsPreviewGroupCard: React.FC<{
   </section>
 );
 
+const normalizePhoneNumber = (value: string) => value.replace(/\D/g, '').slice(0, 10);
+
 export const SettingsView: React.FC = () => {
   const { 
     settings, 
@@ -687,6 +689,7 @@ export const SettingsView: React.FC = () => {
                 </div>
               </div>
 
+              </div>
               <div className="md:col-span-2 mt-4">
                 <span className="mb-2 block text-xs font-semibold text-slate-600">Store logo</span>
                 <div className="flex flex-wrap items-center gap-4">
