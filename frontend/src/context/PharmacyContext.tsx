@@ -105,12 +105,12 @@ interface PharmacyContextType {
   stockists: Stockist[];
   isStockistDemoDataActive: boolean;
   clearStockistDemoData: () => void;
-  addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Stockist;
-  updateStockist: (id: string, updates: Partial<Stockist>) => void;
+  addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Promise<Stockist>;
+  updateStockist: (id: string, updates: Partial<Stockist>) => Promise<void>;
   
   // Purchase Invoices
   purchaseInvoices: StockistPurchaseInvoice[];
-  addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => StockistPurchaseInvoice;
+  addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => Promise<StockistPurchaseInvoice>;
 
   // Stockist Ledger & Payments
   stockistLedgers: StockistLedgerEntry[];
@@ -120,7 +120,7 @@ interface PharmacyContextType {
     paymentMode: string,
     refNumber: string,
     notes: string
-  ) => void;
+  ) => Promise<void>;
 
   // Returns to Wholesaler (Damaged / Expired / Breakage)
   stockistReturns: StockistReturnVoucher[];
@@ -134,7 +134,7 @@ interface PharmacyContextType {
 
   // Settings
   settings: PharmacySettings;
-  updateSettings: (updates: Partial<PharmacySettings>) => void;
+  updateSettings: (updates: Partial<PharmacySettings>) => Promise<void>;
 
   // Active Modals state
   activeVatInfoMedicine: Medicine | null;
@@ -379,24 +379,16 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     readStoredCollection<Medicine>(STORAGE_KEYS.MEDICINES)
   );
 
-  const [stockists, setStockists] = useState<Stockist[]>(() =>
-    initializeStockistDemoData()
-  );
+  const [stockists, setStockists] = useState<Stockist[]>([]);
   const [isStockistDemoDataActive, setIsStockistDemoDataActive] = useState(
     () => localStorage.getItem(STOCKIST_DEMO_STATUS_KEY) === 'active'
   );
 
-  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>(() =>
-    readStoredCollection<StockistPurchaseInvoice>(STORAGE_KEYS.INVOICES)
-  );
+  const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>([]);
 
-  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>(() =>
-    readStoredCollection<StockistLedgerEntry>(STORAGE_KEYS.LEDGERS)
-  );
+  const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>([]);
 
-  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>(() =>
-    readStoredCollection<StockAdjustmentLog>(STORAGE_KEYS.ADJUSTMENTS)
-  );
+  const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>([]);
   const [inventoryBackendStatus, setInventoryBackendStatus] =
     useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
   const [inventoryBackendError, setInventoryBackendError] = useState('');
@@ -437,21 +429,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.MEDICINES, JSON.stringify(medicines));
   }, [medicines]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STOCKISTS, JSON.stringify(stockists));
-  }, [stockists]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(purchaseInvoices));
-  }, [purchaseInvoices]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.LEDGERS, JSON.stringify(stockistLedgers));
-  }, [stockistLedgers]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.ADJUSTMENTS, JSON.stringify(stockAdjustments));
-  }, [stockAdjustments]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(stockistReturns));
@@ -640,6 +617,144 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             error
           );
         }
+      }
+
+      // ------------------------------------------------------
+      // DISTRIBUTORS / STOCKISTS
+      // ------------------------------------------------------
+      let liveDistributors: Stockist[] = [];
+
+      try {
+        const distRes =
+          await apiRequest<{ data: Stockist[] }>(
+            '/distributors?limit=all'
+          );
+
+        liveDistributors =
+          Array.isArray(distRes.data) ? distRes.data : [];
+
+        if (!cancelled) {
+          setStockists(liveDistributors);
+        }
+      } catch (error) {
+        console.error('Error fetching live stockists:', error);
+      }
+
+      // ------------------------------------------------------
+      // SUPPLIER LEDGERS
+      // ------------------------------------------------------
+      try {
+        const ledgerGroups =
+          await Promise.all(
+            liveDistributors.map(async stockist => {
+              const ledgerRes =
+                await apiRequest<{ data: any[] }>(
+                  '/distributors/' +
+                    encodeURIComponent(stockist.id) +
+                    '/ledger'
+                );
+
+              return (
+                Array.isArray(ledgerRes.data)
+                  ? ledgerRes.data
+                  : []
+              ).map(item => ({
+                ...item,
+                stockistId: stockist.id,
+                refId: item.refId || String(item.id)
+              })) as StockistLedgerEntry[];
+            })
+          );
+
+        if (!cancelled) {
+          const allInitialLedgers = ledgerGroups.flat();
+          allInitialLedgers.sort((a, b) => {
+            const timeA = new Date(a.createdAt || a.date).getTime();
+            const timeB = new Date(b.createdAt || b.date).getTime();
+            if (timeB !== timeA) return timeB - timeA;
+            return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+          });
+          setStockistLedgers(allInitialLedgers);
+        }
+      } catch (error) {
+        console.error('Error fetching supplier ledgers:', error);
+      }
+
+      // ------------------------------------------------------
+      // INWARD PURCHASE INVOICES
+      // ------------------------------------------------------
+      try {
+        const purchaseRes =
+          await apiRequest<{
+            data: StockistPurchaseInvoice[];
+          }>('/purchases?limit=all');
+
+        if (
+          !cancelled &&
+          Array.isArray(purchaseRes.data)
+        ) {
+          setPurchaseInvoices(purchaseRes.data);
+        }
+      } catch (error) {
+        console.error('Error fetching live purchase bills:', error);
+      }
+
+      // ------------------------------------------------------
+      // PHYSICAL STOCK AUDIT HISTORY
+      // ------------------------------------------------------
+      try {
+        const adjustmentRes =
+          await apiRequest<{ data: any[] }>(
+            '/inventory/adjustments?limit=all'
+          );
+
+        if (
+          !cancelled &&
+          Array.isArray(adjustmentRes.data)
+        ) {
+          const liveAdjustments: StockAdjustmentLog[] =
+            adjustmentRes.data.map(item => {
+              const rawType =
+                String(item.type || '').toLowerCase();
+
+              const type: StockAdjustmentLog['type'] =
+                rawType === 'reconcile' ||
+                rawType === 'audit' ||
+                rawType === 'correction'
+                  ? 'reconcile'
+                  : rawType === 'add'
+                    ? 'add'
+                    : rawType === 'deduce'
+                      ? 'deduce'
+                      : Number(item.netVarianceUnits || 0) >= 0
+                        ? 'add'
+                        : 'deduce';
+
+              return {
+                ...item,
+                type
+              };
+            });
+
+          setStockAdjustments(liveAdjustments);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching physical stock audit history:',
+          error
+        );
+      }
+
+      // ------------------------------------------------------
+      // STORE SETTINGS
+      // ------------------------------------------------------
+      try {
+        const settingsRes = await apiRequest<{ data: PharmacySettings }>('/settings');
+        if (!cancelled && settingsRes?.data) {
+          setSettings(settingsRes.data);
+        }
+      } catch (error) {
+        console.error('Error fetching live store settings:', error);
       }
     };
 
@@ -1755,141 +1870,405 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
-  // Stockists
-  const addStockist = (stkData: Omit<Stockist, 'id' | 'currentBalance'>): Stockist => {
-    const newStockist: Stockist = {
-      ...stkData,
-      id: `stk-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      currentBalance: 0
-    };
-    setStockists(prev => [...prev, newStockist]);
-    return newStockist;
+  // Stockists / Distributors - PostgreSQL backend
+
+  const fetchDistributorLedgers = async (
+    distributorList: Stockist[]
+  ): Promise<StockistLedgerEntry[]> => {
+
+    if (distributorList.length === 0) {
+      return [];
+    }
+
+    const ledgerGroups =
+      await Promise.all(
+        distributorList.map(
+          async (
+            stockist
+          ): Promise<StockistLedgerEntry[]> => {
+
+            try {
+
+              const response =
+                await apiRequest<{
+                  data: any[];
+                }>(
+                  '/distributors/' +
+                    encodeURIComponent(
+                      stockist.id
+                    ) +
+                    '/ledger'
+                );
+
+              if (
+                !Array.isArray(
+                  response.data
+                )
+              ) {
+                return [];
+              }
+
+              return response.data.map(
+                (
+                  item: any
+                ): StockistLedgerEntry => ({
+                  id:
+                    String(item.id),
+
+                  // Always use the stockist ID from the
+                  // distributor currently being fetched.
+                  // This guarantees frontend filtering matches.
+                  stockistId:
+                    stockist.id,
+
+                  date:
+                    item.date ||
+                    new Date()
+                      .toISOString()
+                      .split('T')[0],
+
+                  refType:
+                    item.refType,
+
+                  refId:
+                    item.refId ||
+                    String(item.id),
+
+                  refNumber:
+                    item.refNumber || '',
+
+                  description:
+                    item.description || '',
+
+                  debit:
+                    Number(
+                      item.debit || 0
+                    ),
+
+                  credit:
+                    Number(
+                      item.credit || 0
+                    ),
+
+                  balance:
+                    Number(
+                      item.balance || 0
+                    ),
+                  createdAt:
+                    item.createdAt ||
+                    (item.date ? `${item.date}T00:00:00.000Z` : undefined),
+                  ledgerId:
+                    item.ledgerId
+                      ? Number(item.ledgerId)
+                      : Number(item.id) || undefined
+                })
+              );
+
+            } catch (error) {
+
+              console.error(
+                'Failed to load ledger for distributor:',
+                stockist.id,
+                error
+              );
+
+              return [];
+            }
+          }
+        )
+      );
+
+
+    const allLedgers =
+      ledgerGroups.flat();
+
+
+    allLedgers.sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.date).getTime();
+      const timeB = new Date(b.createdAt || b.date).getTime();
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+    });
+
+
+    return allLedgers;
   };
 
-  const updateStockist = (id: string, updates: Partial<Stockist>) => {
-    setStockists(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+
+  const refreshLiveStockists = async (): Promise<Stockist[]> => {
+    const response =
+      await apiRequest<{ data: Stockist[] }>(
+        '/distributors?limit=all'
+      );
+
+    const liveStockists =
+      Array.isArray(response.data)
+        ? response.data
+        : [];
+
+    setStockists(liveStockists);
+
+    return liveStockists;
   };
+
+ 
+  const refreshLiveLedgers = async (
+    distributorList: Stockist[]
+  ): Promise<StockistLedgerEntry[]> => {
+
+    const liveLedgers =
+      await fetchDistributorLedgers(
+        distributorList
+      );
+
+    setStockistLedgers(
+      liveLedgers
+    );
+
+    return liveLedgers;
+  };
+
+
+  const refreshLivePurchases =
+    async (): Promise<StockistPurchaseInvoice[]> => {
+
+      const response =
+        await apiRequest<{
+          data: StockistPurchaseInvoice[];
+        }>(
+          '/purchases?limit=all'
+        );
+
+      const livePurchases =
+        Array.isArray(response.data)
+          ? response.data
+          : [];
+
+      setPurchaseInvoices(livePurchases);
+
+      return livePurchases;
+    };
+
+
+  const refreshLiveInventory = async () => {
+    const response =
+      await apiRequest<{ data: any[] }>(
+        '/inventory?limit=all'
+      );
+
+    if (!Array.isArray(response.data)) {
+      return;
+    }
+
+    const liveMedicines: Medicine[] =
+      response.data.map((item: any) => ({
+        ...item,
+        supplierId: item.supplierId || '',
+        supplierName: item.supplierName || ''
+      }));
+
+    setMedicines(liveMedicines);
+  };
+
 
   const clearStockistDemoData = () => {
-    setStockists(previous => previous.filter(stockist => !stockist.id.startsWith('demo-')));
-    setPurchaseInvoices(previous => previous.filter(invoice => !invoice.id.startsWith('demo-')));
-    setStockistLedgers(previous => previous.filter(entry => !entry.id.startsWith('demo-')));
+    setStockists(previous =>
+      previous.filter(stockist => !stockist.id.startsWith('demo-'))
+    );
+    setPurchaseInvoices(previous =>
+      previous.filter(invoice => !invoice.id.startsWith('demo-'))
+    );
+    setStockistLedgers(previous =>
+      previous.filter(entry => !entry.id.startsWith('demo-'))
+    );
     localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
     setIsStockistDemoDataActive(false);
   };
 
-  // Purchase Invoices (Entry of stockist bill)
-  const addPurchaseInvoice = (
-    invData: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>
-  ): StockistPurchaseInvoice => {
-    const newInvoice: StockistPurchaseInvoice = {
-      ...invData,
-      id: `inv-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      createdAt: new Date().toISOString()
-    };
+  const addStockist = async (
+    stkData: Omit<Stockist, 'id' | 'currentBalance'>
+  ): Promise<Stockist> => {
 
-    // 1. Update/Add items into inventory
-    invData.items.forEach(item => {
-      // Find matching item by medicine name and batch
-      const existing = medicines.find(
-        m => m.name.toLowerCase() === item.medicineName.toLowerCase() &&
-             m.batchNumber.toLowerCase() === item.batchNumber.toLowerCase()
+    const response =
+      await apiRequest<{ data?: Stockist }>(
+        '/distributors',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            name: stkData.name,
+            phone: stkData.phone,
+            panNumber: stkData.panNumber,
+            address: stkData.address,
+            contactPerson: stkData.contactPerson,
+            creditLimit: stkData.creditLimit,
+            email: stkData.email
+          })
+        }
       );
 
-      const receivedPacks = (item.packQty || 0) + (item.freePacks || 0);
+    const liveStockists =
+      await refreshLiveStockists();
 
-      if (existing) {
-        updateMedicine(existing.id, {
-          stockPacks: existing.stockPacks + receivedPacks,
-          costPrice: item.costPrice,
-          mrpPrice: item.mrpPrice > 0 ? item.mrpPrice : existing.mrpPrice,
-          expiryDate: item.expiryDate || existing.expiryDate,
-          supplierId: invData.stockistId,
-          supplierName: invData.stockistName,
-          isVatApplicable: item.isVatApplicable,
-          rackLocation: item.rackLocation || existing.rackLocation
-        });
-      } else {
-        // Create new item
-        addMedicine({
-          name: item.medicineName,
-          genericName: item.genericName || item.medicineName,
-          category: item.category || 'Tablet',
-          batchNumber: item.batchNumber || `BAT-${Date.now().toString().slice(-4)}`,
-          expiryDate: item.expiryDate || '2027-12-31',
-          stockPacks: receivedPacks,
-          stockLooseUnits: 0,
-          unitsPerPack: item.unitsPerPack || 10,
-          costPrice: item.costPrice,
-          mrpPrice: item.mrpPrice || item.costPrice * 1.3,
-          supplierId: invData.stockistId,
-          supplierName: invData.stockistName,
-          reorderLevel: 15,
-          rackLocation: item.rackLocation || 'Rack A-1',
-          isVatApplicable: item.isVatApplicable,
-          notes: `Purchased via Invoice #${invData.invoiceNumber}`
-        });
-      }
-    });
+    const created =
+      response.data ||
+      liveStockists.find(
+        stockist =>
+          stockist.name === stkData.name &&
+          stockist.panNumber === stkData.panNumber
+      );
 
-    // 2. Post to Stockist Ledger
-    const stockist = stockists.find(s => s.id === invData.stockistId);
-    const currentBalance = stockist ? stockist.currentBalance : 0;
-    const newBalance = currentBalance + (invData.paymentMode === 'credit' ? invData.grandTotal : 0);
-
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId: invData.stockistId,
-      date: invData.date,
-      refType: 'purchase_invoice',
-      refId: newInvoice.id,
-      refNumber: invData.invoiceNumber,
-      description: `Purchase Bill #${invData.invoiceNumber} (${invData.items.length} items, Mode: ${invData.paymentMode.toUpperCase()})`,
-      debit: invData.paymentMode === 'cash' ? invData.grandTotal : 0,
-      credit: invData.grandTotal,
-      balance: newBalance
-    };
-
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-
-    // 3. Update stockist balance if credit
-    if (stockist && invData.paymentMode === 'credit') {
-      updateStockist(stockist.id, { currentBalance: newBalance });
+    if (!created) {
+      throw new Error(
+        'Distributor was created but could not be reloaded.'
+      );
     }
 
-    setPurchaseInvoices(prev => [newInvoice, ...prev]);
-    return newInvoice;
+    return created;
   };
 
-  // Stockist Payments (Settling balance)
-  const addStockistPayment = (
+
+  const updateStockist = async (
+    id: string,
+    updates: Partial<Stockist>
+  ): Promise<void> => {
+
+    const payload: Record<string, unknown> = {};
+
+    if (updates.name !== undefined)
+      payload.name = updates.name;
+
+    if (updates.phone !== undefined)
+      payload.phone = updates.phone;
+
+    if (updates.panNumber !== undefined)
+      payload.panNumber = updates.panNumber;
+
+    if (updates.address !== undefined)
+      payload.address = updates.address;
+
+    if (updates.contactPerson !== undefined)
+      payload.contactPerson = updates.contactPerson;
+
+    if (updates.creditLimit !== undefined)
+      payload.creditLimit = updates.creditLimit;
+
+    if (updates.email !== undefined)
+      payload.email = updates.email;
+
+
+    // Some old frontend-only workflows still update only the
+    // displayed balance. Do not send an empty PUT to PostgreSQL.
+    if (Object.keys(payload).length === 0) {
+      setStockists(prev =>
+        prev.map(stockist =>
+          stockist.id === id
+            ? { ...stockist, ...updates }
+            : stockist
+        )
+      );
+
+      return;
+    }
+
+
+    await apiRequest(
+      '/distributors/' + encodeURIComponent(id),
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }
+    );
+
+    await refreshLiveStockists();
+  };
+
+
+  // Purchase Invoices - backend transaction is authoritative.
+  // Do NOT manually update inventory or supplier balance here.
+  const addPurchaseInvoice = async (
+    invData: Omit<
+      StockistPurchaseInvoice,
+      'id' | 'createdAt'
+    >
+  ): Promise<StockistPurchaseInvoice> => {
+
+    const response =
+      await apiRequest<{
+        data?: StockistPurchaseInvoice;
+      }>(
+        '/purchases',
+        {
+          method: 'POST',
+          body: JSON.stringify(invData)
+        }
+      );
+
+
+    const [
+      livePurchases,
+      liveStockists
+    ] = await Promise.all([
+      refreshLivePurchases(),
+      refreshLiveStockists(),
+      refreshLiveInventory()
+    ]);
+
+    await refreshLiveLedgers(
+      liveStockists
+    );
+
+
+    const created =
+      response.data ||
+      livePurchases.find(
+        invoice =>
+          invoice.invoiceNumber ===
+          invData.invoiceNumber
+      );
+
+    if (!created) {
+      throw new Error(
+        'Purchase was saved but could not be reloaded.'
+      );
+    }
+
+    return created;
+  };
+
+
+  // Supplier payment - backend updates running balance
+  // and creates the debit ledger entry transactionally.
+  const addStockistPayment = async (
     stockistId: string,
     amount: number,
     paymentMode: string,
     refNumber: string,
     notes: string
-  ) => {
-    const stockist = stockists.find(s => s.id === stockistId);
-    if (!stockist) return;
+  ): Promise<void> => {
 
-    const newBalance = stockist.currentBalance - amount;
+    await apiRequest(
+      '/distributors/' +
+        encodeURIComponent(stockistId) +
+        '/payments',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          amount,
+          paymentMode,
+          refNumber,
+          notes
+        })
+      }
+    );
 
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-pay-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId,
-      date: new Date().toISOString().split('T')[0],
-      refType: 'payment_made',
-      refId: `pay-${Date.now()}`,
-      refNumber: refNumber || `VOUCHER-${Date.now().toString().slice(-4)}`,
-      description: `Payment made via ${paymentMode.toUpperCase()} ${notes ? `(${notes})` : ''}`,
-      debit: amount,
-      credit: 0,
-      balance: newBalance
-    };
+    const liveStockists =
+      await refreshLiveStockists();
 
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-    updateStockist(stockistId, { currentBalance: newBalance });
+    await refreshLiveLedgers(
+      liveStockists
+    );
   };
+
 
   // Stockist Returns (Return Damaged / Expired / Breakage to wholesaler)
   const recordStockistReturn = (
@@ -1901,46 +2280,36 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createdAt: new Date().toISOString()
     };
 
-    // 1. Deduct items from inventory & record audit
-    voucherData.items.forEach(item => {
-      const med = medicines.find(m => m.id === item.medicineId);
-      if (med) {
-        recordStockAdjustment({
-          medicineId: med.id,
-          type: 'deduce',
-          addedPacks: item.packs,
-          addedLoose: item.looseUnits,
-          reason: 'Supplier Return / Correction',
-          notes: `Returned to ${voucherData.stockistName} via Debit Note #${voucherData.debitNoteNumber}. Reason: ${item.reason}`,
-          recordedBy: 'Pharmacist'
-        });
-      }
-    });
-
-    // 2. Post Debit Note to stockist ledger (Reduces what we owe the wholesaler!)
-    const stockist = stockists.find(s => s.id === voucherData.stockistId);
-    const currentBalance = stockist ? stockist.currentBalance : 0;
-    const newBalance = currentBalance - voucherData.totalAmount;
-
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-ret-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId: voucherData.stockistId,
-      date: voucherData.date,
-      refType: 'return_debit_note',
-      refId: newVoucher.id,
-      refNumber: voucherData.debitNoteNumber,
-      description: `Debit Note #${voucherData.debitNoteNumber}: Return of Damaged/Expired medicines (${voucherData.items.length} items)`,
-      debit: voucherData.totalAmount, // Debit reduces our liability
-      credit: 0,
-      balance: newBalance
-    };
-
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-    if (stockist) {
-      updateStockist(stockist.id, { currentBalance: newBalance });
-    }
-
+    // Optimistic UI update
     setStockistReturns(prev => [newVoucher, ...prev]);
+
+    // Send Debit Note & stock deduction to PostgreSQL
+    void apiRequest<{
+      success: boolean;
+      data: { distributor: Stockist; ledgerEntry: StockistLedgerEntry };
+    }>(`/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`, {
+      method: 'POST',
+      body: JSON.stringify({
+        debitNoteNumber: voucherData.debitNoteNumber,
+        totalAmount: voucherData.totalAmount,
+        date: voucherData.date,
+        notes: voucherData.notes,
+        items: voucherData.items
+      })
+    })
+      .then(async () => {
+        // Refresh live stockists, ledgers, and inventory from PostgreSQL
+        const [liveStockists] = await Promise.all([
+          refreshLiveStockists(),
+          refreshLiveInventory()
+        ]);
+        await refreshLiveLedgers(liveStockists);
+      })
+      .catch(err => {
+        console.error('Failed to record supplier return:', err);
+        alert(err instanceof Error ? err.message : 'Failed to record supplier return.');
+      });
+
     return newVoucher;
   };
 
@@ -2082,8 +2451,22 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setIsSalesDemoDataActive(false);
   };
 
-  const updateSettings = (updates: Partial<PharmacySettings>) => {
+  const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
     setSettings(prev => ({ ...prev, ...updates }));
+
+    try {
+      const res = await apiRequest<{ success: boolean; data: PharmacySettings }>('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+
+      if (res?.data) {
+        setSettings(res.data);
+      }
+    } catch (error) {
+      console.error('Failed to sync settings with server:', error);
+      throw error;
+    }
   };
 
   const clearLocalData = () => {
