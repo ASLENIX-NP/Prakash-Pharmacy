@@ -11,6 +11,7 @@ import inventoryRoutes from "./routes/inventory.routes.js";
 import billRoutes from "./routes/bill.routes.js";
 import distributorRoutes from "./routes/distributor.routes.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
+import settingRoutes from "./routes/setting.routes.js";
 
 const app = express();
 
@@ -86,5 +87,6 @@ app.use("/api/distributors", distributorRoutes);
 app.use("/api/stockists", distributorRoutes); // Alias for convenience
 app.use("/api/purchases", purchaseRoutes);
 app.use("/api/purchase-invoices", purchaseRoutes); // Alias for convenience
+app.use("/api/settings", settingRoutes);
 
 export default app;

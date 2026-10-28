@@ -7,6 +7,7 @@ import {
   deleteDistributor,
   getDistributorLedger,
   recordDistributorPayment,
+  recordDistributorReturn,
 } from "../controllers/distributor.controller.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.middleware.js";
 
@@ -22,5 +23,6 @@ router.post("/", requireAuth, requireAdmin, createDistributor);
 router.put("/:id", requireAuth, requireAdmin, updateDistributor);
 router.delete("/:id", requireAuth, requireAdmin, deleteDistributor);
 router.post("/:id/payments", requireAuth, requireAdmin, recordDistributorPayment);
+router.post("/:id/returns", requireAuth, requireAdmin, recordDistributorReturn);
 
 export default router;

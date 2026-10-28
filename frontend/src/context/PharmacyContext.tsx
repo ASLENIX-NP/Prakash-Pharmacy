@@ -111,7 +111,7 @@ interface PharmacyContextType {
 
   // Settings
   settings: PharmacySettings;
-  updateSettings: (updates: Partial<PharmacySettings>) => void;
+  updateSettings: (updates: Partial<PharmacySettings>) => Promise<void>;
 
   // Active Modals state
   activeVatInfoMedicine: Medicine | null;
@@ -511,7 +511,14 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           );
 
         if (!cancelled) {
-          setStockistLedgers(ledgerGroups.flat());
+          const allInitialLedgers = ledgerGroups.flat();
+          allInitialLedgers.sort((a, b) => {
+            const timeA = new Date(a.createdAt || a.date).getTime();
+            const timeB = new Date(b.createdAt || b.date).getTime();
+            if (timeB !== timeA) return timeB - timeA;
+            return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+          });
+          setStockistLedgers(allInitialLedgers);
         }
       } catch (error) {
         console.error('Error fetching supplier ledgers:', error);
@@ -582,6 +589,17 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         );
       }
 
+      // ------------------------------------------------------
+      // STORE SETTINGS
+      // ------------------------------------------------------
+      try {
+        const settingsRes = await apiRequest<{ data: PharmacySettings }>('/settings');
+        if (!cancelled && settingsRes?.data) {
+          setSettings(settingsRes.data);
+        }
+      } catch (error) {
+        console.error('Error fetching live store settings:', error);
+      }
     };
 
     void loadBackendData();
@@ -1682,7 +1700,14 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                   balance:
                     Number(
                       item.balance || 0
-                    )
+                    ),
+                  createdAt:
+                    item.createdAt ||
+                    (item.date ? `${item.date}T00:00:00.000Z` : undefined),
+                  ledgerId:
+                    item.ledgerId
+                      ? Number(item.ledgerId)
+                      : Number(item.id) || undefined
                 })
               );
 
@@ -1705,11 +1730,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       ledgerGroups.flat();
 
 
-    allLedgers.sort(
-      (a, b) =>
-        new Date(b.date).getTime() -
-        new Date(a.date).getTime()
-    );
+    allLedgers.sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.date).getTime();
+      const timeB = new Date(b.createdAt || b.date).getTime();
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+    });
 
 
     return allLedgers;
@@ -1987,46 +2013,36 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createdAt: new Date().toISOString()
     };
 
-    // 1. Deduct items from inventory & record audit
-    voucherData.items.forEach(item => {
-      const med = medicines.find(m => m.id === item.medicineId);
-      if (med) {
-        recordStockAdjustment({
-          medicineId: med.id,
-          type: 'deduce',
-          addedPacks: item.packs,
-          addedLoose: item.looseUnits,
-          reason: 'Supplier Return / Correction',
-          notes: `Returned to ${voucherData.stockistName} via Debit Note #${voucherData.debitNoteNumber}. Reason: ${item.reason}`,
-          recordedBy: 'Pharmacist'
-        });
-      }
-    });
-
-    // 2. Post Debit Note to stockist ledger (Reduces what we owe the wholesaler!)
-    const stockist = stockists.find(s => s.id === voucherData.stockistId);
-    const currentBalance = stockist ? stockist.currentBalance : 0;
-    const newBalance = currentBalance - voucherData.totalAmount;
-
-    const ledgerEntry: StockistLedgerEntry = {
-      id: `led-ret-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      stockistId: voucherData.stockistId,
-      date: voucherData.date,
-      refType: 'return_debit_note',
-      refId: newVoucher.id,
-      refNumber: voucherData.debitNoteNumber,
-      description: `Debit Note #${voucherData.debitNoteNumber}: Return of Damaged/Expired medicines (${voucherData.items.length} items)`,
-      debit: voucherData.totalAmount, // Debit reduces our liability
-      credit: 0,
-      balance: newBalance
-    };
-
-    setStockistLedgers(prev => [ledgerEntry, ...prev]);
-    if (stockist) {
-      updateStockist(stockist.id, { currentBalance: newBalance });
-    }
-
+    // Optimistic UI update
     setStockistReturns(prev => [newVoucher, ...prev]);
+
+    // Send Debit Note & stock deduction to PostgreSQL
+    void apiRequest<{
+      success: boolean;
+      data: { distributor: Stockist; ledgerEntry: StockistLedgerEntry };
+    }>(`/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`, {
+      method: 'POST',
+      body: JSON.stringify({
+        debitNoteNumber: voucherData.debitNoteNumber,
+        totalAmount: voucherData.totalAmount,
+        date: voucherData.date,
+        notes: voucherData.notes,
+        items: voucherData.items
+      })
+    })
+      .then(async () => {
+        // Refresh live stockists, ledgers, and inventory from PostgreSQL
+        const [liveStockists] = await Promise.all([
+          refreshLiveStockists(),
+          refreshLiveInventory()
+        ]);
+        await refreshLiveLedgers(liveStockists);
+      })
+      .catch(err => {
+        console.error('Failed to record supplier return:', err);
+        alert(err instanceof Error ? err.message : 'Failed to record supplier return.');
+      });
+
     return newVoucher;
   };
 
@@ -2150,8 +2166,22 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return newInvoice;
   };
 
-  const updateSettings = (updates: Partial<PharmacySettings>) => {
+  const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
     setSettings(prev => ({ ...prev, ...updates }));
+
+    try {
+      const res = await apiRequest<{ success: boolean; data: PharmacySettings }>('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      });
+
+      if (res?.data) {
+        setSettings(res.data);
+      }
+    } catch (error) {
+      console.error('Failed to sync settings with server:', error);
+      throw error;
+    }
   };
 
   const clearLocalData = () => {

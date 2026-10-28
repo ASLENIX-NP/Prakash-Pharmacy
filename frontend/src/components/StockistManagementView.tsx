@@ -119,10 +119,17 @@ export const StockistManagementView: React.FC = () => {
     return stockists.find(s => s.id === selectedStockistId) || stockists[0];
   }, [stockists, selectedStockistId]);
 
-  // Ledger entries for active stockist
+  // Ledger entries for active stockist (Latest on top, oldest at bottom)
   const filteredLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
-    return stockistLedgers.filter(e => e.stockistId === currentSelectedStockist.id);
+    return stockistLedgers
+      .filter(e => e.stockistId === currentSelectedStockist.id || (e as any).distributorId === currentSelectedStockist.id)
+      .sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.date).getTime();
+        const timeB = new Date(b.createdAt || b.date).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+      });
   }, [stockistLedgers, currentSelectedStockist]);
 
   // Add Item Row in Purchase Invoice

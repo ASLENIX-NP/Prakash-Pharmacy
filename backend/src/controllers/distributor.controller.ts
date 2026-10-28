@@ -304,7 +304,10 @@ export const getDistributorLedger = async (req: Request, res: Response): Promise
 
     const ledgers = await prisma.ledger.findMany({
       where: { distributorId: id },
-      orderBy: { dateOfCreation: "desc" },
+      orderBy: [
+        { dateOfCreation: "desc" },
+        { id: "desc" },
+      ],
     });
 
     const formattedLedger = ledgers.map((l) => ({
@@ -421,3 +424,161 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
     });
   }
 };
+
+export const recordDistributorReturn = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) {
+      res.status(400).json({ success: false, message: "Invalid distributor ID." });
+      return;
+    }
+
+    const {
+      debitNoteNumber,
+      totalAmount,
+      items,
+      date,
+      notes,
+    } = req.body;
+
+    const parsedTotal = parseFloat(String(totalAmount));
+    if (isNaN(parsedTotal) || parsedTotal <= 0) {
+      res.status(400).json({ success: false, message: "Return total amount must be greater than zero." });
+      return;
+    }
+
+    const distributor = await prisma.distributor.findUnique({ where: { id } });
+    if (!distributor) {
+      res.status(404).json({ success: false, message: "Distributor not found." });
+      return;
+    }
+
+    const cleanDebitNote = String(debitNoteNumber || `DN-${Date.now().toString().slice(-6)}`).trim();
+    let cleanDate = new Date();
+    if (date) {
+      if (String(date).includes("T") || String(date).includes(" ")) {
+        const parsed = new Date(date);
+        if (!isNaN(parsed.getTime())) cleanDate = parsed;
+      } else {
+        const [y, m, d] = String(date).split("-").map(Number);
+        if (y && m && d) {
+          const now = new Date();
+          cleanDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+        }
+      }
+    }
+
+    const currentBal = Number(distributor.currentBalance || 0);
+    const newBal = currentBal - parsedTotal;
+
+    const authUser = (req as any).user ?? {};
+    const recordedBy = String(authUser.username ?? authUser.fullName ?? "Pharmacist");
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Process items and deduct inventory stock
+      if (Array.isArray(items) && items.length > 0) {
+        for (const item of items) {
+          const medId = parseIdParam(item.medicineId || item.id);
+          const packsToDeduct = Math.max(0, parseInt(String(item.packs ?? 0), 10) || 0);
+          const looseToDeduct = Math.max(0, parseInt(String(item.looseUnits ?? 0), 10) || 0);
+
+          let med = medId ? await tx.inventory.findUnique({ where: { id: medId } }) : null;
+
+          if (!med && item.medicineName && item.batchNumber) {
+            med = await tx.inventory.findFirst({
+              where: {
+                medicineBrand: { equals: String(item.medicineName).trim(), mode: "insensitive" },
+                batchNumber: { equals: String(item.batchNumber).trim(), mode: "insensitive" },
+              },
+            });
+          }
+
+          if (med) {
+            const unitsPerPack = Math.max(1, med.unitPerPack || 10);
+            const currentTotalUnits = med.packInStock * unitsPerPack + med.unitInStock;
+            const deductTotalUnits = packsToDeduct * unitsPerPack + looseToDeduct;
+            const remainingUnits = Math.max(0, currentTotalUnits - deductTotalUnits);
+
+            const newPacks = Math.floor(remainingUnits / unitsPerPack);
+            const newLoose = remainingUnits % unitsPerPack;
+
+            await tx.inventory.update({
+              where: { id: med.id },
+              data: {
+                packInStock: newPacks,
+                unitInStock: newLoose,
+              },
+            });
+
+            // Log adjustment
+            await tx.stockAdjustmentLog.create({
+              data: {
+                medicineId: med.id,
+                adjustmentType: "DISPOSAL",
+                previousPacks: med.packInStock,
+                newPacks,
+                variancePacks: newPacks - med.packInStock,
+                previousLooseUnits: med.unitInStock,
+                newLooseUnits: newLoose,
+                varianceLooseUnits: newLoose - med.unitInStock,
+                reason: item.reason ? `Wholesaler Return (${cleanDebitNote}): ${item.reason}` : `Wholesaler Return (${cleanDebitNote})`,
+                recordedBy,
+              },
+            });
+          }
+        }
+      }
+
+      // 2. Update distributor balance
+      const updatedDistributor = await tx.distributor.update({
+        where: { id },
+        data: { currentBalance: newBal },
+      });
+
+      // 3. Create Ledger entry (Debit reduces liability)
+      const itemCount = Array.isArray(items) ? items.length : 1;
+      const description = `Debit Note #${cleanDebitNote}: Return of Damaged/Expired medicines (${itemCount} items)${notes ? ` - ${notes}` : ""}`;
+
+      const ledgerEntry = await tx.ledger.create({
+        data: {
+          distributorId: id,
+          ledgerType: "return",
+          referenceNo: cleanDebitNote,
+          description,
+          debitAmount: parsedTotal,
+          creditAmount: 0,
+          balance: newBal,
+          dateOfCreation: cleanDate,
+        },
+      });
+
+      return { updatedDistributor, ledgerEntry };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Debit Note #${cleanDebitNote} recorded successfully. Supplier balance reduced by Rs. ${parsedTotal.toFixed(2)}.`,
+      data: {
+        distributor: formatDistributorResponse(result.updatedDistributor),
+        ledgerEntry: {
+          id: String(result.ledgerEntry.id),
+          stockistId: formatDistributorCode(id),
+          date: result.ledgerEntry.dateOfCreation.toISOString().split("T")[0],
+          refType: "return_debit_note",
+          refNumber: cleanDebitNote,
+          description: result.ledgerEntry.description,
+          debit: parsedTotal,
+          credit: 0,
+          balance: newBal,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error recording distributor return:", error);
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to record distributor return.",
+    });
+  }
+};
+

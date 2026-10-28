@@ -32,24 +32,45 @@ async function main() {
       );
     }
     console.log(`Administrator "${username}" already exists; leaving its credentials unchanged.`);
-    return;
+  } else {
+    const initials = `${firstName[0]}${lastName[0]}`.toUpperCase();
+    const user = await prisma.user.create({
+      data: {
+        username,
+        password: await bcrypt.hash(password, 10),
+        firstName,
+        lastName,
+        initials,
+        email,
+        role: "admin",
+        status: "active",
+      },
+    });
+
+    console.log(`Created initial administrator "${user.username}" (${user.id}).`);
   }
 
-  const initials = `${firstName[0]}${lastName[0]}`.toUpperCase();
-  const user = await prisma.user.create({
-    data: {
-      username,
-      password: await bcrypt.hash(password, 10),
-      firstName,
-      lastName,
-      initials,
-      email,
-      role: "admin",
-      status: "active",
-    },
-  });
-
-  console.log(`Created initial administrator "${user.username}" (${user.id}).`);
+  // Ensure default pharmacy settings exist
+  const existingSetting = await prisma.pharmacySetting.findFirst();
+  if (!existingSetting) {
+    await prisma.pharmacySetting.create({
+      data: {
+        storeName: "Prakash Pharmacy",
+        address: "Makwanpur, Nepal",
+        phoneNumber: "9800000000",
+        emailId: "contact@prakashpharmacy.com",
+        panNumber: "600123456",
+        ddaLicenceNumber: "DDA-MAK-1042",
+        currency: "NPR",
+        fiscalYear: "2081/82",
+        invoicePrefix: "PP-2081/82-",
+        receiptFooterNote: "Thank you for your visit. Medicines once sold cannot be returned without original bill.",
+        defaultLowStockThreshold: 15,
+        nearExpiryThresholdMonths: 6,
+      },
+    });
+    console.log("Created initial pharmacy store settings.");
+  }
 }
 
 main()

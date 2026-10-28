@@ -341,3 +341,25 @@ model PurchaseInvoiceItem {
   @@map("purchase_invoice_items_tbl")
 }
 
+// ==========================================
+// 14. Pharmacy Store Settings
+// ==========================================
+model PharmacySetting {
+  id                        Int      @id @default(autoincrement())
+  storeName                 String   @default("Prakash Pharmacy") @map("store_name")
+  address                   String   @default("") @map("address")
+  phoneNumber               String   @default("") @map("phone_number")
+  emailId                   String   @default("") @map("email_id")
+  panNumber                 String   @default("") @map("pan_number")
+  ddaLicenceNumber          String   @default("") @map("dda_licence_number")
+  currency                  String   @default("NPR") @map("currency")
+  fiscalYear                String   @default("2081/82") @map("fiscal_year")
+  invoicePrefix             String   @default("PP-2081/82-") @map("invoice_prefix")
+  receiptFooterNote         String   @default("Thank you for your visit. Medicines once sold cannot be returned without original bill.") @map("receipt_footer_note")
+  defaultLowStockThreshold  Int      @default(15) @map("default_low_stock_threshold")
+  nearExpiryThresholdMonths Int      @default(6) @map("near_expiry_threshold_months")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("pharmacy_settings_tbl")
+}
+
