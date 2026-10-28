@@ -28,6 +28,7 @@ import {
   parseMedicinesFromExcel, 
   exportInventoryToExcel 
 } from '../utils/excelUtils';
+import { decimalInputValue, digitsOnlyUpTo, preventInvalidNumberKeys } from '../utils/inputValidation';
 import { RacksManagerModal } from './RacksManagerModal';
 
 const MEDICINE_CATEGORIES: MedicineCategory[] = [
@@ -96,14 +97,14 @@ export const InventoryView: React.FC = () => {
     category: 'Tablet',
     batchNumber: '',
     expiryDate: '',
-    stockPacks: 10,
-    stockLooseUnits: 0,
-    unitsPerPack: 10,
-    costPrice: 50,
-    mrpPrice: 70,
+    stockPacks: undefined,
+    stockLooseUnits: undefined,
+    unitsPerPack: undefined,
+    costPrice: undefined,
+    mrpPrice: undefined,
     supplierId: '',
     supplierName: '',
-    reorderLevel: 15,
+    reorderLevel: undefined,
     rackLocation: 'Rack A-1',
     isVatApplicable: false,
     barcode: '',
@@ -176,14 +177,14 @@ export const InventoryView: React.FC = () => {
       category: 'Tablet',
       batchNumber: `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
       expiryDate: '2027-12-31',
-      stockPacks: 20,
-      stockLooseUnits: 0,
-      unitsPerPack: 10,
-      costPrice: 50,
-      mrpPrice: 70,
+      stockPacks: undefined,
+      stockLooseUnits: undefined,
+      unitsPerPack: undefined,
+      costPrice: undefined,
+      mrpPrice: undefined,
       supplierId: '',
       supplierName: '',
-      reorderLevel: 15,
+      reorderLevel: undefined,
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
       barcode: '',
@@ -203,6 +204,26 @@ export const InventoryView: React.FC = () => {
   const handleSaveMedicine = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name) return;
+
+    const requiredNumbers = [
+      formData.unitsPerPack,
+      formData.stockPacks,
+      formData.stockLooseUnits,
+      formData.costPrice,
+      formData.mrpPrice,
+      formData.reorderLevel,
+    ];
+    if (
+      requiredNumbers.some(value => value === undefined || !Number.isFinite(value)) ||
+      formData.unitsPerPack! < 1 ||
+      formData.stockPacks! < 0 ||
+      formData.stockLooseUnits! < 0 ||
+      formData.costPrice! < 0 ||
+      formData.mrpPrice! < 0 ||
+      formData.reorderLevel! < 1
+    ) {
+      return;
+    }
 
     if (editingMedicine) {
       updateMedicine(editingMedicine.id, formData);
@@ -847,8 +868,12 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    value={formData.unitsPerPack}
-                    onChange={(e) => setFormData({ ...formData, unitsPerPack: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                    step="1"
+                    inputMode="numeric"
+                    required
+                    value={formData.unitsPerPack ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    onChange={(e) => setFormData({ ...formData, unitsPerPack: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -858,8 +883,12 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    value={formData.stockPacks}
-                    onChange={(e) => setFormData({ ...formData, stockPacks: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    step="1"
+                    inputMode="numeric"
+                    required
+                    value={formData.stockPacks ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    onChange={(e) => setFormData({ ...formData, stockPacks: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -869,8 +898,12 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    value={formData.stockLooseUnits}
-                    onChange={(e) => setFormData({ ...formData, stockLooseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                    step="1"
+                    inputMode="numeric"
+                    required
+                    value={formData.stockLooseUnits ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    onChange={(e) => setFormData({ ...formData, stockLooseUnits: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -881,8 +914,10 @@ export const InventoryView: React.FC = () => {
                     type="number"
                     step="0.01"
                     min="0"
-                    value={formData.costPrice}
-                    onChange={(e) => setFormData({ ...formData, costPrice: parseFloat(e.target.value) || 0 })}
+                    required
+                    value={formData.costPrice ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                    onChange={(e) => setFormData({ ...formData, costPrice: e.target.value === '' ? undefined : Number(decimalInputValue(e.target.value, 2)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -893,8 +928,10 @@ export const InventoryView: React.FC = () => {
                     type="number"
                     step="0.01"
                     min="0"
-                    value={formData.mrpPrice}
-                    onChange={(e) => setFormData({ ...formData, mrpPrice: parseFloat(e.target.value) || 0 })}
+                    required
+                    value={formData.mrpPrice ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                    onChange={(e) => setFormData({ ...formData, mrpPrice: e.target.value === '' ? undefined : Number(decimalInputValue(e.target.value, 2)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -933,8 +970,10 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="1"
-                    value={formData.reorderLevel}
-                    onChange={(e) => setFormData({ ...formData, reorderLevel: parseInt(e.target.value, 10) || 15 })}
+                    required
+                    value={formData.reorderLevel ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
