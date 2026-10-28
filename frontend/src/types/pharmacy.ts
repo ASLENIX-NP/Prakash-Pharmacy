@@ -137,6 +137,8 @@ export interface StockistLedgerEntry {
   debit: number; // We paid or returned items -> reduces our payable liability
   credit: number; // We purchased on credit -> increases our liability
   balance: number; // Running balance
+  createdAt?: string;
+  ledgerId?: number;
 }
 
 export type StockistReturnReason = 

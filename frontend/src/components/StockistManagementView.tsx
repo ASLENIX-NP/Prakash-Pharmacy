@@ -124,17 +124,22 @@ export const StockistManagementView: React.FC = () => {
     return stockists.find(s => s.id === selectedStockistId) || stockists[0];
   }, [stockists, selectedStockistId]);
 
-  // Ledger entries for active stockist
+  // Ledger entries for active stockist (Latest on top, oldest at bottom)
   const filteredLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
     return stockistLedgers
-      .filter(entry => entry.stockistId === currentSelectedStockist.id)
+      .filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
       .filter(entry => {
         if (ledgerFilter === 'bills') return entry.refType === 'purchase_invoice';
         if (ledgerFilter === 'payments') return entry.refType === 'payment_made';
         return true;
       })
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.date).getTime();
+        const timeB = new Date(b.createdAt || b.date).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+      });
   }, [stockistLedgers, currentSelectedStockist, ledgerFilter]);
 
   const visibleStockists = useMemo(() => {
@@ -154,7 +159,7 @@ export const StockistManagementView: React.FC = () => {
 
   const ledgerSummary = useMemo(() => {
     const entries = currentSelectedStockist
-      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id)
+      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
       : [];
     return {
       totalPurchases: entries
@@ -265,7 +270,7 @@ export const StockistManagementView: React.FC = () => {
   }, [invoiceItems]);
 
   // Submit Purchase Invoice
-  const handleSubmitPurchaseInvoice = (e: React.FormEvent) => {
+  const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceHeader.invoiceNumber.trim()) {
       alert('Invoice Number is required!');
@@ -279,7 +284,7 @@ export const StockistManagementView: React.FC = () => {
     const stockist = stockists.find(s => s.id === invoiceHeader.stockistId);
     if (!stockist) return;
 
-    addPurchaseInvoice({
+    await addPurchaseInvoice({
       invoiceNumber: invoiceHeader.invoiceNumber,
       stockistId: stockist.id,
       stockistName: stockist.name,
@@ -330,11 +335,11 @@ export const StockistManagementView: React.FC = () => {
   };
 
   // Submit Stockist Payment
-  const handleRecordPayment = (e: React.FormEvent) => {
+  const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentSelectedStockist || paymentAmount <= 0) return;
 
-    addStockistPayment(
+    await addStockistPayment(
       currentSelectedStockist.id,
       paymentAmount,
       paymentMode,

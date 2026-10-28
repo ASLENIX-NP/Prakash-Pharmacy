@@ -6,12 +6,14 @@ import {
   Download, 
   Check,
   ImagePlus,
-  Trash2
+  Trash2,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { defaultSettings } from '../data/defaultSettings';
-import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
+import { digitsOnlyUpTo, isValidEmail } from '../utils/inputValidation';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -29,9 +31,10 @@ export const SettingsView: React.FC = () => {
 
   const [formData, setFormData] = useState<PharmacySettings>(() => ({
     ...settings,
-    phoneNumber: normalizePhoneNumber(settings.phoneNumber)
+    phoneNumber: (settings.phoneNumber || '').replace(/\D/g, '').slice(0, 10),
   }));
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [logoError, setLogoError] = useState('');
   const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(settings);
@@ -45,7 +48,8 @@ export const SettingsView: React.FC = () => {
     formData.pharmacistName,
     formData.pharmacistCouncilRegNumber
   ];
-  const completedRequiredSettings = requiredSettings.filter(value => value.trim()).length;
+  const completedRequiredSettings = requiredSettings.filter(value => value && value.trim()).length;
+
   const previewNextInvoiceNumber = Math.max(
     formData.nextInvoiceNumber || 1,
     salesInvoices.reduce((highest, sale) => {
@@ -55,15 +59,16 @@ export const SettingsView: React.FC = () => {
     }, 1)
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!/^\d{9}$/.test(formData.panNumber.trim())) {
       setFormError('PAN must be exactly 9 digits.');
       return;
     }
 
-    if (!/^\d{10}$/.test(formData.phoneNumber)) {
-      setFormError('Phone number must contain exactly 10 digits.');
+    const cleanPhone = formData.phoneNumber.trim().replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 8 || cleanPhone.length > 10) {
+      setFormError('Official phone number must be between 8 and 10 digits.');
       return;
     }
 
@@ -78,13 +83,27 @@ export const SettingsView: React.FC = () => {
     }
 
     setFormError('');
-    updateSettings(formData);
-    setSaveSuccess(true);
-    setTimeout(() => setSaveSuccess(false), 3000);
+    setIsSaving(true);
+    try {
+      await updateSettings({
+        ...formData,
+        phoneNumber: cleanPhone,
+      });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Error saving pharmacy settings:', err);
+      setFormError(err?.message || 'Failed to save store settings to server.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDiscardChanges = () => {
-    setFormData({ ...settings });
+    setFormData({
+      ...settings,
+      phoneNumber: (settings.phoneNumber || '').replace(/\D/g, '').slice(0, 10),
+    });
     setSaveSuccess(false);
     setFormError('');
     setLogoError('');
@@ -152,7 +171,7 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="mx-auto max-w-4xl space-y-5 pb-24">
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-800 ring-1 ring-teal-100">
@@ -166,94 +185,97 @@ export const SettingsView: React.FC = () => {
             Manage official DDA licence, PAN, store contact details, billing settings, and data backup.
           </p>
         </div>
-        <span className="inline-flex rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800">Admin only</span>
+        <div className="flex items-center gap-2">
+          {saveSuccess && (
+            <span className="flex items-center gap-1 text-xs font-bold text-teal-700 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-200 animate-in fade-in duration-200">
+              <Check className="w-4 h-4" />
+              Settings Saved!
+            </span>
+          )}
+          <button
+            type="submit"
+            form="store-settings-form"
+            disabled={isSaving}
+            className="flex items-center gap-2 bg-teal-700 hover:bg-teal-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-60"
+          >
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isSaving ? 'Saving...' : 'Save Store Credentials'}
+          </button>
+        </div>
       </div>
 
-      {saveSuccess && (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800" role="status">
-          <Check className="h-4 w-4" />
-          Settings updated successfully.
-        </div>
-      )}
       {formError && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-800" role="alert">
-          {formError}
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-medium text-rose-700 flex items-center gap-2" role="alert">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+          <span>{formError}</span>
         </div>
       )}
 
       <form id="store-settings-form" onSubmit={handleSubmit} className="space-y-4">
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
-            <div>
-              <h3 className="text-base font-extrabold text-slate-900">Store identity &amp; statutory credentials</h3>
-              <p className="mt-0.5 text-xs text-slate-500">Printed on invoices and reports</p>
+          <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Store identity &amp; statutory credentials</h3>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Required fields must be completed before issuing invoices or reports.
+                </p>
+              </div>
+              <span className="rounded-full bg-teal-50 px-2.5 py-1 text-xs font-bold text-teal-800 ring-1 ring-teal-200">
+                {completedRequiredSettings} of {requiredSettings.length} required completed
+              </span>
             </div>
-            <span className="text-xs font-semibold text-slate-500">
-              Profile completeness: {completedRequiredSettings} of {requiredSettings.length} required fields
-            </span>
-          </div>
-          <div className="px-5 pb-5 sm:px-6 sm:pb-6">
             <div className="mb-1 mt-4 h-1.5 overflow-hidden rounded-full bg-slate-100">
               <div
                 className="h-full rounded-full bg-teal-700 transition-[width]"
                 style={{ width: `${(completedRequiredSettings / requiredSettings.length) * 100}%` }}
               />
             </div>
-            <div className="grid grid-cols-1 gap-x-5 md:grid-cols-2 text-xs">
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Store / Pharmacy Name: *
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.storeName}
-              onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-bold text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
-            />
           </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Address (Makwanpur, Nepal): *
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.address}
-              onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
-            />
-          </div>
+          <div className="p-5 sm:p-6 space-y-4">
+            <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Store / Pharmacy Name: *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.storeName}
+                  onChange={(e) => setFormData({ ...formData, storeName: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-bold text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Permanent Account Number (PAN): *
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={9}
-              pattern="[0-9]{9}"
-              required
-              value={formData.panNumber}
-              onChange={(e) => setFormData({ ...formData, panNumber: digitsOnlyUpTo(e.target.value, 9) })}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono font-bold text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
-            />
-          </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Address (Makwanpur, Nepal): *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Department of Drug Administration (DDA) Licence No: *
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.ddaLicenceNumber}
-              onChange={(e) => setFormData({ ...formData, ddaLicenceNumber: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono font-bold text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
-            />
-          </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Permanent Account Number (PAN): *
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={9}
+                  pattern="[0-9]{9}"
+                  required
+                  value={formData.panNumber}
+                  onChange={(e) => setFormData({ ...formData, panNumber: digitsOnlyUpTo(e.target.value, 9) })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono font-bold text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1.5">
@@ -333,19 +355,62 @@ export const SettingsView: React.FC = () => {
                   <p className="mt-1 text-[11px] text-slate-500">Shown on invoices and the app header. PNG or JPG, under 1 MB.</p>
                   {logoError && <p className="mt-1 text-[11px] font-medium text-rose-700" role="alert">{logoError}</p>}
                 </div>
-                {formData.storeLogo && (
+                <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1" role="group" aria-label="VAT registration status">
                   <button
                     type="button"
-                    onClick={() => setFormData(current => ({ ...current, storeLogo: '' }))}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                    aria-pressed={formData.vatRegistered}
+                    onClick={() => setFormData(current => ({ ...current, vatRegistered: true }))}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      formData.vatRegistered ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Remove logo
+                    VAT Registered
                   </button>
-                )}
+                  <button
+                    type="button"
+                    aria-pressed={!formData.vatRegistered}
+                    onClick={() => setFormData(current => ({ ...current, vatRegistered: false }))}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      !formData.vatRegistered ? 'bg-teal-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Not Registered
+                  </button>
+                </div>
               </div>
-            </div>
 
+              <div className="md:col-span-2 mt-4">
+                <span className="mb-2 block text-xs font-semibold text-slate-600">Store logo</span>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                    {formData.storeLogo ? (
+                      <img src={formData.storeLogo} alt="Store logo preview" className="h-full w-full object-contain" />
+                    ) : (
+                      <ImagePlus className="h-6 w-6" />
+                    )}
+                  </div>
+                  <div className="min-w-[220px] flex-1">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-teal-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-teal-800 hover:file:bg-teal-100"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">Shown on invoices and the app header. PNG or JPG, under 1 MB.</p>
+                    {logoError && <p className="mt-1 text-[11px] font-medium text-rose-700" role="alert">{logoError}</p>}
+                  </div>
+                  {formData.storeLogo && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData(current => ({ ...current, storeLogo: '' }))}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove logo
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -414,129 +479,148 @@ export const SettingsView: React.FC = () => {
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
-            <h3 className="text-base font-extrabold text-slate-900">Billing &amp; invoice settings</h3>
-            <p className="mt-0.5 text-xs text-slate-500">Controls invoice numbering and receipt footer</p>
-          </div>
-          <div className="grid grid-cols-1 gap-x-5 px-5 pb-5 text-xs sm:px-6 sm:pb-6 md:grid-cols-2">
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Fiscal Year (Nepal Bikram Sambat):
-            </label>
-            <input
-              type="text"
-              value={formData.fiscalYear}
-              onChange={(e) => setFormData({ ...formData, fiscalYear: e.target.value })}
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
-            />
+            <h3 className="text-base font-extrabold text-slate-900">Billing, Fiscal &amp; Receipt Preferences</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Customize invoice sequence, print sizing, currency symbol, and receipt footer message.
+            </p>
           </div>
 
-          <div>
-            <label className="block font-semibold text-slate-700 mb-1.5">
-              Invoice Prefix (e.g. PP-2081/82-):
-            </label>
-            <input
-              type="text"
-              value={formData.invoicePrefix}
-              onChange={(e) => setFormData({ ...formData, invoicePrefix: e.target.value })}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-slate-900 transition-colors focus:border-teal-600 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-teal-600/15"
-            />
-          </div>
+          <div className="p-5 sm:p-6 space-y-4">
+            <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Fiscal Year (Nepal Bikram Sambat):
+                </label>
+                <input
+                  type="text"
+                  value={formData.fiscalYear}
+                  onChange={(e) => setFormData({ ...formData, fiscalYear: e.target.value })}
+                  placeholder="e.g. 2081/82"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div>
-            <label className="mb-1.5 mt-4 block font-semibold text-slate-600">
-              Next invoice number:
-            </label>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              required
-              value={formData.nextInvoiceNumber}
-              onChange={(e) => setFormData({ ...formData, nextInvoiceNumber: Number(e.target.value) || 0 })}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-slate-900 focus:border-teal-600 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-teal-600/15"
-            />
-          </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Currency Display:
+                </label>
+                <input
+                  type="text"
+                  value={formData.currency}
+                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                  placeholder="NPR"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div>
-            <span className="mb-1.5 mt-4 block font-semibold text-slate-600">Default invoice size</span>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Default invoice size">
-              {(['A5', 'Thermal'] as const).map(size => (
-                <button
-                  key={size}
-                  type="button"
-                  aria-pressed={formData.defaultInvoiceSize === size}
-                  onClick={() => setFormData({ ...formData, defaultInvoiceSize: size })}
-                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                    formData.defaultInvoiceSize === size ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {size === 'A5' ? 'A5 invoice' : 'Thermal receipt'}
-                </button>
-              ))}
-            </div>
-          </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Invoice Prefix:
+                </label>
+                <input
+                  type="text"
+                  value={formData.invoicePrefix}
+                  onChange={(e) => setFormData({ ...formData, invoicePrefix: e.target.value })}
+                  placeholder="e.g. PP-2081/82-"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div className="md:col-span-2">
-            <span className="mb-1.5 mt-4 block font-semibold text-slate-600">Invoice date format</span>
-            <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Invoice date format">
-              {([
-                { value: 'BS', label: 'Nepali (BS)' },
-                { value: 'AD', label: 'English (AD)' }
-              ] as const).map(format => (
-                <button
-                  key={format.value}
-                  type="button"
-                  aria-pressed={formData.invoiceDateFormat === format.value}
-                  onClick={() => setFormData({ ...formData, invoiceDateFormat: format.value })}
-                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-                    formData.invoiceDateFormat === format.value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-                  }`}
-                >
-                  {format.label}
-                </button>
-              ))}
-            </div>
-          </div>
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1.5">
+                  Next Invoice Number:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={formData.nextInvoiceNumber}
+                  onChange={(e) => setFormData({ ...formData, nextInvoiceNumber: parseInt(e.target.value, 10) || 1 })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2.5 font-mono text-slate-900 transition-colors focus:bg-white focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15 focus:outline-hidden"
+                />
+              </div>
 
-          <div className="md:col-span-2">
-            <label className="mb-1.5 mt-4 block text-xs font-semibold text-slate-600">
-              Receipt Bottom Disclaimer / Note:
-            </label>
-            <textarea
-              rows={2}
-              maxLength={160}
-              placeholder="e.g. Prescription medicines are not returnable"
-              value={formData.receiptFooterNote}
-              onChange={(e) => setFormData({ ...formData, receiptFooterNote: e.target.value })}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 transition-colors focus:border-teal-600 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-teal-600/15"
-            />
-            <div className="mt-1 text-right text-[11px] text-slate-500">{formData.receiptFooterNote.length}/160</div>
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {[
-                'Prescription medicines are not returnable',
-                'Goods once sold will not be taken back',
-                'Keep medicines away from children',
-                'Thank you, visit again'
-              ].map(suggestion => (
-                <button
-                  key={suggestion}
-                  type="button"
-                  onClick={() => appendReceiptSuggestion(suggestion)}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600 hover:border-teal-600 hover:text-teal-800"
-                >
-                  + {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
-            {formData.invoicePrefix && (
-              <div className="md:col-span-2">
-                <span className="mb-1.5 mt-4 block text-xs font-semibold text-slate-600">Invoice number preview</span>
-                <div className="rounded-lg bg-teal-50 px-3 py-2.5 font-mono text-sm font-medium text-teal-800">
-                  {formData.invoicePrefix}{String(previewNextInvoiceNumber).padStart(5, '0')}
+              <div>
+                <span className="mb-1.5 block font-semibold text-slate-600">Default invoice size</span>
+                <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Default invoice size">
+                  {(['A5', 'Thermal'] as const).map(size => (
+                    <button
+                      key={size}
+                      type="button"
+                      aria-pressed={formData.defaultInvoiceSize === size}
+                      onClick={() => setFormData({ ...formData, defaultInvoiceSize: size })}
+                      className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                        formData.defaultInvoiceSize === size ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {size === 'A5' ? 'A5 invoice' : 'Thermal receipt'}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )}
+
+              <div>
+                <span className="mb-1.5 block font-semibold text-slate-600">Invoice date format</span>
+                <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Invoice date format">
+                  {([
+                    { value: 'BS', label: 'Nepali (BS)' },
+                    { value: 'AD', label: 'English (AD)' }
+                  ] as const).map(format => (
+                    <button
+                      key={format.value}
+                      type="button"
+                      aria-pressed={formData.invoiceDateFormat === format.value}
+                      onClick={() => setFormData({ ...formData, invoiceDateFormat: format.value })}
+                      className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                        formData.invoiceDateFormat === format.value ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {format.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1.5 mt-2 block text-xs font-semibold text-slate-600">
+                  Receipt Bottom Disclaimer / Note:
+                </label>
+                <textarea
+                  rows={2}
+                  maxLength={160}
+                  placeholder="e.g. Prescription medicines are not returnable"
+                  value={formData.receiptFooterNote}
+                  onChange={(e) => setFormData({ ...formData, receiptFooterNote: e.target.value })}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-900 transition-colors focus:border-teal-600 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-teal-600/15"
+                />
+                <div className="mt-1 text-right text-[11px] text-slate-500">{formData.receiptFooterNote.length}/160</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[
+                    'Prescription medicines are not returnable',
+                    'Goods once sold will not be taken back',
+                    'Keep medicines away from children',
+                    'Thank you, visit again'
+                  ].map(suggestion => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => appendReceiptSuggestion(suggestion)}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold text-slate-600 hover:border-teal-600 hover:text-teal-800"
+                    >
+                      + {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {formData.invoicePrefix && (
+                <div className="md:col-span-2">
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-600">Invoice number preview</span>
+                  <div className="rounded-lg bg-teal-50 px-3 py-2.5 font-mono text-sm font-medium text-teal-800">
+                    {formData.invoicePrefix}{String(previewNextInvoiceNumber).padStart(5, '0')}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </form>
@@ -602,7 +686,8 @@ export const SettingsView: React.FC = () => {
               <button
                 type="submit"
                 form="store-settings-form"
-                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800"
+                disabled={isSaving}
+                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:opacity-60"
               >
                 <Save className="h-4 w-4" />
                 Save Store Credentials
