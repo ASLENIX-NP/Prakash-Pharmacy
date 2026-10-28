@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
-import { digitsOnlyUpTo, normalizePhoneNumber } from '../utils/inputValidation';
+import { decimalInputValue, digitsOnlyUpTo, normalizePhoneNumber, preventInvalidNumberKeys } from '../utils/inputValidation';
 import {
   Medicine,
   SaleItem,
@@ -1190,14 +1190,13 @@ export const PosView: React.FC = () => {
                     <input
                       type="number"
                       min="1"
+                      inputMode="numeric"
                       value={item.quantity}
+                      onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                       onChange={(event) =>
                         handleUpdateQty(
                           index,
-                          parseInt(
-                            event.target.value,
-                            10
-                          ) || 1
+                          Number(digitsOnlyUpTo(event.target.value, 6)) || 1
                         )
                       }
                       className="h-6 w-8 rounded-md border border-slate-200 text-center font-mono text-[11px] font-bold outline-none"
@@ -1358,17 +1357,13 @@ export const PosView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
-                    value={
-                      discountValue || ''
-                    }
+                    inputMode="numeric"
+                    step="1"
+                    value={discountValue || ''}
                     placeholder="0"
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) =>
-                      setDiscountValue(
-                        parseFloat(
-                          event.target.value
-                        ) || 0
-                      )
+                      setDiscountValue(Number(digitsOnlyUpTo(event.target.value, 6)) || 0)
                     }
                     className="h-8 w-20 rounded-lg border border-slate-200 px-2 text-right font-mono text-[12px] font-bold outline-none focus:border-teal-400"
                   />
@@ -1457,16 +1452,12 @@ export const PosView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    value={
-                      cashTendered || ''
-                    }
+                    inputMode="numeric"
+                    value={cashTendered || ''}
                     placeholder="0"
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) =>
-                      setCashTendered(
-                        parseFloat(
-                          event.target.value
-                        ) || 0
-                      )
+                      setCashTendered(Number(digitsOnlyUpTo(event.target.value, 8)) || 0)
                     }
                     className="h-9 w-full rounded-lg border border-slate-200 px-3 font-mono text-[13px] font-bold outline-none focus:border-teal-400"
                   />

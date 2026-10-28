@@ -33,7 +33,7 @@ import {
   MedicineCategory
 } from '../types/pharmacy';
 import { exportStockistLedgerToExcel, exportWholesalerAnalyticsToExcel } from '../utils/excelUtils';
-import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
+import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, preventInvalidNumberKeys } from '../utils/inputValidation';
 
 export const StockistManagementView: React.FC = () => {
   const { 
@@ -956,7 +956,8 @@ export const StockistManagementView: React.FC = () => {
                           type="number"
                           min="1"
                           value={item.packQty}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(1, Number(digitsOnlyUpTo(e.target.value, 6)) || 1) })}
                           className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
                         />
                       </td>
@@ -966,7 +967,8 @@ export const StockistManagementView: React.FC = () => {
                           type="number"
                           min="0"
                           value={item.freePacks}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0) })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
                         />
                       </td>
@@ -977,7 +979,8 @@ export const StockistManagementView: React.FC = () => {
                           step="0.01"
                           min="0"
                           value={item.costPrice}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseFloat(e.target.value) || 0 })}
+                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: Number(decimalInputValue(e.target.value, 2)) || 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
                         />
                       </td>
@@ -989,7 +992,8 @@ export const StockistManagementView: React.FC = () => {
                           min="0"
                           max="100"
                           value={item.discountPercent}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseFloat(e.target.value) || 0 })}
+                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: Number(decimalInputValue(e.target.value, 2)) || 0 })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-right"
                         />
                       </td>
@@ -1000,7 +1004,8 @@ export const StockistManagementView: React.FC = () => {
                           step="0.01"
                           min="0"
                           value={item.mrpPrice}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseFloat(e.target.value) || 0 })}
+                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: Number(decimalInputValue(e.target.value, 2)) || 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right font-bold text-slate-800"
                         />
                       </td>
@@ -1352,7 +1357,8 @@ export const StockistManagementView: React.FC = () => {
                   type="number"
                   min="0"
                   value={returnPacks}
-                  onChange={(e) => setReturnPacks(parseInt(e.target.value, 10) || 0)}
+                  onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+onChange={(e) => setReturnPacks(Number(digitsOnlyUpTo(e.target.value, 6)) || 0)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-mono font-bold"
                 />
               </div>
@@ -1625,7 +1631,8 @@ export const StockistManagementView: React.FC = () => {
                   <input
                     type="number"
                     value={newStockistData.creditLimit}
-                    onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: parseInt(e.target.value, 10) || 0 })}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: Number(digitsOnlyUpTo(e.target.value, 9)) || 0 })}
                     className="w-full border border-slate-300 rounded-lg p-2 font-mono"
                   />
                 </div>
@@ -1696,7 +1703,8 @@ export const StockistManagementView: React.FC = () => {
                   required
                   min="1"
                   value={paymentAmount || ''}
-                  onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                  onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+onChange={(e) => setPaymentAmount(Number(decimalInputValue(e.target.value, 2)) || 0)}
                   placeholder={currentSelectedStockist.currentBalance.toFixed(2)}
                   className="w-full border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900 text-sm"
                 />
