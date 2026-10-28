@@ -124,17 +124,22 @@ export const StockistManagementView: React.FC = () => {
     return stockists.find(s => s.id === selectedStockistId) || stockists[0];
   }, [stockists, selectedStockistId]);
 
-  // Ledger entries for active stockist
+  // Ledger entries for active stockist (Latest on top, oldest at bottom)
   const filteredLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
     return stockistLedgers
-      .filter(entry => entry.stockistId === currentSelectedStockist.id)
+      .filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
       .filter(entry => {
         if (ledgerFilter === 'bills') return entry.refType === 'purchase_invoice';
         if (ledgerFilter === 'payments') return entry.refType === 'payment_made';
         return true;
       })
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.date).getTime();
+        const timeB = new Date(b.createdAt || b.date).getTime();
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+      });
   }, [stockistLedgers, currentSelectedStockist, ledgerFilter]);
 
   const visibleStockists = useMemo(() => {
@@ -154,7 +159,7 @@ export const StockistManagementView: React.FC = () => {
 
   const ledgerSummary = useMemo(() => {
     const entries = currentSelectedStockist
-      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id)
+      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
       : [];
     return {
       totalPurchases: entries
