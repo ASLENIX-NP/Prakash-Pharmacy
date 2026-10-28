@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   login,
   getMe,
+  changePassword,
   forgotPassword,
   resetPassword,
 } from "../controllers/auth.controller.js";
@@ -27,6 +28,12 @@ router.post("/reset-password", resetPassword);
 // Authenticated User Routes (Any role)
 // ==========================================
 router.get("/me", requireAuth, getMe);
+
+router.post(
+  "/change-password",
+  requireAuth,
+  changePassword
+);
 
 // ==========================================
 // Admin-Only Staff & User Management Routes
