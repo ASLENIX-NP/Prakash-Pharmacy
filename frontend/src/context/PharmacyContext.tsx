@@ -103,6 +103,8 @@ interface PharmacyContextType {
 
   // Stockists & Wholesalers
   stockists: Stockist[];
+  isStockistDemoDataActive: boolean;
+  clearStockistDemoData: () => void;
   addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Promise<Stockist>;
   updateStockist: (id: string, updates: Partial<Stockist>) => Promise<void>;
   
@@ -378,12 +380,22 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const [stockists, setStockists] = useState<Stockist[]>([]);
+  const [isStockistDemoDataActive, setIsStockistDemoDataActive] = useState(
+    () => localStorage.getItem(STOCKIST_DEMO_STATUS_KEY) === 'active'
+  );
 
   const [purchaseInvoices, setPurchaseInvoices] = useState<StockistPurchaseInvoice[]>([]);
 
   const [stockistLedgers, setStockistLedgers] = useState<StockistLedgerEntry[]>([]);
 
   const [stockAdjustments, setStockAdjustments] = useState<StockAdjustmentLog[]>([]);
+  const [inventoryBackendStatus, setInventoryBackendStatus] =
+    useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
+  const [inventoryBackendError, setInventoryBackendError] = useState('');
+  const [stockAdjustmentHistoryBackendStatus, setStockAdjustmentHistoryBackendStatus] =
+    useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
+  const [stockAdjustmentHistoryBackendError, setStockAdjustmentHistoryBackendError] =
+    useState('');
 
   const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() =>
     readStoredCollection<StockistReturnVoucher>(STORAGE_KEYS.RETURNS)
@@ -2032,6 +2044,20 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setMedicines(liveMedicines);
   };
 
+
+  const clearStockistDemoData = () => {
+    setStockists(previous =>
+      previous.filter(stockist => !stockist.id.startsWith('demo-'))
+    );
+    setPurchaseInvoices(previous =>
+      previous.filter(invoice => !invoice.id.startsWith('demo-'))
+    );
+    setStockistLedgers(previous =>
+      previous.filter(entry => !entry.id.startsWith('demo-'))
+    );
+    localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
+    setIsStockistDemoDataActive(false);
+  };
 
   const addStockist = async (
     stkData: Omit<Stockist, 'id' | 'currentBalance'>
