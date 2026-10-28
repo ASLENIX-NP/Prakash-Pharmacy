@@ -134,8 +134,21 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
       res.status(400).json({ success: false, message: "Distributor phone number is required." });
       return;
     }
+    if (!/^\d{7,10}$/.test(cleanPhone)) {
+      res.status(400).json({ success: false, message: "Distributor phone number must contain between 7 and 10 digits." });
+      return;
+    }
 
     const cleanPan = (panNumber || pannumber) ? String(panNumber || pannumber).trim() : null;
+    if (cleanPan && !/^\d{9}$/.test(cleanPan)) {
+      res.status(400).json({ success: false, message: "Distributor PAN must contain exactly 9 digits." });
+      return;
+    }
+    const cleanEmail = email ? String(email).trim() : "";
+    if (cleanEmail && (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))) {
+      res.status(400).json({ success: false, message: "Please provide a valid distributor email address." });
+      return;
+    }
 
     // Optional uniqueness warning for name
     const existing = await prisma.distributor.findFirst({
@@ -154,7 +167,7 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
         name: cleanName,
         phone: cleanPhone,
         pannumber: cleanPan,
-        email: email ? String(email).trim() : null,
+        email: cleanEmail || null,
         address: address ? String(address).trim() : null,
         contactPerson: contactPerson ? String(contactPerson).trim() : null,
         creditLimit: parseFloat(String(creditLimit)) || 0,
@@ -207,11 +220,30 @@ export const updateDistributor = async (req: Request, res: Response): Promise<vo
 
     const data: any = {};
     if (name !== undefined) data.name = String(name).trim();
-    if (phone !== undefined) data.phone = String(phone).trim();
-    if (panNumber !== undefined || pannumber !== undefined) {
-      data.pannumber = String(panNumber ?? pannumber ?? "").trim() || null;
+    if (phone !== undefined) {
+      const cleanPhone = String(phone).trim();
+      if (cleanPhone && !/^\d{7,10}$/.test(cleanPhone)) {
+        res.status(400).json({ success: false, message: "Distributor phone number must contain between 7 and 10 digits." });
+        return;
+      }
+      data.phone = cleanPhone;
     }
-    if (email !== undefined) data.email = String(email).trim() || null;
+    if (panNumber !== undefined || pannumber !== undefined) {
+      const cleanPan = String(panNumber ?? pannumber ?? "").trim();
+      if (cleanPan && !/^\d{9}$/.test(cleanPan)) {
+        res.status(400).json({ success: false, message: "Distributor PAN must contain exactly 9 digits." });
+        return;
+      }
+      data.pannumber = cleanPan || null;
+    }
+    if (email !== undefined) {
+      const cleanEmail = String(email).trim();
+      if (cleanEmail && (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))) {
+        res.status(400).json({ success: false, message: "Please provide a valid distributor email address." });
+        return;
+      }
+      data.email = cleanEmail || null;
+    }
     if (address !== undefined) data.address = String(address).trim() || null;
     if (contactPerson !== undefined) data.contactPerson = String(contactPerson).trim() || null;
     if (creditLimit !== undefined) data.creditLimit = parseFloat(String(creditLimit)) || 0;

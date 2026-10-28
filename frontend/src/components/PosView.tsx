@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
+import { digitsOnlyUpTo, normalizePhoneNumber } from '../utils/inputValidation';
 import {
   Medicine,
   SaleItem,
@@ -552,6 +553,16 @@ export const PosView: React.FC = () => {
       return;
     }
 
+    if (customerPhone && !/^\d{7,10}$/.test(customerPhone)) {
+      alert('Customer phone number must contain between 7 and 10 digits.');
+      return;
+    }
+
+    if (customerPan && !/^\d{9}$/.test(customerPan)) {
+      alert('Buyer PAN must contain exactly 9 digits.');
+      return;
+    }
+
     const saleRecord =
       completeSale({
         date: new Date()
@@ -1015,12 +1026,13 @@ export const PosView: React.FC = () => {
               </label>
 
               <input
-                type="text"
+                type="tel"
+                inputMode="numeric"
                 value={customerPhone}
                 placeholder="e.g. 9845012345"
                 onChange={(event) =>
                   setCustomerPhone(
-                    event.target.value
+                    normalizePhoneNumber(event.target.value)
                   )
                 }
                 className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
@@ -1054,11 +1066,13 @@ export const PosView: React.FC = () => {
 
               <input
                 type="text"
+                inputMode="numeric"
+                maxLength={9}
                 value={customerPan}
                 placeholder="Buyer PAN"
                 onChange={(event) =>
                   setCustomerPan(
-                    event.target.value
+                    digitsOnlyUpTo(event.target.value, 9)
                   )
                 }
                 className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
