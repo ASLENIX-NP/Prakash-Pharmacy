@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacyUser, UserRole } from '../types/pharmacy';
+import { isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 
 const ROLE_INFO: Record<UserRole, { title: string; desc: string; badgeColor: string }> = {
   'Admin': {
@@ -35,6 +36,49 @@ const ROLE_INFO: Record<UserRole, { title: string; desc: string; badgeColor: str
     desc: 'Restricted access exclusively for counter Point of Sale (POS), 13% VAT & 0% VAT-Free billing, loose tablet strip dispensing, sales register audit, and reprinting A5 / Thermal tax invoices.',
     badgeColor: 'bg-emerald-100 text-emerald-900 border-emerald-300'
   }
+};
+
+const normalizeStaffPhoneNumber = (value: string) => {
+  return normalizePhoneNumber(value);
+};
+
+const DEFAULT_SHIFT_TIMES = { start: '07:00', end: '15:00' };
+
+const formatShiftTime = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+};
+
+const formatShiftRange = (start: string, end: string) =>
+  `${formatShiftTime(start)} - ${formatShiftTime(end)}`;
+
+const getShiftTimes = (shiftTiming?: string) => {
+  const matches = [...(shiftTiming || '').matchAll(/(\d{1,2}):(\d{2})\s*(AM|PM)?/gi)];
+  if (matches.length >= 2) {
+    const toTimeInputValue = (match: RegExpMatchArray) => {
+      let hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      const period = match[3]?.toUpperCase();
+
+      if (period === 'PM' && hours < 12) hours += 12;
+      if (period === 'AM' && hours === 12) hours = 0;
+      if (hours > 23 || minutes > 59) return null;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    };
+
+    const start = toTimeInputValue(matches[0]);
+    const end = toTimeInputValue(matches[1]);
+    if (start && end) return { start, end };
+  }
+
+  const normalized = (shiftTiming || '').toLowerCase();
+  if (normalized.includes('evening')) return { start: '14:00', end: '21:00' };
+  if (normalized.includes('full day') || normalized.includes('proprietor')) {
+    return { start: '07:00', end: '21:00' };
+  }
+  return DEFAULT_SHIFT_TIMES;
 };
 
 export const UserManagementView: React.FC = () => {
@@ -51,6 +95,7 @@ export const UserManagementView: React.FC = () => {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState<PharmacyUser | null>(null);
+  const [shiftTimes, setShiftTimes] = useState(DEFAULT_SHIFT_TIMES);
 
   // Form State for User creation/edit
   const [formData, setFormData] = useState<{
@@ -88,6 +133,7 @@ export const UserManagementView: React.FC = () => {
 
   const handleOpenAdd = () => {
     setEditingUser(null);
+    setShiftTimes(DEFAULT_SHIFT_TIMES);
     setFormData({
       name: '',
       username: '',
@@ -96,7 +142,7 @@ export const UserManagementView: React.FC = () => {
       email: '',
       role: 'Staff',
       pinCode: `${Math.floor(1000 + Math.random() * 9000)}`,
-      shiftTiming: '',
+      shiftTiming: formatShiftRange(DEFAULT_SHIFT_TIMES.start, DEFAULT_SHIFT_TIMES.end),
       isActive: true
     });
     setShowAddModal(true);
@@ -104,15 +150,17 @@ export const UserManagementView: React.FC = () => {
 
   const handleOpenEdit = (user: PharmacyUser) => {
     setEditingUser(user);
+    const parsedShiftTimes = getShiftTimes(user.shiftTiming);
+    setShiftTimes(parsedShiftTimes);
     setFormData({
       name: user.name,
       username: user.username,
       password: user.password,
-      phone: user.phone || '',
+      phone: normalizeStaffPhoneNumber(user.phone || ''),
       email: user.email || '',
       role: user.role,
       pinCode: user.pinCode || '1234',
-      shiftTiming: user.shiftTiming || 'Day Shift',
+      shiftTiming: formatShiftRange(parsedShiftTimes.start, parsedShiftTimes.end),
       isActive: user.isActive
     });
     setShowAddModal(true);
@@ -122,6 +170,16 @@ export const UserManagementView: React.FC = () => {
     e.preventDefault();
     if (!formData.name.trim() || !formData.username.trim()) {
       alert('Name and User ID / Username are required!');
+      return;
+    }
+
+    if (formData.phone && !/^\d{10}$/.test(formData.phone)) {
+      alert('Phone number must contain exactly 10 digits.');
+      return;
+    }
+
+    if (formData.email && !isValidEmail(formData.email)) {
+      alert('Enter a valid email address.');
       return;
     }
 
@@ -138,6 +196,17 @@ export const UserManagementView: React.FC = () => {
 
     setShowAddModal(false);
     setEditingUser(null);
+  };
+
+  const handleShiftTimeChange = (field: 'start' | 'end', value: string) => {
+    const nextShiftTimes = { ...shiftTimes, [field]: value };
+    setShiftTimes(nextShiftTimes);
+    if (nextShiftTimes.start && nextShiftTimes.end) {
+      setFormData(current => ({
+        ...current,
+        shiftTiming: formatShiftRange(nextShiftTimes.start, nextShiftTimes.end)
+      }));
+    }
   };
 
   const handleOpenPasswordReset = (user: PharmacyUser) => {
@@ -235,188 +304,175 @@ export const UserManagementView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Top Banner */}
-      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-purple-100 text-purple-800 rounded-xl">
-              <Users className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                Staff &amp; Role Management (Admin Control)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Manage pharmacy staff accounts, assign roles (Admin with full access vs. Staff with sales &amp; bill entry), and reset staff passwords
-              </p>
-            </div>
-          </div>
+          <h2 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900">
+            Staff &amp; Role Management
+          </h2>
+          <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500 sm:text-sm">
+            Manage pharmacy staff accounts, assign roles (Admin with full access, Staff with sales and bill entry), and reset staff passwords.
+          </p>
         </div>
 
         <div className="flex items-center gap-2.5">
           <button
             onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition-colors hover:border-teal-800 hover:bg-teal-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 cursor-pointer"
           >
-            <UserPlus className="w-4 h-4 text-emerald-400" />
+            <UserPlus className="h-4 w-4" />
             <span>Add New User / Staff</span>
           </button>
         </div>
       </div>
 
       {/* Active Shift / User Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 text-white p-4 rounded-2xl shadow-xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-teal-500/20 border border-teal-400/40 flex items-center justify-center font-bold text-base text-teal-300">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-100 bg-teal-50/80 p-4 sm:px-5">
+        <div className="flex items-center gap-3.5">
+          <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-sm font-extrabold ${
+            currentUser?.role === 'Admin' ? 'bg-teal-700 text-white' : 'bg-teal-100 text-teal-800'
+          }`}>
             {currentUser?.name ? currentUser.name.charAt(0) : 'A'}
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-sm text-white">{currentUser?.name}</span>
-              <span className="bg-emerald-500/20 text-emerald-300 text-[11px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-bold text-slate-900">{currentUser?.name}</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-teal-800 ring-1 ring-teal-100">
+                <span className="h-1.5 w-1.5 rounded-full bg-teal-600" />
                 Active Session
               </span>
             </div>
-            <p className="text-xs text-slate-300">
-              Role: <strong>{currentUser?.role}</strong> • User ID: <span className="font-mono">{currentUser?.username}</span> • Shift: {currentUser?.shiftTiming || 'Proprietor'}
+            <p className="mt-0.5 text-xs text-slate-600">
+              Role: <strong>{currentUser?.role}</strong> · User ID: <span className="font-mono">{currentUser?.username}</span> · Shift: {currentUser?.shiftTiming || 'Proprietor'}
             </p>
           </div>
         </div>
 
-        <div className="text-xs text-slate-300 flex items-center gap-2 font-mono">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Admin Authorization Active • Full System Control</span>
+        <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-teal-800 ring-1 ring-teal-100">
+          <ShieldCheck className="h-4 w-4" />
+          <span>Admin authorization active · Full system control</span>
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2.5">
+        <span className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600">
+          <strong className="text-slate-900">{users.length}</strong> users
+        </span>
+        <span className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600">
+          <strong className="text-teal-800">{users.filter(user => user.isActive).length}</strong> active
+        </span>
+        <span className="rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-600">
+          <strong className="text-slate-600">{users.filter(user => !user.isActive).length}</strong> inactive
+        </span>
+      </div>
+
       {/* Users Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
         {users.map(u => {
           const roleInfo = ROLE_INFO[u.role] || ROLE_INFO['Staff'];
           const isCurrent = currentUser?.id === u.id;
 
           return (
-            <div 
+            <div
               key={u.id}
-              className={`bg-white p-5 rounded-2xl border transition-all flex flex-col justify-between space-y-4 ${
+              className={`flex flex-col gap-4 rounded-2xl border bg-white p-5 shadow-sm transition-all ${
                 isCurrent
-                  ? 'border-teal-500 ring-2 ring-teal-500/20 shadow-md'
-                  : 'border-slate-200 hover:border-slate-300 shadow-xs'
-              }`}
+                  ? 'border-teal-600'
+                  : 'border-slate-200 hover:border-teal-200 hover:shadow-md'
+              } ${u.isActive ? '' : 'opacity-75'}`}
             >
-              <div className="space-y-3">
-                {/* Header */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                      u.role === 'Admin' ? 'bg-purple-100 text-purple-900 border border-purple-200' : 'bg-teal-100 text-teal-900 border border-teal-200'
-                    }`}>
-                      {u.name.charAt(0)}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5">
-                        <span>{u.name}</span>
-                        {isCurrent && (
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" title="Currently logged in"></span>
-                        )}
-                      </h4>
-                      <span className="text-xs text-slate-500 font-mono font-semibold">User ID: @{u.username}</span>
-                    </div>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-sm font-extrabold ${
+                  u.role === 'Admin' ? 'bg-teal-700 text-white' : 'bg-teal-50 text-teal-800'
+                }`}>
+                  {u.name.charAt(0)}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-bold text-slate-900">{u.name}</h3>
+                  <span className="font-mono text-xs text-slate-500">@{u.username}</span>
+                </div>
+                <span className={`ml-auto inline-flex shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                  u.isActive ? 'bg-teal-50 text-teal-800' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {u.isActive ? 'Active' : 'Inactive'}
+                </span>
+              </div>
 
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                    u.isActive ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'
-                  }`}>
-                    {u.isActive ? 'Active' : 'Inactive'}
+              <div>
+                <span className={`inline-flex rounded-full px-3 py-1 text-[11px] font-bold ${
+                  u.role === 'Admin' ? 'bg-slate-900 text-white' : 'bg-teal-50 text-teal-800'
+                }`}>
+                  {roleInfo.title}
+                </span>
+              </div>
+
+              <p className="text-xs leading-relaxed text-slate-500">{roleInfo.desc}</p>
+
+              <div className="mt-auto grid gap-2 border-t border-slate-100 pt-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">Password</span>
+                  <span className="font-mono font-medium text-slate-800">Set · ••••••••</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">Phone</span>
+                  <span className="text-right font-semibold text-slate-800">
+                    {u.phone ? normalizeStaffPhoneNumber(u.phone) : 'Not set'}
                   </span>
                 </div>
-
-                {/* Role Pill */}
-                <div>
-                  <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold border ${roleInfo.badgeColor}`}>
-                    {roleInfo.title}
-                  </span>
-                  <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
-                    {roleInfo.desc}
-                  </p>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">Shift</span>
+                  <span className="text-right font-semibold text-slate-800">{u.shiftTiming || 'Not set'}</span>
                 </div>
-
-                {/* Contact info & Credentials status */}
-                <div className="space-y-1.5 text-xs text-slate-600 border-t border-slate-100 pt-2.5">
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-slate-500">Password:</span>
-                    <span className="font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700">
-                      ••••••••
-                    </span>
-                  </div>
-
-                  {u.phone && (
-                    <div className="flex items-center gap-1.5 text-[11px]">
-                      <Phone className="w-3 h-3 text-slate-400" />
-                      <span>{u.phone}</span>
-                    </div>
-                  )}
-
-                  {u.shiftTiming && (
-                    <div className="flex items-center gap-1.5 text-slate-500 text-[11px]">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <span>{u.shiftTiming}</span>
-                    </div>
-                  )}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-slate-500">Account active</span>
+                  <span className={`font-semibold ${u.isActive ? 'text-teal-800' : 'text-slate-500'}`}>
+                    {u.isActive ? 'Yes' : 'No'}
+                  </span>
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="pt-2 border-t border-slate-100 space-y-2">
-                {/* Admin Password Reset Button */}
+              <div className="space-y-2 border-t border-slate-100 pt-3">
                 <button
                   type="button"
                   onClick={() => handleOpenPasswordReset(u)}
-                  className="w-full py-1.5 px-3 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 transition-colors hover:border-amber-300 hover:bg-amber-100 cursor-pointer"
                   title="Only Admin can change password for staff"
                 >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Change Password (Admin Only)</span>
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <KeyRound className="h-3.5 w-3.5" />
+                    Change Password (Admin Only)
+                  </span>
                 </button>
-
-                <div className="flex items-center justify-between gap-1.5">
-                  {isCurrent ? (
-                    <span className="text-xs font-bold text-teal-700 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
-                      <span>Active User</span>
-                    </span>
-                  ) : (
+                <div className="flex gap-2">
+                  {!isCurrent && (
                     <button
                       onClick={() => handleSwitchUser(u)}
-                      className="flex-1 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer"
                     >
                       Switch Shift
                     </button>
                   )}
-
-                  <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleOpenEdit(u)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer"
+                    title="Edit Staff Details"
+                  >
+                    Edit details
+                  </button>
+                  {users.length > 1 && u.id !== currentUser?.id && (
                     <button
-                      onClick={() => handleOpenEdit(u)}
-                      className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-lg transition-colors cursor-pointer"
-                      title="Edit Staff Details"
+                      onClick={() => {
+                        if (confirm(`Remove staff user account for ${u.name}?`)) {
+                          deleteUser(u.id);
+                        }
+                      }}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-50 cursor-pointer"
+                      title="Delete User"
                     >
-                      <Edit3 className="w-3.5 h-3.5" />
+                      Delete
                     </button>
-                    {users.length > 1 && u.id !== currentUser?.id && (
-                      <button
-                        onClick={() => {
-                          if (confirm(`Remove staff user account for ${u.name}?`)) {
-                            deleteUser(u.id);
-                          }
-                        }}
-                        className="p-1.5 hover:bg-rose-50 text-rose-500 rounded-lg transition-colors cursor-pointer"
-                        title="Delete User"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -425,54 +481,58 @@ export const UserManagementView: React.FC = () => {
       </div>
 
       {/* Role Permission Hierarchy Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200">
-          <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-teal-700" />
-            <span>Role Permissions &amp; Access Hierarchy</span>
-          </h3>
-          <p className="text-xs text-slate-500">
-            Clear role distinction: Staff is limited to sales and billing entry; Admin has full control
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
+          <h3 className="text-base font-extrabold text-slate-900">Role Permissions &amp; Access Hierarchy</h3>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Staff are limited to sales and billing. Admin has full control.
           </p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-100/70 border-b border-slate-200 text-slate-600 font-semibold uppercase">
+          <table className="w-full min-w-[900px] border-collapse text-xs">
+            <thead className="bg-slate-50 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="py-2.5 px-4">Role</th>
-                <th className="py-2.5 px-3 text-center">POS &amp; 13% VAT Bill</th>
-                <th className="py-2.5 px-3 text-center">Sales Register &amp; Reprint</th>
-                <th className="py-2.5 px-3 text-center">Medicine Inventory</th>
-                <th className="py-2.5 px-3 text-center">Physical Stock Count</th>
-                <th className="py-2.5 px-3 text-center">Wholesaler Invoices &amp; Ledger</th>
-                <th className="py-2.5 px-3 text-center">Add/Deduce Racks</th>
-                <th className="py-2.5 px-4 text-center">Change Staff Passwords</th>
+                <th className="border-b border-slate-200 px-5 py-3.5 text-left">Role</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">POS &amp; 13% VAT Bill</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">Sales Register &amp; Reprint</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">Medicine Inventory</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">Physical Stock Count</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">Wholesaler Invoices &amp; Ledger</th>
+                <th className="border-b border-slate-200 px-3 py-3.5 text-center">Add / Deduct Racks</th>
+                <th className="border-b border-slate-200 px-5 py-3.5 text-center">Change Staff Passwords</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              <tr>
-                <td className="py-3 px-4 font-bold text-emerald-800">Staff</td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-emerald-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-emerald-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center text-slate-300">—</td>
-                <td className="py-3 px-3 text-center text-slate-300">—</td>
-                <td className="py-3 px-3 text-center text-slate-300">—</td>
-                <td className="py-3 px-3 text-center text-slate-300">—</td>
-                <td className="py-3 px-4 text-center text-rose-500 font-semibold">Denied</td>
+              <tr className="hover:bg-slate-50/70">
+                <td className="px-5 py-3.5 text-left">
+                  <span className="inline-flex rounded-full bg-teal-50 px-3 py-1 font-bold text-teal-800">Staff</span>
+                </td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center text-slate-400" aria-label="Not allowed">–</td>
+                <td className="px-3 py-3.5 text-center text-slate-400" aria-label="Not allowed">–</td>
+                <td className="px-3 py-3.5 text-center text-slate-400" aria-label="Not allowed">–</td>
+                <td className="px-3 py-3.5 text-center text-slate-400" aria-label="Not allowed">–</td>
+                <td className="px-5 py-3.5 text-center font-semibold text-rose-700">Denied</td>
               </tr>
-              <tr className="bg-purple-50/30">
-                <td className="py-3 px-4 font-bold text-purple-900">Admin</td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-3 text-center"><Check className="w-4 h-4 text-purple-600 mx-auto" /></td>
-                <td className="py-3 px-4 text-center text-purple-700 font-bold">Authorized</td>
+              <tr className="hover:bg-slate-50/70">
+                <td className="px-5 py-3.5 text-left">
+                  <span className="inline-flex rounded-full bg-slate-900 px-3 py-1 font-bold text-white">Admin</span>
+                </td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-3 py-3.5 text-center"><span className="inline-grid h-6 w-6 place-items-center rounded-full bg-teal-50 font-bold text-teal-800" aria-label="Allowed">✓</span></td>
+                <td className="px-5 py-3.5 text-center font-semibold text-teal-800">Authorized</td>
               </tr>
             </tbody>
           </table>
+        </div>
+        <div className="border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs text-slate-500">
+          <span className="font-bold text-teal-800">✓</span> Allowed <span className="mx-1.5">·</span> <span className="text-slate-400">–</span> Not allowed
         </div>
       </div>
 
@@ -666,25 +726,65 @@ export const UserManagementView: React.FC = () => {
                     Phone Number:
                   </label>
                   <input
-                    type="text"
-                    placeholder="e.g. +977-9845112233"
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
+                    title="Enter exactly 10 digits."
+                    placeholder="10-digit number"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      phone: normalizeStaffPhoneNumber(e.target.value).slice(0, 10)
+                    })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:bg-white focus:outline-hidden"
                   />
+                  <p className="mt-1 text-[10px] text-slate-500">Enter 10 digits without the country code.</p>
                 </div>
 
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
-                    Shift Timing:
+                    Email:
                   </label>
                   <input
-                    type="text"
-                    placeholder="e.g. 7:00 AM - 3:00 PM"
-                    value={formData.shiftTiming}
-                    onChange={(e) => setFormData({ ...formData, shiftTiming: e.target.value })}
+                    type="email"
+                    maxLength={254}
+                    autoComplete="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-slate-900 focus:bg-white focus:outline-hidden"
                   />
+                </div>
+              </div>
+
+              <div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Shift Timing:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label htmlFor="shift-start-time" className="mb-1 block text-[10px] text-slate-500">Start</label>
+                      <input
+                        id="shift-start-time"
+                        type="time"
+                        required
+                        value={shiftTimes.start}
+                        onChange={(e) => handleShiftTimeChange('start', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-slate-50 px-2 py-2.5 text-slate-900 focus:bg-white focus:outline-hidden"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="shift-end-time" className="mb-1 block text-[10px] text-slate-500">End</label>
+                      <input
+                        id="shift-end-time"
+                        type="time"
+                        required
+                        value={shiftTimes.end}
+                        onChange={(e) => handleShiftTimeChange('end', e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 bg-slate-50 px-2 py-2.5 text-slate-900 focus:bg-white focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

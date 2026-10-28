@@ -139,7 +139,7 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
 
     const cleanEmail = email.trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(cleanEmail)) {
+    if (cleanEmail.length > 254 || !emailRegex.test(cleanEmail)) {
       res.status(400).json({
         success: false,
         message: "Please provide a properly formatted email address.",

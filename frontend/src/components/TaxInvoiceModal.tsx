@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SaleInvoice } from '../types/pharmacy';
 import { usePharmacy } from '../context/PharmacyContext';
+import NepaliDate from 'nepali-date-converter';
 
 interface TaxInvoiceModalProps {
   invoice: SaleInvoice | null;
@@ -44,8 +45,13 @@ function numberToWords(num: number): string {
 
 export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClose }) => {
   const { settings } = usePharmacy();
-  // Default to A5 Size as requested ("whole bill to be always printed in a5 size or thermal printer or saved as pdf")
-  const [format, setFormat] = useState<'a5' | 'thermal'>('a5');
+  const [format, setFormat] = useState<'a5' | 'thermal'>(
+    settings.defaultInvoiceSize === 'Thermal' ? 'thermal' : 'a5'
+  );
+
+  useEffect(() => {
+    setFormat(settings.defaultInvoiceSize === 'Thermal' ? 'thermal' : 'a5');
+  }, [settings.defaultInvoiceSize]);
 
   // ESC Key listener to easily skip / close from printing bill
   useEffect(() => {
@@ -59,6 +65,23 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
   }, [onClose]);
 
   if (!invoice) return null;
+
+  const [year, month, day] = invoice.date.split('-').map(Number);
+  const invoiceDate = new Date(year, month - 1, day);
+  const isValidInvoiceDate =
+    Number.isFinite(invoiceDate.getTime()) &&
+    invoiceDate.getFullYear() === year &&
+    invoiceDate.getMonth() === month - 1 &&
+    invoiceDate.getDate() === day;
+  const displayInvoiceDate = isValidInvoiceDate
+    ? settings.invoiceDateFormat === 'BS'
+      ? new NepaliDate(invoiceDate).format('DD MMMM YYYY', 'en')
+      : invoiceDate.toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric'
+        })
+    : invoice.date;
 
   const handlePrint = () => {
     window.print();
@@ -121,6 +144,13 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
           >
             {/* Pharmacy Branding Header */}
             <div className="text-center border-b-2 border-slate-900 pb-2.5 space-y-1">
+              {settings.storeLogo && (
+                <img
+                  src={settings.storeLogo}
+                  alt={`${settings.storeName || 'Pharmacy'} logo`}
+                  className="mx-auto mb-1 h-12 max-w-24 object-contain"
+                />
+              )}
               <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
                 TAX INVOICE / VAT BILL (कर बीजक)
               </h2>
@@ -142,7 +172,16 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                 <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
                   DDA: {settings.ddaLicenceNumber}
                 </span>
+                <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                  {settings.vatRegistered ? 'VAT Registered' : 'Not VAT Registered'}
+                </span>
               </div>
+              {(settings.pharmacistName || settings.pharmacistCouncilRegNumber) && (
+                <p className="text-[10px] text-slate-600">
+                  Pharmacist: {settings.pharmacistName}
+                  {settings.pharmacistCouncilRegNumber && ` · NPC Reg. No: ${settings.pharmacistCouncilRegNumber}`}
+                </p>
+              )}
             </div>
 
             {/* Invoice Meta Grid */}
@@ -158,7 +197,7 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                 </div>
                 <div>
                   <span className="text-slate-500">Date/Time:</span>{' '}
-                  <span className="font-mono text-slate-800">{invoice.date} {invoice.time}</span>
+                  <span className="font-mono text-slate-800">{displayInvoiceDate} {invoice.time}</span>
                 </div>
                 <div>
                   <span className="text-slate-500">Payment:</span>{' '}
@@ -310,8 +349,13 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
               </div>
               <div className="text-right">
                 <div className="font-bold text-slate-900 text-[10px] mb-2">
-                  For {settings.storeName}
+                  For {settings.pharmacistName || settings.storeName}
                 </div>
+                {settings.pharmacistCouncilRegNumber && (
+                  <div className="mb-1 text-[9px] text-slate-500">
+                    NPC Reg. No: {settings.pharmacistCouncilRegNumber}
+                  </div>
+                )}
                 <div className="border-t border-slate-400 w-36 pt-1 text-center">
                   Pharmacist Signature
                 </div>

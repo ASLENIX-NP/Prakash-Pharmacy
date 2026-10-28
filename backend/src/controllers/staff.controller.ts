@@ -27,6 +27,17 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
       return;
     }
 
+    const cleanPhone = phone ? String(phone).trim() : "";
+    const cleanEmail = email ? String(email).trim() : "";
+    if (cleanPhone && !/^\d{10}$/.test(cleanPhone)) {
+      res.status(400).json({ success: false, message: "Staff phone number must contain exactly 10 digits." });
+      return;
+    }
+    if (cleanEmail && (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))) {
+      res.status(400).json({ success: false, message: "Please provide a valid staff email address." });
+      return;
+    }
+
     const cleanUsername = String(username).trim();
 
     // Check duplicate username
@@ -55,8 +66,8 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
         firstName: String(firstName).trim(),
         lastName: String(lastName || firstName).trim(),
         initials: initials ? String(initials).trim() : null,
-        email: email ? String(email).trim() : null,
-        phoneNumber: phone ? String(phone).trim() : null,
+        email: cleanEmail || null,
+        phoneNumber: cleanPhone || null,
         role: targetRole,
         shift: shift ? String(shift).trim() : null,
         status: status || "active",
@@ -160,11 +171,25 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
 
     // Initials & Email
     if (req.body.initials !== undefined) updateData.initials = req.body.initials ? String(req.body.initials).trim() : null;
-    if (req.body.email !== undefined) updateData.email = req.body.email ? String(req.body.email).trim() : null;
+    if (req.body.email !== undefined) {
+      const cleanEmail = req.body.email ? String(req.body.email).trim() : "";
+      if (cleanEmail && (cleanEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail))) {
+        res.status(400).json({ success: false, message: "Please provide a valid staff email address." });
+        return;
+      }
+      updateData.email = cleanEmail || null;
+    }
 
     // Flexible alias fields
     const { phone, shift, status, role } = resolveFlexibleFields(req.body);
-    if (phone !== undefined) updateData.phoneNumber = phone ? String(phone).trim() : null;
+    if (phone !== undefined) {
+      const cleanPhone = phone ? String(phone).trim() : "";
+      if (cleanPhone && !/^\d{10}$/.test(cleanPhone)) {
+        res.status(400).json({ success: false, message: "Staff phone number must contain exactly 10 digits." });
+        return;
+      }
+      updateData.phoneNumber = cleanPhone || null;
+    }
     if (role !== undefined) updateData.role = role;
     if (shift !== undefined) updateData.shift = shift ? String(shift).trim() : null;
     if (status !== undefined) updateData.status = status;

@@ -253,11 +253,18 @@ export interface PharmacySettings {
   emailId: string;
   panNumber: string;
   ddaLicenceNumber: string;
+  vatRegistered: boolean;
+  storeLogo: string;
+  pharmacistName: string;
+  pharmacistCouncilRegNumber: string;
+  ddaLicenceExpiryDate: string;
   currency: string;
   fiscalYear: string;
   invoicePrefix: string;
+  nextInvoiceNumber: number;
+  defaultInvoiceSize: 'A5' | 'Thermal';
+  invoiceDateFormat: 'BS' | 'AD';
   receiptFooterNote: string;
   defaultLowStockThreshold: number;
   nearExpiryThresholdMonths: number;
 }
-

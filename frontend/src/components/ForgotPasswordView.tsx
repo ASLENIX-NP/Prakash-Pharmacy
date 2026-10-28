@@ -303,6 +303,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                   <input
                     id="recovery-email"
                     type="email"
+                    maxLength={254}
                     autoComplete="email"
                     autoFocus
                     value={email}

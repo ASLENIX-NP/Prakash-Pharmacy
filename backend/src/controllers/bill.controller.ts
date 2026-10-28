@@ -123,6 +123,17 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       cashierId: inputCashierId,
     } = req.body;
 
+    const cleanCustomerPhone = customerPhone ? String(customerPhone).trim() : "";
+    const cleanCustomerPan = customerPan ? String(customerPan).trim() : "";
+    if (cleanCustomerPhone && !/^\d{7,10}$/.test(cleanCustomerPhone)) {
+      res.status(400).json({ success: false, message: "Customer phone number must contain between 7 and 10 digits." });
+      return;
+    }
+    if (cleanCustomerPan && !/^\d{9}$/.test(cleanCustomerPan)) {
+      res.status(400).json({ success: false, message: "Buyer PAN must contain exactly 9 digits." });
+      return;
+    }
+
     if (!items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({
         success: false,
@@ -181,8 +192,8 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         data: {
           invoiceNumber: finalInvoiceNumber,
           customerName: customerName ? String(customerName).trim() : "Counter Patient",
-          customerPhone: customerPhone ? String(customerPhone).trim() : null,
-          customerPan: customerPan ? String(customerPan).trim() : null,
+          customerPhone: cleanCustomerPhone || null,
+          customerPan: cleanCustomerPan || null,
           prescribingDoctor: (doctorName || prescribingDoctor) ? String(doctorName || prescribingDoctor).trim() : null,
           paymentMethod: finalPaymentMethod,
           paymentStatus: "paid",

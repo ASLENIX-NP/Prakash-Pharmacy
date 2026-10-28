@@ -17,6 +17,7 @@ import {
   stockistDemoData,
   STOCKIST_DEMO_STATUS_KEY,
 } from '../data/stockistDemoData';
+import { SALES_DEMO_STATUS_KEY } from '../data/salesDemoData';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -125,6 +126,8 @@ interface PharmacyContextType {
 
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
+  isSalesDemoDataActive: boolean;
+  clearSalesDemoData: () => void;
   completeSale: (sale: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>) => SaleInvoice;
 
   // Settings
@@ -261,6 +264,18 @@ function initializeStockistDemoData(): Stockist[] {
   return savedStockists;
 }
 
+function initializeSalesDemoStatus(): boolean {
+  const savedSales = readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES);
+  const demoStatus = localStorage.getItem(SALES_DEMO_STATUS_KEY);
+
+  if (savedSales.length === 0 && demoStatus !== 'active' && demoStatus !== 'dismissed') {
+    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'active');
+    return true;
+  }
+
+  return demoStatus === 'active' && savedSales.length === 0;
+}
+
 function readStoredSettings(): PharmacySettings {
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -279,9 +294,17 @@ function readStoredSettings(): PharmacySettings {
       emailId: 'prakashpharmacy2021@gmail.com',
       panNumber: '123798907',
       ddaLicenceNumber: '3780516073935',
+      vatRegistered: true,
+      storeLogo: '',
+      pharmacistName: '',
+      pharmacistCouncilRegNumber: '',
+      ddaLicenceExpiryDate: '',
       currency: 'NPR',
       fiscalYear: '2081/82',
       invoicePrefix: 'PP-2081/82-',
+      nextInvoiceNumber: 101,
+      defaultInvoiceSize: 'A5',
+      invoiceDateFormat: 'BS',
       receiptFooterNote:
         'Thank you for choosing Prakash Pharmacy! Medicines cannot be refunded after 7 days without bill.',
       defaultLowStockThreshold: 15,
@@ -368,6 +391,9 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
     readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
+  );
+  const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
+    initializeSalesDemoStatus
   );
 
   const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
@@ -514,6 +540,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (!cancelled && res.data && res.data.length > 0) {
           setSalesInvoices(res.data);
+          localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
+          setIsSalesDemoDataActive(false);
         }
       } catch (error) {
         console.error(
@@ -2248,8 +2276,19 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     saleData: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>
   ): SaleInvoice => {
     const now = new Date();
-    const invoiceSeq = (salesInvoices.length + 101).toString().padStart(5, '0');
-    const invoiceNumber = `${settings.invoicePrefix || 'PP-2081/82-'}${invoiceSeq}`;
+    const invoicePrefix = settings.invoicePrefix || 'PP-2081/82-';
+    const lastUsedInvoiceNumber = salesInvoices.reduce((highest, sale) => {
+      if (!sale.invoiceNumber.startsWith(invoicePrefix)) return highest;
+      const suffix = Number(sale.invoiceNumber.slice(invoicePrefix.length));
+      return Number.isInteger(suffix) ? Math.max(highest, suffix) : highest;
+    }, 0);
+    const invoiceSequence = Math.max(
+      settings.nextInvoiceNumber || 101,
+      lastUsedInvoiceNumber + 1
+    );
+    const invoiceSeq = invoiceSequence.toString().padStart(5, '0');
+    const invoiceNumber = `${invoicePrefix}${invoiceSeq}`;
+    setSettings(prev => ({ ...prev, nextInvoiceNumber: invoiceSequence + 1 }));
 
     const newInvoice: SaleInvoice = {
       ...saleData,
@@ -2307,6 +2346,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     })
       .then(async res => {
         if (res.data) {
+          localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
+          setIsSalesDemoDataActive(false);
           setSalesInvoices(prev =>
             prev.map(inv =>
               inv.id === newInvoice.id ||
@@ -2363,6 +2404,11 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return newInvoice;
   };
 
+  const clearSalesDemoData = () => {
+    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
+    setIsSalesDemoDataActive(false);
+  };
+
   const updateSettings = (updates: Partial<PharmacySettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
   };
@@ -2396,6 +2442,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.removeItem(STORAGE_KEYS.RACKS);
     localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
     setIsStockistDemoDataActive(false);
+    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
+    setIsSalesDemoDataActive(false);
   };
 
   return (
@@ -2449,6 +2497,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         recordStockistReturn,
 
         salesInvoices,
+        isSalesDemoDataActive,
+        clearSalesDemoData,
         completeSale,
 
         settings,
