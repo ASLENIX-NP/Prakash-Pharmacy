@@ -202,13 +202,55 @@ export const InventoryView: React.FC = () => {
   // Save Add/Edit
   const handleSaveMedicine = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) return;
+
+    const medicineName =
+      formData.name?.trim() || '';
+
+    const genericName =
+      formData.genericName?.trim() || '';
+
+    if (!medicineName) return;
+
+    // Medicine/brand name and generic/salt name are allowed to be
+    // identical (for example: Paracetamol / Paracetamol).
+    // Warn the user, but preserve both values when confirmed.
+    const normalizeName = (value: string) =>
+      value
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase();
+
+    if (
+      genericName &&
+      normalizeName(medicineName) === normalizeName(genericName)
+    ) {
+      const confirmed = window.confirm(
+        `Medicine name and Generic / Salt name are both "${medicineName}".\n\n` +
+        'This can be valid for generic medicines. Do you want to continue and save both names as entered?'
+      );
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const normalizedFormData = {
+      ...formData,
+      name: medicineName,
+      genericName
+    };
 
     if (editingMedicine) {
-      updateMedicine(editingMedicine.id, formData);
+      updateMedicine(
+        editingMedicine.id,
+        normalizedFormData
+      );
     } else {
-      addMedicine(formData as Omit<Medicine, 'id'>);
+      addMedicine(
+        normalizedFormData as Omit<Medicine, 'id'>
+      );
     }
+
     setShowEditModal(false);
   };
 
