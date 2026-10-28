@@ -125,6 +125,8 @@ export async function generateStaffCode(role: string): Promise<string> {
   return `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
 }
 
+export const MIN_PASSWORD_LENGTH = 6;
+
 // ==========================================
 // Hash a plaintext password
 // ==========================================

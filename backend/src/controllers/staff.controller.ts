@@ -7,6 +7,7 @@ import {
   resolveFlexibleFields,
   generateStaffCode,
   hashPassword,
+  MIN_PASSWORD_LENGTH,
 } from "../utils/user.helpers.js";
 
 // ==========================================
@@ -23,6 +24,21 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
       res.status(400).json({
         success: false,
         message: "Full Staff Name, User ID / Username, and Password are required.",
+      });
+      return;
+    }
+
+    const cleanPassword =
+      String(password).trim();
+
+    if (
+      cleanPassword.length <
+      MIN_PASSWORD_LENGTH
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
       });
       return;
     }
@@ -62,7 +78,7 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
       data: {
         id: String(finalId).trim(),
         username: cleanUsername,
-        password: await hashPassword(password),
+        password: await hashPassword(cleanPassword),
         firstName: String(firstName).trim(),
         lastName: String(lastName || firstName).trim(),
         initials: initials ? String(initials).trim() : null,
@@ -195,15 +211,24 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
     if (status !== undefined) updateData.status = status;
 
     // Password reset by admin
-    if (req.body.password) {
-      if (String(req.body.password).length < 4) {
+    if (req.body.password !== undefined) {
+      const cleanPassword =
+        String(req.body.password).trim();
+
+      if (
+        cleanPassword.length <
+        MIN_PASSWORD_LENGTH
+      ) {
         res.status(400).json({
           success: false,
-          message: "New password must be at least 4 characters long.",
+          message:
+            `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
         });
         return;
       }
-      updateData.password = await hashPassword(req.body.password);
+
+      updateData.password =
+        await hashPassword(cleanPassword);
     }
 
     const updatedUser = await prisma.user.update({

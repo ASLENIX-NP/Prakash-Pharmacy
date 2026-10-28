@@ -245,15 +245,13 @@ export const formatInventoryItem = (inv: any) => {
       genericCode: formatGenericCode(inv.generic?.id ?? 0),
       name:
         !inv.generic?.name ||
-        inv.generic.name === "Unassigned" ||
-        inv.generic.name.trim().toLowerCase() === String(inv.medicineBrand).trim().toLowerCase()
+        inv.generic.name === "Unassigned"
           ? ""
           : inv.generic.name,
     },
     genericName:
       !inv.generic?.name ||
-      inv.generic.name === "Unassigned" ||
-      inv.generic.name.trim().toLowerCase() === String(inv.medicineBrand).trim().toLowerCase()
+      inv.generic.name === "Unassigned"
         ? ""
         : inv.generic.name,
     category: inv.category.name, // "Tablet", "Capsule" (matches frontend MedicineCategory)

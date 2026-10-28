@@ -385,33 +385,79 @@ export const StockistManagementView: React.FC = () => {
   };
 
   // Submit Stockist Return (Debit Note)
-  const handleSubmitReturnVoucher = (e: React.FormEvent) => {
+  const handleSubmitReturnVoucher = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
+
     if (returnItems.length === 0) {
-      alert('Please add at least one item to return!');
+      alert(
+        'Please add at least one item to return!'
+      );
       return;
     }
 
-    const stockist = stockists.find(s => s.id === returnStockistId);
+    const stockist =
+      stockists.find(
+        s => s.id === returnStockistId
+      );
+
     if (!stockist) return;
 
-    const totalAmount = returnItems.reduce((acc, it) => acc + it.totalReturnAmount, 0);
+    const totalAmount =
+      returnItems.reduce(
+        (acc, it) =>
+          acc + it.totalReturnAmount,
+        0
+      );
 
-    recordStockistReturn({
-      debitNoteNumber,
-      stockistId: stockist.id,
-      stockistName: stockist.name,
-      date: new Date().toISOString().split('T')[0],
-      items: returnItems,
-      totalAmount,
-      notes: returnNotes
-    });
+    try {
+      await recordStockistReturn({
+        debitNoteNumber,
+        stockistId: stockist.id,
+        stockistName: stockist.name,
+        date:
+          new Date()
+            .toISOString()
+            .split('T')[0],
+        items: returnItems,
+        totalAmount,
+        notes: returnNotes
+      });
 
-    alert(`Debit Note #${debitNoteNumber} issued! Rs. ${totalAmount.toFixed(2)} deducted from ${stockist.name}'s payable balance.`);
-    setReturnItems([]);
-    setDebitNoteNumber(`DN-${Date.now().toString().slice(-4)}`);
-    setReturnNotes('');
-    setActiveTab('ledger');
+      alert(
+        "Debit Note #" +
+          debitNoteNumber +
+          " issued! Rs. " +
+          totalAmount.toFixed(2) +
+          " deducted from " +
+          stockist.name +
+          "'s payable balance."
+      );
+
+      setReturnItems([]);
+
+      setDebitNoteNumber(
+        `DN-${Date.now()
+          .toString()
+          .slice(-4)}`
+      );
+
+      setReturnNotes('');
+      setActiveTab('ledger');
+
+    } catch (error) {
+      console.error(
+        'Failed to record supplier return:',
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Failed to record supplier return.'
+      );
+    }
   };
 
   // Wholesaler Item-Wise Analytics calculation

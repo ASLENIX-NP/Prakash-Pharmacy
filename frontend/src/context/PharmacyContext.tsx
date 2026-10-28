@@ -25,15 +25,15 @@ interface PharmacyContextType {
   login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   isAdmin: boolean;
-  changeStaffPassword: (userId: string, newPassword: string) => { success: boolean; message: string };
+  changeStaffPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
 
   // Users & Roles
   users: PharmacyUser[];
   currentUser: PharmacyUser | null;
   setCurrentUser: (user: PharmacyUser) => void;
-  addUser: (user: Omit<PharmacyUser, 'id' | 'createdAt'>) => PharmacyUser;
-  updateUser: (id: string, updates: Partial<PharmacyUser>) => void;
-  deleteUser: (id: string) => void;
+  addUser: (user: Omit<PharmacyUser, 'id' | 'createdAt'>) => Promise<PharmacyUser>;
+  updateUser: (id: string, updates: Partial<PharmacyUser>) => Promise<PharmacyUser>;
+  deleteUser: (id: string) => Promise<void>;
 
   // Racks Management (Admin can Add or Deduce)
   racks: RackLocation[];
@@ -124,7 +124,7 @@ interface PharmacyContextType {
 
   // Returns to Wholesaler (Damaged / Expired / Breakage)
   stockistReturns: StockistReturnVoucher[];
-  recordStockistReturn: (voucher: Omit<StockistReturnVoucher, 'id' | 'createdAt'>) => StockistReturnVoucher;
+  recordStockistReturn: (voucher: Omit<StockistReturnVoucher, 'id' | 'createdAt'>) => Promise<StockistReturnVoucher>;
 
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
@@ -397,9 +397,41 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stockAdjustmentHistoryBackendError, setStockAdjustmentHistoryBackendError] =
     useState('');
 
-  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() =>
-    readStoredCollection<StockistReturnVoucher>(STORAGE_KEYS.RETURNS)
-  );
+  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>([]);
+  // Supplier return history is authoritative in PostgreSQL.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setStockistReturns([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void apiRequest<{
+      success: boolean;
+      data: StockistReturnVoucher[];
+    }>('/distributors/returns/history')
+      .then((response) => {
+        if (!cancelled) {
+          setStockistReturns(
+            Array.isArray(response.data)
+              ? response.data
+              : []
+          );
+        }
+      })
+      .catch((error) => {
+        console.error(
+          'Failed to load supplier return history:',
+          error
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
 
   const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
     readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
@@ -429,10 +461,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.MEDICINES, JSON.stringify(medicines));
   }, [medicines]);
 
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(stockistReturns));
-  }, [stockistReturns]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(salesInvoices));
@@ -844,16 +872,56 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
   };
 
-  const changeStaffPassword = (userId: string, newPassword: string) => {
+  const changeStaffPassword = async (
+    userId: string,
+    newPassword: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+  }> => {
     if (!isAdmin) {
-      return { success: false, message: 'Access Denied: Only Admin can change passwords!' };
-    }
-    if (!newPassword || newPassword.trim().length < 4) {
-      return { success: false, message: 'Password must be at least 4 characters long!' };
+      return {
+        success: false,
+        message:
+          'Access Denied: Only Admin can change passwords!'
+      };
     }
 
-    updateUser(userId, { password: newPassword.trim() });
-    return { success: true, message: 'Password updated successfully!' };
+    const cleanPassword =
+      newPassword.trim();
+
+    if (cleanPassword.length < 6) {
+      return {
+        success: false,
+        message:
+          'Password must be at least 6 characters long!'
+      };
+    }
+
+    try {
+      await updateUser(userId, {
+        password: cleanPassword
+      });
+
+      return {
+        success: true,
+        message:
+          'Password updated successfully!'
+      };
+    } catch (error) {
+      console.error(
+        'Failed to change staff password:',
+        error
+      );
+
+      return {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Failed to change staff password.'
+      };
+    }
   };
 
   // Racks management (Admin can Add or Deduce)
@@ -1252,134 +1320,70 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, user.id);
   };
 
-  const addUser = (
+  const addUser = async (
     userData: Omit<PharmacyUser, 'id' | 'createdAt'>
-  ): PharmacyUser => {
-
-    const temporaryId =
-      `tmp-user-${Date.now()}-${Math.random()
-        .toString(36)
-        .substring(2, 6)}`;
-
-    const temporaryUser: PharmacyUser = {
-      ...userData,
-      id: temporaryId,
-      createdAt: new Date().toISOString()
-    };
-
-    // Optimistic UI update.
-    setUsers(prev => [...prev, temporaryUser]);
-
-    void apiRequest<{
+  ): Promise<PharmacyUser> => {
+    const response = await apiRequest<{
       success: boolean;
       message?: string;
       user: PharmacyUser;
     }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData),
-    })
-      .then(res => {
-        const serverUser = {
-          ...res.user,
+    });
 
-          // Backend intentionally never sends passwords.
-          password: ''
-        } as PharmacyUser;
+    const serverUser = {
+      ...response.user,
 
-        setUsers(prev =>
-          prev.map(user =>
-            user.id === temporaryId
-              ? serverUser
-              : user
-          )
-        );
-      })
-      .catch(error => {
-        // Roll back optimistic row if database write fails.
-        setUsers(prev =>
-          prev.filter(user => user.id !== temporaryId)
-        );
+      // Backend intentionally never sends passwords.
+      password: ''
+    } as PharmacyUser;
 
-        console.error(
-          'Failed to create staff user:',
-          error
-        );
+    setUsers(prev => [
+      ...prev,
+      serverUser
+    ]);
 
-        alert(
-          error instanceof Error
-            ? error.message
-            : 'Failed to create staff user.'
-        );
-      });
-
-    return temporaryUser;
+    return serverUser;
   };
 
-  const updateUser = (
+
+  const updateUser = async (
     id: string,
     updates: Partial<PharmacyUser>
-  ) => {
+  ): Promise<PharmacyUser> => {
+    const response = await apiRequest<{
+      success: boolean;
+      message?: string;
+      user: PharmacyUser;
+    }>(
+      `/auth/users/${encodeURIComponent(id)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      }
+    );
 
-    const previousUser =
-      users.find(user => user.id === id);
+    const serverUser = {
+      ...response.user,
+      password: ''
+    } as PharmacyUser;
 
-    // Preserve existing immediate UI behaviour.
     setUsers(prev =>
       prev.map(user =>
         user.id === id
-          ? { ...user, ...updates }
+          ? serverUser
           : user
       )
     );
 
-    void apiRequest<{
-      success: boolean;
-      message?: string;
-      user: PharmacyUser;
-    }>(`/auth/users/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    })
-      .then(res => {
-        const serverUser = {
-          ...res.user,
-          password: ''
-        } as PharmacyUser;
-
-        setUsers(prev =>
-          prev.map(user =>
-            user.id === id
-              ? serverUser
-              : user
-          )
-        );
-      })
-      .catch(error => {
-        // Roll back if backend rejects the update.
-        if (previousUser) {
-          setUsers(prev =>
-            prev.map(user =>
-              user.id === id
-                ? previousUser
-                : user
-            )
-          );
-        }
-
-        console.error(
-          'Failed to update staff user:',
-          error
-        );
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : 'Failed to update staff user.'
-        );
-      });
+    return serverUser;
   };
 
-  const deleteUser = (id: string) => {
+
+  const deleteUser = async (
+    id: string
+  ): Promise<void> => {
     if (users.length <= 1) {
       alert(
         'Cannot delete the only existing staff account!'
@@ -1397,36 +1401,36 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const deletedUser =
       users.find(user => user.id === id);
 
-    const previousUsers = [...users];
+    try {
+      await apiRequest<{
+        success: boolean;
+        message?: string;
+      }>(
+        `/auth/users/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+        }
+      );
 
-    // Optimistic removal.
-    setUsers(prev =>
-      prev.filter(user => user.id !== id)
-    );
+      // Remove from UI only after PostgreSQL confirms deletion.
+      setUsers(prev =>
+        prev.filter(user => user.id !== id)
+      );
 
-    void apiRequest<{
-      success: boolean;
-      message?: string;
-    }>(`/auth/users/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    })
-      .catch(error => {
-        // Restore list if database delete fails.
-        setUsers(previousUsers);
+    } catch (error) {
+      console.error(
+        'Failed to delete staff user:',
+        error
+      );
 
-        console.error(
-          'Failed to delete staff user:',
-          error
-        );
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : `Failed to delete ${
-                deletedUser?.name || 'staff user'
-              }.`
-        );
-      });
+      alert(
+        error instanceof Error
+          ? error.message
+          : `Failed to delete ${
+              deletedUser?.name || 'staff user'
+            }.`
+      );
+    }
   };
 
   // Inventory actions
@@ -2271,46 +2275,58 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 
   // Stockist Returns (Return Damaged / Expired / Breakage to wholesaler)
-  const recordStockistReturn = (
+  const recordStockistReturn = async (
     voucherData: Omit<StockistReturnVoucher, 'id' | 'createdAt'>
-  ): StockistReturnVoucher => {
-    const newVoucher: StockistReturnVoucher = {
-      ...voucherData,
-      id: `ret-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      createdAt: new Date().toISOString()
-    };
-
-    // Optimistic UI update
-    setStockistReturns(prev => [newVoucher, ...prev]);
-
-    // Send Debit Note & stock deduction to PostgreSQL
-    void apiRequest<{
+  ): Promise<StockistReturnVoucher> => {
+    const response = await apiRequest<{
       success: boolean;
-      data: { distributor: Stockist; ledgerEntry: StockistLedgerEntry };
-    }>(`/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`, {
-      method: 'POST',
-      body: JSON.stringify({
-        debitNoteNumber: voucherData.debitNoteNumber,
-        totalAmount: voucherData.totalAmount,
-        date: voucherData.date,
-        notes: voucherData.notes,
-        items: voucherData.items
-      })
-    })
-      .then(async () => {
-        // Refresh live stockists, ledgers, and inventory from PostgreSQL
-        const [liveStockists] = await Promise.all([
+      data: {
+        distributor: Stockist;
+        ledgerEntry: StockistLedgerEntry;
+        returnVoucher: StockistReturnVoucher;
+      };
+    }>(
+      `/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          debitNoteNumber: voucherData.debitNoteNumber,
+          totalAmount: voucherData.totalAmount,
+          date: voucherData.date,
+          notes: voucherData.notes,
+          items: voucherData.items
+        })
+      }
+    );
+
+    const savedVoucher =
+      response.data.returnVoucher;
+
+    setStockistReturns(prev => [
+      savedVoucher,
+      ...prev.filter(
+        voucher => voucher.id !== savedVoucher.id
+      )
+    ]);
+
+    try {
+      const [liveStockists] =
+        await Promise.all([
           refreshLiveStockists(),
           refreshLiveInventory()
         ]);
-        await refreshLiveLedgers(liveStockists);
-      })
-      .catch(err => {
-        console.error('Failed to record supplier return:', err);
-        alert(err instanceof Error ? err.message : 'Failed to record supplier return.');
-      });
 
-    return newVoucher;
+      await refreshLiveLedgers(
+        liveStockists
+      );
+    } catch (refreshError) {
+      console.error(
+        'Supplier return saved, but live refresh failed:',
+        refreshError
+      );
+    }
+
+    return savedVoucher;
   };
 
   // POS Complete Sale
