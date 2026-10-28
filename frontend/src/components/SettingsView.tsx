@@ -4,7 +4,6 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 
-const normalizePhoneNumber = (value: string) => value.replace(/\D/g, '').slice(0, 10);
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, racks, addRack, deduceRack } = usePharmacy();
