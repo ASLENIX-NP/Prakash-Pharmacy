@@ -124,7 +124,7 @@ interface PharmacyContextType {
 
   // Returns to Wholesaler (Damaged / Expired / Breakage)
   stockistReturns: StockistReturnVoucher[];
-  recordStockistReturn: (voucher: Omit<StockistReturnVoucher, 'id' | 'createdAt'>) => StockistReturnVoucher;
+  recordStockistReturn: (voucher: Omit<StockistReturnVoucher, 'id' | 'createdAt'>) => Promise<StockistReturnVoucher>;
 
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
@@ -397,9 +397,41 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stockAdjustmentHistoryBackendError, setStockAdjustmentHistoryBackendError] =
     useState('');
 
-  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>(() =>
-    readStoredCollection<StockistReturnVoucher>(STORAGE_KEYS.RETURNS)
-  );
+  const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>([]);
+  // Supplier return history is authoritative in PostgreSQL.
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setStockistReturns([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void apiRequest<{
+      success: boolean;
+      data: StockistReturnVoucher[];
+    }>('/distributors/returns/history')
+      .then((response) => {
+        if (!cancelled) {
+          setStockistReturns(
+            Array.isArray(response.data)
+              ? response.data
+              : []
+          );
+        }
+      })
+      .catch((error) => {
+        console.error(
+          'Failed to load supplier return history:',
+          error
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
 
   const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
     readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
@@ -429,10 +461,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem(STORAGE_KEYS.MEDICINES, JSON.stringify(medicines));
   }, [medicines]);
 
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.RETURNS, JSON.stringify(stockistReturns));
-  }, [stockistReturns]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(salesInvoices));
@@ -2271,46 +2299,58 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 
   // Stockist Returns (Return Damaged / Expired / Breakage to wholesaler)
-  const recordStockistReturn = (
+  const recordStockistReturn = async (
     voucherData: Omit<StockistReturnVoucher, 'id' | 'createdAt'>
-  ): StockistReturnVoucher => {
-    const newVoucher: StockistReturnVoucher = {
-      ...voucherData,
-      id: `ret-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      createdAt: new Date().toISOString()
-    };
-
-    // Optimistic UI update
-    setStockistReturns(prev => [newVoucher, ...prev]);
-
-    // Send Debit Note & stock deduction to PostgreSQL
-    void apiRequest<{
+  ): Promise<StockistReturnVoucher> => {
+    const response = await apiRequest<{
       success: boolean;
-      data: { distributor: Stockist; ledgerEntry: StockistLedgerEntry };
-    }>(`/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`, {
-      method: 'POST',
-      body: JSON.stringify({
-        debitNoteNumber: voucherData.debitNoteNumber,
-        totalAmount: voucherData.totalAmount,
-        date: voucherData.date,
-        notes: voucherData.notes,
-        items: voucherData.items
-      })
-    })
-      .then(async () => {
-        // Refresh live stockists, ledgers, and inventory from PostgreSQL
-        const [liveStockists] = await Promise.all([
+      data: {
+        distributor: Stockist;
+        ledgerEntry: StockistLedgerEntry;
+        returnVoucher: StockistReturnVoucher;
+      };
+    }>(
+      `/distributors/${encodeURIComponent(voucherData.stockistId)}/returns`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          debitNoteNumber: voucherData.debitNoteNumber,
+          totalAmount: voucherData.totalAmount,
+          date: voucherData.date,
+          notes: voucherData.notes,
+          items: voucherData.items
+        })
+      }
+    );
+
+    const savedVoucher =
+      response.data.returnVoucher;
+
+    setStockistReturns(prev => [
+      savedVoucher,
+      ...prev.filter(
+        voucher => voucher.id !== savedVoucher.id
+      )
+    ]);
+
+    try {
+      const [liveStockists] =
+        await Promise.all([
           refreshLiveStockists(),
           refreshLiveInventory()
         ]);
-        await refreshLiveLedgers(liveStockists);
-      })
-      .catch(err => {
-        console.error('Failed to record supplier return:', err);
-        alert(err instanceof Error ? err.message : 'Failed to record supplier return.');
-      });
 
-    return newVoucher;
+      await refreshLiveLedgers(
+        liveStockists
+      );
+    } catch (refreshError) {
+      console.error(
+        'Supplier return saved, but live refresh failed:',
+        refreshError
+      );
+    }
+
+    return savedVoucher;
   };
 
   // POS Complete Sale
