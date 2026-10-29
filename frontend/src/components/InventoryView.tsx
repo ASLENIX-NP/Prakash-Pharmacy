@@ -31,7 +31,7 @@ import {
   parseMedicinesFromExcel, 
   exportInventoryToExcel 
 } from '../utils/excelUtils';
-import { decimalInputValue, digitsOnlyUpTo, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { decimalInputValue, digitsOnlyUpTo, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import { RacksManagerModal } from './RacksManagerModal';
 
 const MEDICINE_CATEGORIES: MedicineCategory[] = [
@@ -1427,7 +1427,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.unitsPerPack ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, unitsPerPack: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, unitsPerPack: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -1442,7 +1442,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.stockPacks ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, stockPacks: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, stockPacks: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -1457,7 +1457,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.stockLooseUnits ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, stockLooseUnits: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, stockLooseUnits: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -1471,7 +1471,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.costPrice ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-                    onChange={(e) => setFormData({ ...formData, costPrice: e.target.value === '' ? undefined : Number(decimalInputValue(e.target.value, 2)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, costPrice: parseDecimalInput(e.target.value, 2) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -1485,7 +1485,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.mrpPrice ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-                    onChange={(e) => setFormData({ ...formData, mrpPrice: e.target.value === '' ? undefined : Number(decimalInputValue(e.target.value, 2)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, mrpPrice: parseDecimalInput(e.target.value, 2) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>
@@ -1527,7 +1527,7 @@ export const InventoryView: React.FC = () => {
                     required
                     value={formData.reorderLevel ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value === '' ? undefined : Number(digitsOnlyUpTo(e.target.value, 6)) || undefined })}
+                    onChange={(e) => setFormData({ ...formData, reorderLevel: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
                   />
                 </div>

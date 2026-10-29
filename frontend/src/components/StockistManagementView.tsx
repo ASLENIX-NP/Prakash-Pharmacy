@@ -41,7 +41,7 @@ import {
   exportPurchaseBillToExcel,
   parseMedicinesFromExcel
 } from '../utils/excelUtils';
-import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
 export const StockistManagementView: React.FC = () => {
   const { 
@@ -1268,7 +1268,7 @@ export const StockistManagementView: React.FC = () => {
                           min="0"
                           value={item.packQty}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0) })}
+                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
                           className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
                         />
                       </td>
@@ -1291,7 +1291,7 @@ export const StockistManagementView: React.FC = () => {
                           min="0"
                           value={item.freePacks}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0) })}
+onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
                         />
                       </td>
@@ -1303,7 +1303,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, Number(di
                           min="0"
                           value={item.costPrice}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: Number(decimalInputValue(e.target.value, 2)) || 0 })}
+onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
                         />
                       </td>
@@ -1316,7 +1316,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: Number(decimalInputVa
                           max="100"
                           value={item.discountPercent}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: Number(decimalInputValue(e.target.value, 2)) || 0 })}
+onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-right"
                         />
                       </td>
@@ -1328,7 +1328,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: Number(decimalI
                           min="0"
                           value={item.mrpPrice}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: Number(decimalInputValue(e.target.value, 2)) || 0 })}
+onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right font-bold text-slate-800"
                         />
                       </td>
@@ -1745,7 +1745,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: Number(decimalInputVal
                   min="0"
                   value={returnPacks}
                   onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => setReturnPacks(Number(digitsOnlyUpTo(e.target.value, 6)) || 0)}
+onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-mono font-bold"
                 />
               </div>
@@ -2019,7 +2019,7 @@ onChange={(e) => setReturnPacks(Number(digitsOnlyUpTo(e.target.value, 6)) || 0)}
                     type="number"
                     value={newStockistData.creditLimit}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: Number(digitsOnlyUpTo(e.target.value, 9)) || 0 })}
+onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: parseIntegerInput(e.target.value, 9) ?? 0 })}
                     className="w-full border border-slate-300 rounded-lg p-2 font-mono"
                   />
                 </div>
@@ -2091,7 +2091,7 @@ onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: Number(di
                   min="1"
                   value={paymentAmount || ''}
                   onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => setPaymentAmount(Number(decimalInputValue(e.target.value, 2)) || 0)}
+onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                   placeholder={currentSelectedStockist.currentBalance.toFixed(2)}
                   className="w-full border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900 text-sm"
                 />

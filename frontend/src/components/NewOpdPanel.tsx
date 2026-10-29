@@ -61,8 +61,13 @@ interface ClinicVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  consultationFee: number;
+  additionalCharge: number;
+  additionalChargeNote: string | null;
   totalCharge: number;
-  chargeNote: string;
+  chargeNote: string | null;
+  status: 'open' | 'completed';
+  completedAt: string | null;
 
   createdBy:
     | {
@@ -534,9 +539,6 @@ export const NewOpdPanel: React.FC = () => {
 
                 totalCharge:
                   charge,
-
-                chargeNote:
-                  chargeNote.trim(),
               }),
           }
         );
@@ -644,7 +646,7 @@ export const NewOpdPanel: React.FC = () => {
                 {' • '}
                 Rs.{' '}
                 {Number(
-                  savedVisit.totalCharge
+                  savedVisit.consultationFee
                 ).toFixed(2)}
               </p>
             </div>
@@ -735,7 +737,7 @@ export const NewOpdPanel: React.FC = () => {
           </div>
 
           <p className="mt-4 text-[11px] font-medium text-slate-500">
-            Sticker is ready for the approximately 50 ? 70 mm OPD label printer.
+            This OPD is OPEN and ready for consultation. Print the sticker now; additional charges can be added later from OPD Records.
           </p>
         </div>
       )}
@@ -1239,11 +1241,11 @@ export const NewOpdPanel: React.FC = () => {
 
                 <div>
                   <h2 className="text-base font-extrabold text-slate-900">
-                    2. Doctor & Charge
+                    2. Doctor & Consultation Fee
                   </h2>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Record one final charge for the visit. Add a short note if the doctor also performed a procedure.
+                    Register the OPD when the patient arrives. The consultation fee is recorded now; any additional charge is added after the doctor finishes the consultation.
                   </p>
                 </div>
               </div>
@@ -1276,7 +1278,7 @@ export const NewOpdPanel: React.FC = () => {
                 No active doctor is available. An Admin must add or reactivate a doctor before an OPD visit can be saved.
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-700">
                     Doctor *
@@ -1348,7 +1350,7 @@ export const NewOpdPanel: React.FC = () => {
 
                 <div>
                   <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                    Total Charge (Rs.) *
+                    Consultation Fee (Rs.) *
                   </label>
 
                   <input
@@ -1370,33 +1372,7 @@ export const NewOpdPanel: React.FC = () => {
                   />
 
                   <p className="mt-1.5 text-[10px] text-slate-400">
-                    Default doctor fee is filled automatically but can be changed for this visit.
-                  </p>
-                </div>
-
-
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                    Charge Note
-                  </label>
-
-                  <input
-                    value={
-                      chargeNote
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setChargeNote(
-                        event.target.value
-                      )
-                    }
-                    placeholder="e.g. Consultation + dressing"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
-                  />
-
-                  <p className="mt-1.5 text-[10px] text-slate-400">
-                    Optional. No separate procedure billing is required.
+                    The doctor default consultation fee is filled automatically but can be adjusted for this OPD.
                   </p>
                 </div>
               </div>
@@ -1436,8 +1412,8 @@ export const NewOpdPanel: React.FC = () => {
                 )}
 
                 {visitSaving
-                  ? 'Saving OPD...'
-                  : 'Save OPD Visit'}
+                  ? 'Registering OPD...'
+                  : 'Register OPD'}
               </button>
             </div>
           </form>

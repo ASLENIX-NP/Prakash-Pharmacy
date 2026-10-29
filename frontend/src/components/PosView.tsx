@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
-import { decimalInputValue, digitsOnlyUpTo, normalizePhoneNumber, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { decimalInputValue, digitsOnlyUpTo, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import {
   Medicine,
   SaleItem,
@@ -1203,7 +1203,7 @@ export const PosView: React.FC = () => {
                       onChange={(event) =>
                         handleUpdateQty(
                           index,
-                          Number(digitsOnlyUpTo(event.target.value, 6)) || 1
+                          parseIntegerInput(event.target.value, 6) ?? 1
                         )
                       }
                       className="h-6 w-8 rounded-md border border-slate-200 text-center font-mono text-[11px] font-bold outline-none"
@@ -1370,7 +1370,7 @@ export const PosView: React.FC = () => {
                     placeholder="0"
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) =>
-                      setDiscountValue(Number(digitsOnlyUpTo(event.target.value, 6)) || 0)
+                      setDiscountValue(parseIntegerInput(event.target.value, 6) ?? 0)
                     }
                     className="h-8 w-20 rounded-lg border border-slate-200 px-2 text-right font-mono text-[12px] font-bold outline-none focus:border-teal-400"
                   />
@@ -1464,7 +1464,7 @@ export const PosView: React.FC = () => {
                     placeholder="0"
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) =>
-                      setCashTendered(Number(digitsOnlyUpTo(event.target.value, 8)) || 0)
+                      setCashTendered(parseIntegerInput(event.target.value, 8) ?? 0)
                     }
                     className="h-9 w-full rounded-lg border border-slate-200 px-3 font-mono text-[13px] font-bold outline-none focus:border-teal-400"
                   />
