@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Medicine, AuditAdjustmentType, AuditReason } from '../types/pharmacy';
 import { usePharmacy } from '../context/PharmacyContext';
-import { digitsOnlyUpTo, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { digitsOnlyUpTo, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
 interface PhysicalStockAuditModalProps {
   medicine: Medicine | null;
@@ -265,7 +265,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     inputMode="numeric"
                     value={countedPacks}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setCountedPacks(Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0))}
+                    onChange={(e) => setCountedPacks(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>
@@ -280,7 +280,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     inputMode="numeric"
                     value={countedLoose}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setCountedLoose(Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0))}
+                    onChange={(e) => setCountedLoose(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>
@@ -308,7 +308,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     inputMode="numeric"
                     value={deltaPacks}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setDeltaPacks(Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0))}
+                    onChange={(e) => setDeltaPacks(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>
@@ -322,7 +322,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     inputMode="numeric"
                     value={deltaLoose}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setDeltaLoose(Math.max(0, Number(digitsOnlyUpTo(e.target.value, 6)) || 0))}
+                    onChange={(e) => setDeltaLoose(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>

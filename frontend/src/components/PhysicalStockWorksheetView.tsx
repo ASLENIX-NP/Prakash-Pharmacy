@@ -14,7 +14,7 @@ import {
 import { usePharmacy } from '../context/PharmacyContext';
 import { AuditReason, Medicine } from '../types/pharmacy';
 import { exportAuditLogToExcel } from '../utils/excelUtils';
-import { digitsOnlyUpTo, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { digitsOnlyUpTo, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
 type WorksheetEntry = {
   packs: number;
@@ -598,7 +598,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                               onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                               onChange={event =>
                                 updateCount(medicine, {
-                                  packs: Math.max(0, Number(digitsOnlyUpTo(event.target.value, 6)) || 0),
+                                  packs: Math.max(0, parseIntegerInput(event.target.value, 6) ?? 0),
                                 })
                               }
                               className="w-14 border-x border-slate-200 bg-white py-2 text-center font-mono font-bold text-slate-900 outline-none"
@@ -627,7 +627,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                               updateCount(medicine, {
                                 loose: Math.min(
                                   medicine.unitsPerPack - 1,
-                                  Math.max(0, Number(digitsOnlyUpTo(event.target.value, 6)) || 0)
+                                  Math.max(0, parseIntegerInput(event.target.value, 6) ?? 0)
                                 ),
                               })
                             }
