@@ -8,6 +8,7 @@ import {
   StockistLedgerEntry,
   StockistReturnVoucher,
   SaleInvoice,
+  CustomerSalesReturn,
   PharmacySettings,
   PharmacyUser,
   RackLocation
@@ -130,11 +131,25 @@ interface PharmacyContextType {
 
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
+  customerSalesReturns: CustomerSalesReturn[];
   isSalesDemoDataActive: boolean;
   clearSalesDemoData: () => void;
   completeSale: (sale: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>) => SaleInvoice;
-  returnSaleItems: (billId: string, payload: { reason?: string; returnedItems: Array<{ inventoryId: number; quantityPacks: number; quantityLoose: number }> }) => Promise<{ success: boolean; message: string; refundAmount?: number }>;
+  returnSaleItems: (
+    billId: string,
+    payload: {
+      reason?: string;
+      notes?: string;
+      returnedItems: Array<{
+        billItemId?: number;
+        inventoryId: number;
+        quantityPacks: number;
+        quantityLoose: number;
+      }>;
+    }
+  ) => Promise<{ success: boolean; message: string; refundAmount?: number; creditNoteNumber?: string }>;
   refreshLiveBills: () => Promise<SaleInvoice[]>;
+  refreshLiveReturns: () => Promise<CustomerSalesReturn[]>;
 
   // Settings
   settings: PharmacySettings;
@@ -441,6 +456,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
     readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
   );
+  const [customerSalesReturns, setCustomerSalesReturns] = useState<CustomerSalesReturn[]>([]);
   const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
     initializeSalesDemoStatus
   );
@@ -590,6 +606,24 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       } catch (error) {
         console.error(
           'Error fetching live sales invoices:',
+          error
+        );
+      }
+
+      // ------------------------------------------------------
+      // CUSTOMER SALES RETURNS & CREDIT NOTES
+      // ------------------------------------------------------
+      try {
+        const returnsRes = await apiRequest<{ data: CustomerSalesReturn[] }>(
+          '/bills/returns'
+        );
+
+        if (!cancelled && Array.isArray(returnsRes.data)) {
+          setCustomerSalesReturns(returnsRes.data);
+        }
+      } catch (error) {
+        console.error(
+          'Error fetching customer sales returns:',
           error
         );
       }
@@ -2397,36 +2431,63 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       createdAt: now.toISOString()
     };
 
-    // Do not mutate inventory locally before checkout succeeds.
-    // The backend /bills transaction is the single source of truth
-    // for FEFO allocation and stock deduction.
+    // Optimistically update local inventory stock for the sold batches
+    // so that when a customer buys e.g. 5 packs from a 40-pack batch,
+    // the UI instantly drops to 35 packs without delay.
+    if (Array.isArray(saleData.items) && saleData.items.length > 0) {
+      setMedicines(prevMedicines =>
+        prevMedicines.map(med => {
+          const soldItem = saleData.items.find(it => {
+            if (it.inventoryId && med.id) {
+              return Number(it.inventoryId) === Number(med.id);
+            }
+            if (it.medicineId && med.id && String(it.medicineId) === String(med.id)) {
+              return true;
+            }
+            return (
+              it.batchNumber === med.batchNumber &&
+              (it.medicineName || it.genericName || '').trim().toLowerCase() ===
+                (med.brandName || med.genericName || '').trim().toLowerCase()
+            );
+          });
+
+          if (!soldItem) return med;
+
+          const isLoose = Boolean(soldItem.isLooseUnit);
+          const unitsPerPack = med.unitsPerPack || med.packageDetails?.unitsPerPack || 1;
+          const currentTotalUnits =
+            (med.stockPacks || 0) * unitsPerPack + (med.stockLooseUnits || med.stockLoose || 0);
+
+          const soldQuantity = Number(soldItem.quantity) || 0;
+          const soldTotalUnits = isLoose ? soldQuantity : soldQuantity * unitsPerPack;
+          const remainingTotalUnits = Math.max(0, currentTotalUnits - soldTotalUnits);
+
+          const newStockPacks = Math.floor(remainingTotalUnits / unitsPerPack);
+          const newStockLoose = remainingTotalUnits % unitsPerPack;
+
+          return {
+            ...med,
+            stockPacks: newStockPacks,
+            stockLooseUnits: newStockLoose,
+            stockLoose: newStockLoose,
+          };
+        })
+      );
+    }
+
     setSalesInvoices(prev => [newInvoice, ...prev]);
 
     // Reload inventory from PostgreSQL after checkout so the UI always
     // reflects the stock actually committed by the backend FEFO transaction.
     const reloadInventoryAfterSale = async () => {
-      const inventoryResponse =
-        await apiRequest<{ data: any[] }>(
-          '/inventory?limit=all'
-        );
-
-      if (Array.isArray(inventoryResponse.data)) {
-        const liveMedicines: Medicine[] =
-          inventoryResponse.data.map((item: any) => ({
-            ...item,
-            supplierId: item.supplierId || '',
-            supplierName: item.supplierName || '',
-          }));
-
-        setMedicines(liveMedicines);
-      }
+      await refreshLiveInventory();
     };
 
     // Persist sale invoice to backend database.
     // The backend atomically:
     //   1. validates non-expired stock,
-    //   2. applies FEFO across batches,
-    //   3. deducts inventory,
+    //   2. applies FEFO prioritizing the chosen batch,
+    //   3. deducts inventory for the specific batch,
     //   4. creates bill + bill items.
     void apiRequest<{
       success: boolean;
@@ -2512,29 +2573,50 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return [];
   };
 
+  const refreshLiveReturns = async (): Promise<CustomerSalesReturn[]> => {
+    try {
+      const res = await apiRequest<{ data: CustomerSalesReturn[] }>('/bills/returns');
+      if (Array.isArray(res.data)) {
+        setCustomerSalesReturns(res.data);
+        return res.data;
+      }
+      return [];
+    } catch (err) {
+      console.error('Failed to refresh customer returns:', err);
+      return [];
+    }
+  };
+
   const returnSaleItems = async (
     billId: string,
     payload: {
       reason?: string;
-      returnedItems: Array<{ inventoryId: number; quantityPacks: number; quantityLoose: number }>;
+      notes?: string;
+      returnedItems: Array<{
+        billItemId?: number;
+        inventoryId: number;
+        quantityPacks: number;
+        quantityLoose: number;
+      }>;
     }
-  ): Promise<{ success: boolean; message: string; refundAmount?: number }> => {
+  ): Promise<{ success: boolean; message: string; refundAmount?: number; creditNoteNumber?: string }> => {
     const cleanId = String(billId).replace(/^(sal|bill)-/i, '');
     const res = await apiRequest<{
       success: boolean;
       message: string;
-      data?: { refundAmount: number; returnedCount: number };
+      data?: { refundAmount: number; returnedCount: number; creditNoteNumber?: string };
     }>(`/bills/${encodeURIComponent(cleanId)}/return`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
 
-    await Promise.all([refreshLiveBills(), refreshLiveInventory()]);
+    await Promise.all([refreshLiveBills(), refreshLiveInventory(), refreshLiveReturns()]);
 
     return {
       success: res?.success ?? true,
       message: res?.message ?? 'Return processed successfully.',
       refundAmount: res?.data?.refundAmount,
+      creditNoteNumber: res?.data?.creditNoteNumber,
     };
   };
 
@@ -2569,6 +2651,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setStockAdjustments([]);
     setStockistReturns([]);
     setSalesInvoices([]);
+    setCustomerSalesReturns([]);
     setSettings(defaultSettings);
     setUsers([]);
     setCurrentUserId('');
@@ -2646,11 +2729,13 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         recordStockistReturn,
 
         salesInvoices,
+        customerSalesReturns,
         isSalesDemoDataActive,
         clearSalesDemoData,
         completeSale,
         returnSaleItems,
         refreshLiveBills,
+        refreshLiveReturns,
 
         settings,
         updateSettings,

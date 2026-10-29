@@ -103,6 +103,7 @@ model Inventory {
   // Relations
   billItems            BillItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
+  salesReturnItems     SalesReturnItem[]
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
@@ -169,6 +170,8 @@ model Bill {
   // Line items
   items BillItem[]
 
+  salesReturns SalesReturn[]
+
   @@index([invoiceNumber])
   @@index([transactionDate])
   @@index([cashierId])
@@ -197,6 +200,8 @@ model BillItem {
   vatitemPrice   Decimal @default(0.00) @map("vatitem_price") @db.Decimal(12, 2)
   grossItemPrice Decimal @map("gross_item_price") @db.Decimal(12, 2)
   netItemPrice   Decimal @map("net_item_price") @db.Decimal(12, 2)
+
+  salesReturnItems SalesReturnItem[]
 
   @@index([invoiceId])
   @@index([inventoryId])
@@ -481,4 +486,47 @@ model ClinicVisit {
   @@index([createdById])
   @@index([visitDateTime])
   @@map("clinic_visits_tbl")
+}
+
+// ==========================================
+// 18. Customer Sales Returns / Credit Notes
+// ==========================================
+model SalesReturn {
+  id               Int      @id @default(autoincrement())
+  creditNoteNumber String   @unique @map("credit_note_number")
+  invoiceId        Int      @map("invoice_id")
+  invoice          Bill     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  returnDate       DateTime @default(now()) @map("return_date")
+  refundAmount     Decimal  @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
+  reason           String?  @map("reason")
+  recordedBy       String?  @map("recorded_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  items SalesReturnItem[]
+
+  @@index([invoiceId])
+  @@index([returnDate])
+  @@map("sales_returns_tbl")
+}
+
+model SalesReturnItem {
+  id             Int         @id @default(autoincrement())
+  returnId       Int         @map("return_id")
+  salesReturn    SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  billItemId     Int         @map("bill_item_id")
+  billItem       BillItem    @relation(fields: [billItemId], references: [id], onDelete: Restrict)
+
+  inventoryId    Int         @map("inventory_id")
+  inventory      Inventory   @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  quantityInPack Int         @default(0) @map("quantity_in_pack")
+  quantityInUnit Int         @default(0) @map("quantity_in_unit")
+  refundAmount   Decimal     @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
+
+  @@index([returnId])
+  @@index([billItemId])
+  @@index([inventoryId])
+  @@map("sales_return_items_tbl")
 }

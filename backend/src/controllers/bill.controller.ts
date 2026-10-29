@@ -25,9 +25,16 @@ export const formatBillResponse = (bill: any) => {
     const vatAmt = Number(bi.vatitemPrice);
     const taxBase = hasVat ? Math.max(0, lineTotal - vatAmt) : 0;
 
+    const returnedPacks = (bi.salesReturnItems || []).reduce((sum: number, r: any) => sum + Number(r.quantityInPack || 0), 0);
+    const returnedUnits = (bi.salesReturnItems || []).reduce((sum: number, r: any) => sum + Number(r.quantityInUnit || 0), 0);
+    const alreadyReturnedQuantity = isLoose ? returnedUnits : returnedPacks;
+    const returnableQuantity = Math.max(0, quantity - alreadyReturnedQuantity);
+
     return {
       id: String(bi.id),
+      billItemId: bi.id,
       medicineId: formatMedicineCode(bi.inventoryId),
+      inventoryId: bi.inventoryId,
       medicineName: inv?.medicineBrand || "Medicine",
       genericName: inv?.generic?.name || "Generic",
       category: inv?.category?.name || "Tablet",
@@ -35,6 +42,8 @@ export const formatBillResponse = (bill: any) => {
       expiryDate: inv?.expiryDate || "",
       isLooseUnit: isLoose,
       quantity,
+      alreadyReturnedQuantity,
+      returnableQuantity,
       unitsPerPack,
       unitPrice: Math.round(unitPrice * 100) / 100,
       costPrice: Number(inv?.costPrice || 0),
@@ -65,6 +74,15 @@ export const formatBillResponse = (bill: any) => {
       .toFixed(2)
   );
 
+  const salesReturns = (bill.salesReturns || []).map((sr: any) => ({
+    id: sr.id,
+    creditNoteNumber: sr.creditNoteNumber,
+    returnDate: sr.returnDate ? new Date(sr.returnDate).toISOString() : "",
+    refundAmount: Number(sr.refundAmount || 0),
+    reason: sr.reason || "Customer Sales Return",
+    recordedBy: sr.recordedBy || "",
+  }));
+
   return {
     id: String(bill.id),
     billId: bill.id,
@@ -79,6 +97,7 @@ export const formatBillResponse = (bill: any) => {
     paymentMode: bill.paymentMethod || "cash",
     paymentStatus: bill.paymentStatus || "paid",
     items: formattedItems,
+    salesReturns,
     grossSubtotal,
     vatExemptSubtotal,
     taxableBaseSubtotal,
@@ -317,8 +336,8 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         // Exclude expired / invalid / empty batches.
         // ----------------------------------------------------
 
-        const validBatches =
-          candidateBatches.filter(batch => {
+        const validBatches = candidateBatches
+          .filter(batch => {
             const expiry =
               parseExpiryForSale(
                 batch.expiryDate
@@ -341,6 +360,13 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
             }
 
             return batch.packInStock > 0;
+          })
+          .sort((a, b) => {
+            // Prioritize the exact batch selected by customer/cashier
+            if (a.id === selectedInventory.id) return -1;
+            if (b.id === selectedInventory.id) return 1;
+            // Otherwise allocate by earliest expiry (FEFO)
+            return (a.expiryDate || "").localeCompare(b.expiryDate || "");
           });
 
         // ----------------------------------------------------
@@ -708,8 +734,10 @@ export const getAllBills = async (req: Request, res: Response): Promise<void> =>
         where,
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -768,8 +796,10 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
         where: { id: parsedId },
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -788,8 +818,10 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
         where: { invoiceNumber: param },
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -919,8 +951,10 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
         items: {
           include: {
             inventory: true,
+            salesReturnItems: true,
           },
         },
+        salesReturns: true,
       },
     });
 
@@ -936,12 +970,22 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
     const recordedBy = user?.username ? `${user.firstName || user.username} (@${user.username})` : "Pharmacist";
 
     const returnResult = await prisma.$transaction(async (tx) => {
+      // Generate unique Credit Note Number
+      const fiscalYear = "2081/82";
+      const countReturns = await tx.salesReturn.count();
+      const creditNoteNumber = `CN-${fiscalYear}-${String(countReturns + 1).padStart(5, "0")}`;
+
       let totalRefundAmount = 0;
-      const returnedLineSummaries = [];
+      const validatedItems: Array<{
+        lineItem: any;
+        returnPacks: number;
+        returnUnits: number;
+        lineRefund: number;
+      }> = [];
 
       for (const ret of items) {
         const lineItem = bill.items.find(
-          (it) => it.id === Number(ret.billItemId) || it.inventoryId === Number(ret.inventoryId)
+          (it) => (ret.billItemId && it.id === Number(ret.billItemId)) || (ret.inventoryId && it.inventoryId === Number(ret.inventoryId))
         );
 
         if (!lineItem) {
@@ -953,12 +997,22 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
 
         if (returnPacks === 0 && returnUnits === 0) continue;
 
-        if (
-          returnPacks > lineItem.quantityInPack ||
-          returnUnits > lineItem.quantityInUnit
-        ) {
+        // Calculate already returned quantities
+        const alreadyReturnedPacks = (lineItem.salesReturnItems || []).reduce(
+          (sum: number, r: any) => sum + Number(r.quantityInPack || 0),
+          0
+        );
+        const alreadyReturnedUnits = (lineItem.salesReturnItems || []).reduce(
+          (sum: number, r: any) => sum + Number(r.quantityInUnit || 0),
+          0
+        );
+
+        const returnablePacks = Math.max(0, lineItem.quantityInPack - alreadyReturnedPacks);
+        const returnableUnits = Math.max(0, lineItem.quantityInUnit - alreadyReturnedUnits);
+
+        if (returnPacks > returnablePacks || returnUnits > returnableUnits) {
           throw new Error(
-            `Return quantity (${returnPacks} pk, ${returnUnits} units) exceeds purchased quantity on bill (${lineItem.quantityInPack} pk, ${lineItem.quantityInUnit} units) for ${lineItem.inventory?.medicineBrand || 'item'}.`
+            `Return quantity (${returnPacks} pk, ${returnUnits} units) exceeds remaining returnable quantity (${returnablePacks} pk, ${returnableUnits} units) for ${lineItem.inventory?.medicineBrand || 'item'}.`
           );
         }
 
@@ -967,10 +1021,50 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
         const upp = lineItem.inventory?.unitPerPack || 10;
         const unitPrice = upp > 1 ? packPrice / upp : packPrice;
 
-        const lineRefund = (returnPacks * packPrice) + (returnUnits * unitPrice);
+        const lineRefund = Math.round(((returnPacks * packPrice) + (returnUnits * unitPrice)) * 100) / 100;
         totalRefundAmount += lineRefund;
 
-        // Restock inventory
+        validatedItems.push({
+          lineItem,
+          returnPacks,
+          returnUnits,
+          lineRefund,
+        });
+      }
+
+      if (validatedItems.length === 0) {
+        throw new Error("No items were specified with a return quantity greater than 0.");
+      }
+
+      // 1. Create persistent SalesReturn record
+      const salesReturn = await tx.salesReturn.create({
+        data: {
+          creditNoteNumber,
+          invoiceId: bill.id,
+          refundAmount: totalRefundAmount,
+          reason: notes || reason || "Customer Sales Return",
+          recordedBy,
+        },
+      });
+
+      const returnedLineSummaries = [];
+
+      for (const val of validatedItems) {
+        const { lineItem, returnPacks, returnUnits, lineRefund } = val;
+
+        // 2. Create SalesReturnItem record
+        await tx.salesReturnItem.create({
+          data: {
+            returnId: salesReturn.id,
+            billItemId: lineItem.id,
+            inventoryId: lineItem.inventoryId,
+            quantityInPack: returnPacks,
+            quantityInUnit: returnUnits,
+            refundAmount: lineRefund,
+          },
+        });
+
+        // 3. Restock inventory directly to the exact sold batch
         const inv = lineItem.inventory;
         if (inv) {
           const currentTotalUnits = (inv.packInStock * inv.unitPerPack) + inv.unitInStock;
@@ -999,7 +1093,7 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
               previousLooseUnits: inv.unitInStock,
               newLooseUnits: updatedUnitInStock,
               varianceLooseUnits: returnUnits,
-              reason: `Customer Sales Return (Invoice #${bill.invoiceNumber}): ${ret.reason || notes || 'Medicine return'}`,
+              reason: `Customer Sales Return (Credit Note #${creditNoteNumber}, Inv #${bill.invoiceNumber}): ${notes || reason || 'Medicine return'}`,
               recordedBy,
             },
           });
@@ -1010,11 +1104,12 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
           batchNumber: inv?.batchNumber || "—",
           returnedPacks: returnPacks,
           returnedUnits: returnUnits,
-          refundAmount: Math.round(lineRefund * 100) / 100,
+          refundAmount: lineRefund,
         });
       }
 
       return {
+        creditNoteNumber,
         totalRefundAmount: Math.round(totalRefundAmount * 100) / 100,
         items: returnedLineSummaries,
       };
@@ -1022,13 +1117,14 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
 
     res.status(200).json({
       success: true,
-      message: `Successfully processed customer return for Invoice #${bill.invoiceNumber}. Total Refund: NPR ${returnResult.totalRefundAmount}. Stock restocked.`,
+      message: `Successfully processed customer return. Credit Note #${returnResult.creditNoteNumber}. Total Refund: NPR ${returnResult.totalRefundAmount}. Stock restocked.`,
       data: {
+        creditNoteNumber: returnResult.creditNoteNumber,
         invoiceNumber: bill.invoiceNumber,
         originalGrandTotal: Number(bill.grandTotal),
         refundAmount: returnResult.totalRefundAmount,
         returnedItems: returnResult.items,
-        notes: notes || "Customer Sales Return",
+        notes: notes || reason || "Customer Sales Return",
         processedAt: new Date().toISOString(),
       },
     });
@@ -1037,6 +1133,93 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
     res.status(400).json({
       success: false,
       message: error instanceof Error ? error.message : "Failed to process sales return.",
+    });
+  }
+};
+
+// ==========================================
+// 6. GET ALL CUSTOMER SALES RETURNS / CREDIT NOTES
+// ==========================================
+export const getAllSalesReturns = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const returns = await prisma.salesReturn.findMany({
+      include: {
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            customerName: true,
+            customerPhone: true,
+            transactionDate: true,
+            grandTotal: true,
+          },
+        },
+        items: {
+          include: {
+            inventory: {
+              select: {
+                id: true,
+                medicineBrand: true,
+                batchNumber: true,
+                unitPerPack: true,
+                expiryDate: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { returnDate: "desc" },
+    });
+
+    const formatted = returns.map((sr) => ({
+      id: sr.id,
+      creditNoteNumber: sr.creditNoteNumber,
+      invoiceId: sr.invoiceId,
+      invoiceNumber: sr.invoice.invoiceNumber,
+      customerName: sr.invoice.customerName || "Counter Customer",
+      customerPhone: sr.invoice.customerPhone || "—",
+      originalInvoiceTotal: Number(sr.invoice.grandTotal),
+      returnDate: new Date(sr.returnDate).toISOString(),
+      refundAmount: Number(sr.refundAmount),
+      reason: sr.reason || "Customer Sales Return",
+      recordedBy: sr.recordedBy || "Staff",
+      invoice: {
+        id: sr.invoice.id,
+        invoiceNumber: sr.invoice.invoiceNumber,
+        customerName: sr.invoice.customerName || "Counter Customer",
+        customerPhone: sr.invoice.customerPhone || "—",
+        totalAmount: Number(sr.invoice.grandTotal),
+      },
+      items: sr.items.map((it) => {
+        const name = it.inventory?.medicineBrand || "Medicine";
+        const batch = it.inventory?.batchNumber || "—";
+        return {
+          id: it.id,
+          medicineName: name,
+          batchNumber: batch,
+          quantityInPack: it.quantityInPack,
+          quantityInUnit: it.quantityInUnit,
+          refundAmount: Number(it.refundAmount),
+          inventory: {
+            id: it.inventory?.id,
+            brandName: name,
+            batchNumber: batch,
+            expiryDate: it.inventory?.expiryDate,
+          },
+        };
+      }),
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+    });
+  } catch (error) {
+    console.error("Error fetching sales returns:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve sales returns list.",
     });
   }
 };

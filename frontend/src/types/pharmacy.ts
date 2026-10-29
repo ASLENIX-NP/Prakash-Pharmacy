@@ -177,6 +177,9 @@ export interface StockistReturnVoucher {
 
 export interface SaleItem {
   medicineId: string;
+  id?: string;
+  billItemId?: number;
+  inventoryId?: number;
   medicineName: string;
   genericName: string;
   category: MedicineCategory;
@@ -184,6 +187,8 @@ export interface SaleItem {
   expiryDate: string;
   isLooseUnit: boolean; // false = full packs, true = per tablet/capsule
   quantity: number; // packs or loose tablets count
+  alreadyReturnedQuantity?: number;
+  returnableQuantity?: number;
   unitsPerPack: number;
   unitPrice: number; // Price per item (pack price or loose tablet price)
   costPrice: number; // Cost price per item
@@ -192,6 +197,28 @@ export interface SaleItem {
   lineTotal: number;
   taxBase: number; // Taxable base portion if 13% VAT
   vatAmount: number; // 13% VAT portion if applicable
+}
+
+export interface CustomerSalesReturn {
+  id: number;
+  creditNoteNumber: string;
+  invoiceId: number;
+  invoiceNumber: string;
+  customerName: string;
+  customerPhone?: string;
+  originalInvoiceTotal: number;
+  returnDate: string;
+  refundAmount: number;
+  reason?: string;
+  recordedBy?: string;
+  items: Array<{
+    id: number;
+    medicineName: string;
+    batchNumber: string;
+    quantityInPack: number;
+    quantityInUnit: number;
+    refundAmount: number;
+  }>;
 }
 
 export interface SaleInvoice {
@@ -207,6 +234,14 @@ export interface SaleInvoice {
   patientAge?: string;
   patientGender?: string;
   items: SaleItem[];
+  salesReturns?: Array<{
+    id: number;
+    creditNoteNumber: string;
+    returnDate: string;
+    refundAmount: number;
+    reason: string;
+    recordedBy: string;
+  }>;
   grossSubtotal: number; // Total sum of lines before bill discount
   vatExemptSubtotal: number; // 0% VAT items total
   taxableBaseSubtotal: number; // Base of 13% VAT items

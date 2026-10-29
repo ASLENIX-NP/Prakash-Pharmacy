@@ -255,6 +255,7 @@ export const PosView: React.FC = () => {
 
     const newItem: SaleItem = {
       medicineId: medicine.id,
+      inventoryId: Number(medicine.id) || undefined,
       medicineName: medicine.name,
       genericName: medicine.genericName,
       category: medicine.category,
