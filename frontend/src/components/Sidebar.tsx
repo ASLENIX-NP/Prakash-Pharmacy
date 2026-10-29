@@ -15,6 +15,7 @@ export type ActiveTab =
   | 'pos'
   | 'stockists'
   | 'sales_history'
+  | 'clinic'
   | 'reports'
   | 'users'
   | 'settings';
@@ -101,6 +102,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortCode: 'SR',
       tone: 'bg-slate-100 text-slate-700 border-slate-200',
       toneActive: 'bg-gradient-to-br from-slate-600 to-slate-800 text-white border-transparent',
+    },
+    {
+      id: 'clinic',
+      label: 'Clinic / OPD',
+      shortCode: 'CL',
+      tone: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+      toneActive: 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-transparent',
     },
     {
       id: 'reports',
