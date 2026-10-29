@@ -93,6 +93,7 @@ export interface StockistInvoiceItem {
   batchNumber: string;
   expiryDate: string;
   packQty: number;
+  looseUnits?: number; // Loose tablets/units outside full packs
   freePacks: number;
   unitsPerPack: number;
   costPrice: number; // Price per pack before discount

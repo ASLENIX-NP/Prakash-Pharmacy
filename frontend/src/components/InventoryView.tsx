@@ -19,10 +19,13 @@ import {
   DollarSign,
   Package,
   Layers2,
-  X
+  X,
+  Building,
+  FileText,
+  CheckCircle2
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
-import { Medicine, MedicineCategory } from '../types/pharmacy';
+import { Medicine, MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
 import { 
   downloadMedicineExcelTemplate, 
   parseMedicinesFromExcel, 
@@ -58,7 +61,10 @@ export const InventoryView: React.FC = () => {
     setActiveVatInfoMedicine,
     setActiveAuditMedicine,
     isAdmin,
-    racks
+    racks,
+    stockists,
+    addPurchaseInvoice,
+    addStockist
   } = usePharmacy();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -87,9 +93,25 @@ export const InventoryView: React.FC = () => {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Wholesaler Bill Import Configuration
+  const [importType, setImportType] = useState<'bill' | 'catalog'>('catalog');
+  const [billDistributorMode, setBillDistributorMode] = useState<'existing' | 'new'>('existing');
+  const [selectedDistributorId, setSelectedDistributorId] = useState<string>('');
+  const [newDistributorName, setNewDistributorName] = useState('');
+  const [newDistributorPhone, setNewDistributorPhone] = useState('');
+  const [newDistributorPan, setNewDistributorPan] = useState('');
+  const [billInvoiceNumber, setBillInvoiceNumber] = useState('');
+  const [billDate, setBillDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [billPaymentMode, setBillPaymentMode] = useState<'credit' | 'cash'>('credit');
+  const [billDueDate, setBillDueDate] = useState('');
+
   // Add / Edit Medicine Modal State
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+  const [manualDistributorMode, setManualDistributorMode] = useState<'select' | 'new'>('select');
+  const [manualNewDistributorName, setManualNewDistributorName] = useState('');
+  const [manualNewDistributorPhone, setManualNewDistributorPhone] = useState('');
+  const [manualNewDistributorPan, setManualNewDistributorPan] = useState('');
   const [formData, setFormData] = useState<Partial<Medicine>>({
     name: '',
     genericName: '',
@@ -109,6 +131,49 @@ export const InventoryView: React.FC = () => {
     barcode: '',
     notes: ''
   });
+
+  // Calculate bill totals dynamically (factoring in both full packs and loose tabs)
+  const billCalculations = useMemo(() => {
+    let subtotal = 0;
+    let taxableAmount = 0;
+    let totalPacks = 0;
+    let totalLooseTabs = 0;
+
+    parsedImportItems.forEach(item => {
+      const packs = Number(item.stockPacks) || 0;
+      const loose = Number(item.stockLooseUnits) || 0;
+      const upp = Number(item.unitsPerPack) > 0 ? Number(item.unitsPerPack) : 10;
+      const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
+      
+      const packCost = packs * cost;
+      const looseCost = upp > 1 ? (cost / upp) : cost;
+      const tabsCost = loose * looseCost;
+      const line = Math.round((packCost + tabsCost) * 100) / 100;
+
+      subtotal += line;
+      totalPacks += packs;
+      totalLooseTabs += loose;
+      if (item.isVatApplicable) {
+        taxableAmount += line;
+      }
+    });
+
+    const vatAmount = Math.round(taxableAmount * 0.13 * 100) / 100;
+    const grandTotal = Math.round((subtotal + vatAmount) * 100) / 100;
+
+    return {
+      subtotal: Math.round(subtotal * 100) / 100,
+      taxableAmount: Math.round(taxableAmount * 100) / 100,
+      vatAmount,
+      grandTotal,
+      totalPacks,
+      totalLooseTabs
+    };
+  }, [parsedImportItems]);
+
+  const detectedSuppliersInImport = useMemo(() => {
+    return Array.from(new Set(parsedImportItems.map(item => item.supplierName?.trim()).filter(Boolean) as string[]));
+  }, [parsedImportItems]);
 
   // Calculate all active racks (from racks list + medicines)
   const uniqueRacks = useMemo(() => {
@@ -170,6 +235,10 @@ export const InventoryView: React.FC = () => {
   // Handle open Add Modal
   const handleOpenAdd = () => {
     setEditingMedicine(null);
+    setManualDistributorMode('select');
+    setManualNewDistributorName('');
+    setManualNewDistributorPhone('');
+    setManualNewDistributorPan('');
     setFormData({
       name: '',
       genericName: '',
@@ -181,8 +250,8 @@ export const InventoryView: React.FC = () => {
       unitsPerPack: 10,
       costPrice: 50,
       mrpPrice: 70,
-      supplierId: '',
-      supplierName: '',
+      supplierId: stockists[0]?.id || '',
+      supplierName: stockists[0]?.name || '',
       reorderLevel: 15,
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
@@ -195,19 +264,51 @@ export const InventoryView: React.FC = () => {
   // Handle open Edit Modal
   const handleOpenEdit = (m: Medicine) => {
     setEditingMedicine(m);
+    setManualDistributorMode('select');
+    setManualNewDistributorName('');
+    setManualNewDistributorPhone('');
+    setManualNewDistributorPan('');
     setFormData({ ...m });
     setShowEditModal(true);
   };
 
   // Save Add/Edit
-  const handleSaveMedicine = (e: React.FormEvent) => {
+  const handleSaveMedicine = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name) return;
 
+    let supplierId = formData.supplierId || '';
+    let supplierName = formData.supplierName || '';
+
+    if (manualDistributorMode === 'new' && manualNewDistributorName.trim()) {
+      try {
+        const createdDist = await addStockist({
+          name: manualNewDistributorName.trim(),
+          phone: manualNewDistributorPhone.trim() || '9800000000',
+          panNumber: manualNewDistributorPan.trim() || '',
+          address: 'Makwanpur, Nepal',
+          contactPerson: '',
+          creditLimit: 500000,
+          email: ''
+        });
+        supplierId = createdDist.id;
+        supplierName = createdDist.name;
+      } catch (err: any) {
+        alert(err.message || 'Failed to create new distributor');
+        return;
+      }
+    }
+
+    const payload = {
+      ...formData,
+      supplierId,
+      supplierName
+    };
+
     if (editingMedicine) {
-      updateMedicine(editingMedicine.id, formData);
+      updateMedicine(editingMedicine.id, payload);
     } else {
-      addMedicine(formData as Omit<Medicine, 'id'>);
+      addMedicine(payload as Omit<Medicine, 'id'>);
     }
     setShowEditModal(false);
   };
@@ -223,6 +324,35 @@ export const InventoryView: React.FC = () => {
       const res = await parseMedicinesFromExcel(file);
       setParsedImportItems(res.success);
       setImportErrors(res.errors);
+
+      if (res.success.length > 0) {
+        if (!billInvoiceNumber) {
+          setBillInvoiceNumber(`BILL-${Math.floor(1000 + Math.random() * 9000)}`);
+        }
+        const today = new Date();
+        const nextMonth = new Date(today);
+        nextMonth.setDate(nextMonth.getDate() + 30);
+        setBillDueDate(nextMonth.toISOString().split('T')[0]);
+
+        // Auto-detect supplier from sheet if present
+        const sheetSuppliers = Array.from(new Set(res.success.map(item => item.supplierName?.trim()).filter(Boolean) as string[]));
+        if (sheetSuppliers.length > 1) {
+          // If sheet contains medicines from multiple distributors, switch to catalog mode so individual distributors are preserved
+          setImportType('catalog');
+        } else if (sheetSuppliers.length === 1) {
+          const detectedSupplier = sheetSuppliers[0];
+          const match = stockists.find(s => s.name.toLowerCase() === detectedSupplier.toLowerCase());
+          if (match) {
+            setSelectedDistributorId(match.id);
+            setBillDistributorMode('existing');
+          } else {
+            setBillDistributorMode('new');
+            setNewDistributorName(detectedSupplier);
+          }
+        } else if (!selectedDistributorId && stockists.length > 0) {
+          setSelectedDistributorId(stockists[0].id);
+        }
+      }
     } catch (err: any) {
       setImportErrors([{ row: 0, reason: err.message || 'Failed to parse Excel file' }]);
     } finally {
@@ -236,14 +366,113 @@ export const InventoryView: React.FC = () => {
 
     try {
       setIsSubmittingImport(true);
-      const res = await bulkImportMedicines(parsedImportItems, importMode);
-      setImportResult({
-        message: res.message,
-        summary: res.summary,
-        errors: res.data?.errors || [],
-      });
-      setParsedImportItems([]);
-      setImportErrors([]);
+
+      if (importType === 'bill') {
+        let finalStockistId = selectedDistributorId;
+        let finalStockistName = '';
+        let finalStockistPan = '';
+
+        if (billDistributorMode === 'new') {
+          if (!newDistributorName.trim()) {
+            alert('Please specify the Distributor / Wholesaler Name.');
+            setIsSubmittingImport(false);
+            return;
+          }
+          const created = await addStockist({
+            name: newDistributorName.trim(),
+            phone: newDistributorPhone.trim() || '9800000000',
+            panNumber: newDistributorPan.trim() || '',
+            address: 'Makwanpur, Nepal',
+            contactPerson: '',
+            creditLimit: 500000,
+            email: ''
+          });
+          finalStockistId = created.id;
+          finalStockistName = created.name;
+          finalStockistPan = created.panNumber || '';
+        } else {
+          const existing = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
+          if (!existing) {
+            alert('Please select or create a Distributor.');
+            setIsSubmittingImport(false);
+            return;
+          }
+          finalStockistId = existing.id;
+          finalStockistName = existing.name;
+          finalStockistPan = existing.panNumber || '';
+        }
+
+        const invNum = billInvoiceNumber.trim() || `BILL-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        const invoiceItems: StockistInvoiceItem[] = parsedImportItems.map((item, idx) => {
+          const packs = Number(item.stockPacks) || 0;
+          const loose = Number(item.stockLooseUnits) || 0;
+          const upp = Number(item.unitsPerPack) > 0 ? Number(item.unitsPerPack) : 10;
+          const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
+          const looseCost = upp > 1 ? (cost / upp) : cost;
+          const lineTotal = Math.round(((packs * cost) + (loose * looseCost)) * 100) / 100;
+
+          return {
+            id: `row-${Date.now()}-${idx}`,
+            medicineName: item.name,
+            genericName: item.genericName || '',
+            category: item.category || 'Tablet',
+            batchNumber: item.batchNumber || `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
+            expiryDate: item.expiryDate || '2028-12-31',
+            packQty: packs,
+            looseUnits: loose,
+            freePacks: 0,
+            unitsPerPack: upp,
+            costPrice: cost,
+            discountPercent: 0,
+            isVatApplicable: Boolean(item.isVatApplicable),
+            mrpPrice: item.mrpPrice || (cost > 0 ? Math.round(cost * 1.25 * 100) / 100 : 0),
+            rackLocation: item.rackLocation || 'Unassigned',
+            lineTotal
+          };
+        });
+
+        const createdInvoice = await addPurchaseInvoice({
+          invoiceNumber: invNum,
+          stockistId: finalStockistId,
+          stockistName: finalStockistName,
+          stockistPan: finalStockistPan,
+          date: billDate,
+          paymentMode: billPaymentMode,
+          dueDate: billPaymentMode === 'credit' ? billDueDate : undefined,
+          items: invoiceItems,
+          subtotal: billCalculations.subtotal,
+          totalDiscount: 0,
+          taxableAmount: billCalculations.taxableAmount,
+          vatAmount: billCalculations.vatAmount,
+          grandTotal: billCalculations.grandTotal,
+          paidAmount: billPaymentMode === 'cash' ? billCalculations.grandTotal : 0,
+          paymentStatus: billPaymentMode === 'cash' ? 'paid' : 'pending',
+          notes: `Imported via Wholesaler Bill Excel (${parsedImportItems.length} items)`
+        });
+
+        setImportResult({
+          message: `Wholesaler Bill "${createdInvoice.invoiceNumber}" for ${finalStockistName} (NPR ${billCalculations.grandTotal.toLocaleString()}) recorded successfully! Stockist ledger & running balance updated, and ${invoiceItems.length} medicines added to inventory.`,
+          summary: {
+            received: parsedImportItems.length,
+            created: parsedImportItems.length,
+            updated: 0,
+            skipped: 0,
+            errors: 0
+          }
+        });
+        setParsedImportItems([]);
+        setImportErrors([]);
+      } else {
+        const res = await bulkImportMedicines(parsedImportItems, importMode);
+        setImportResult({
+          message: res.message,
+          summary: res.summary,
+          errors: res.data?.errors || [],
+        });
+        setParsedImportItems([]);
+        setImportErrors([]);
+      }
     } catch (err: any) {
       alert(
         err instanceof Error
@@ -531,12 +760,15 @@ export const InventoryView: React.FC = () => {
 
       {/* Excel Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <FileSpreadsheet className="w-5 h-5 text-teal-400" />
-                <h3 className="font-bold text-base">Bulk Medicine Excel (.xlsx / .csv) Import</h3>
+                <div>
+                  <h3 className="font-bold text-base">Bulk Medicine Excel (.xlsx / .csv) Import</h3>
+                  <p className="text-[11px] text-slate-300">Import wholesaler purchase invoices or catalog stock directly into PostgreSQL</p>
+                </div>
               </div>
               <button 
                 onClick={() => { setShowImportModal(false); setParsedImportItems([]); setImportErrors([]); setImportResult(null); }}
@@ -556,7 +788,7 @@ export const InventoryView: React.FC = () => {
                   <h4 className="text-base font-bold text-emerald-900">
                     Import Completed Successfully!
                   </h4>
-                  <p className="text-xs text-emerald-700">
+                  <p className="text-xs text-emerald-800 font-medium">
                     {importResult.message}
                   </p>
                 </div>
@@ -609,7 +841,145 @@ export const InventoryView: React.FC = () => {
               </div>
             ) : (
               <div className="p-6 space-y-4">
-                <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors">
+                {/* Mode Selector Tabs */}
+                <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-semibold gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setImportType('bill')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                      importType === 'bill'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Wholesaler Purchase Bill (Record to Ledger &amp; Stock)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportType('catalog')}
+                    className={`flex-1 py-2 px-3 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ${
+                      importType === 'catalog'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Catalog / Opening Stock (No Ledger Debt)</span>
+                  </button>
+                </div>
+
+                {/* Wholesaler & Bill Details (Shown if importType === 'bill') */}
+                {importType === 'bill' && (
+                  <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Building className="w-3.5 h-3.5 text-teal-600" />
+                        <span>Distributor / Wholesaler: *</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setBillDistributorMode(billDistributorMode === 'existing' ? 'new' : 'existing')}
+                        className="text-[11px] font-bold text-teal-700 hover:text-teal-800 cursor-pointer"
+                      >
+                        {billDistributorMode === 'existing' ? '+ Register New Distributor' : '← Pick Existing Distributor'}
+                      </button>
+                    </div>
+
+                    {billDistributorMode === 'existing' ? (
+                      <select
+                        value={selectedDistributorId}
+                        onChange={(e) => setSelectedDistributorId(e.target.value)}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
+                      >
+                        {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
+                        {stockists.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 bg-white p-3 rounded-lg border border-slate-200">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Distributor Name: *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. ABC Pharma Distributors"
+                            value={newDistributorName}
+                            onChange={(e) => setNewDistributorName(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Phone Number:</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 9845012345"
+                            value={newDistributorPhone}
+                            onChange={(e) => setNewDistributorPhone(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">PAN Number:</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 601234567"
+                            value={newDistributorPan}
+                            onChange={(e) => setNewDistributorPan(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-4 gap-2 pt-1 border-t border-slate-200/80">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Bill / Invoice #: *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. BILL-2081-001"
+                          value={billInvoiceNumber}
+                          onChange={(e) => setBillInvoiceNumber(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-xs font-mono font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Bill Date:</label>
+                        <input
+                          type="date"
+                          value={billDate}
+                          onChange={(e) => setBillDate(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-xs font-mono text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Payment Mode:</label>
+                        <select
+                          value={billPaymentMode}
+                          onChange={(e) => setBillPaymentMode(e.target.value as 'credit' | 'cash')}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-xs font-semibold text-slate-900"
+                        >
+                          <option value="credit">Credit (Payable to Ledger)</option>
+                          <option value="cash">Cash (Settled)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Due Date:</label>
+                        <input
+                          type="date"
+                          value={billDueDate}
+                          onChange={(e) => setBillDueDate(e.target.value)}
+                          disabled={billPaymentMode === 'cash'}
+                          className="w-full bg-white border border-slate-300 rounded px-2 py-1.5 text-xs font-mono text-slate-900 disabled:bg-slate-100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="border-2 border-dashed border-slate-300 rounded-xl p-5 text-center hover:bg-slate-50 transition-colors">
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -617,17 +987,17 @@ export const InventoryView: React.FC = () => {
                     onChange={handleFileChange}
                     className="hidden"
                   />
-                  <Upload className="w-8 h-8 mx-auto text-slate-400 mb-2" />
+                  <Upload className="w-7 h-7 mx-auto text-slate-400 mb-1.5" />
                   <p className="text-xs font-semibold text-slate-700">
-                    Select or drag &amp; drop your Excel file here
+                    Select or drag &amp; drop your Excel / CSV invoice or catalog file
                   </p>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    Supported formats: Microsoft Excel (.xlsx, .xls) and CSV (.csv)
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Columns recognized: Medicine Name, Generic, Batch, Expiry, Packs, Cost Price, MRP, Rack, VAT
                   </p>
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="mt-3 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                    className="mt-2.5 px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
                   >
                     Choose Excel File
                   </button>
@@ -640,69 +1010,136 @@ export const InventoryView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Parsed summary */}
+                {/* Parsed summary & Live Financial Calculation */}
                 {parsedImportItems.length > 0 && (
-                  <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-3">
-                    <div className="font-bold flex items-center gap-1.5 text-emerald-800">
-                      <Check className="w-4 h-4 text-emerald-700" />
-                      <span>Successfully parsed {parsedImportItems.length} medicine records ready to import!</span>
-                    </div>
-
-                    {/* Import Mode Selector */}
-                    <div className="bg-white p-3 rounded-lg border border-emerald-200">
-                      <label className="block text-[11px] font-bold text-slate-800 mb-1.5">
-                        Duplicate Batch Handling Mode:
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setImportMode('merge')}
-                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
-                            importMode === 'merge'
-                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
-                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div>Merge Stock</div>
-                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Add stock &amp; keep existing details</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setImportMode('replace')}
-                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
-                            importMode === 'replace'
-                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
-                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div>Full Replace</div>
-                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Overwrite record (resets unlisted fields)</div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setImportMode('skip')}
-                          className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
-                            importMode === 'skip'
-                              ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
-                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          <div>Skip Existing</div>
-                          <div className="text-[9px] text-slate-500 font-normal mt-0.5">Keep existing records untouched</div>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="max-h-36 overflow-y-auto divide-y divide-emerald-100 text-[11px]">
-                      {parsedImportItems.slice(0, 5).map((item, i) => (
-                        <div key={i} className="py-1 flex justify-between">
-                          <span>{item.name} {item.genericName ? `(${item.genericName})` : ''}</span>
-                          <span className="font-mono">{item.stockPacks} packs @ Rs. {item.mrpPrice}</span>
+                  <div className="space-y-3">
+                    {importType === 'bill' ? (
+                      <div className="bg-gradient-to-r from-teal-50 to-emerald-50 border border-teal-200 p-4 rounded-xl space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-teal-900 font-bold text-xs">
+                            <CheckCircle2 className="w-4 h-4 text-teal-700" />
+                            <span>
+                              Parsed {parsedImportItems.length} Bill Items ({billCalculations.totalPacks} Packs
+                              {billCalculations.totalLooseTabs > 0 ? ` + ${billCalculations.totalLooseTabs} Tabs` : ''})
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-semibold text-teal-800 font-mono">
+                            {billInvoiceNumber || 'BILL-AUTO'}
+                          </span>
                         </div>
-                      ))}
-                      {parsedImportItems.length > 5 && (
-                        <div className="pt-1 text-slate-500 italic">...and {parsedImportItems.length - 5} more</div>
-                      )}
+                        <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-teal-200">
+                          <div className="bg-white/80 p-2 rounded-lg">
+                            <div className="text-[10px] text-slate-500 font-semibold">Subtotal</div>
+                            <div className="text-xs font-bold font-mono text-slate-800">Rs. {billCalculations.subtotal.toLocaleString()}</div>
+                          </div>
+                          <div className="bg-white/80 p-2 rounded-lg">
+                            <div className="text-[10px] text-slate-500 font-semibold">13% Taxable</div>
+                            <div className="text-xs font-bold font-mono text-slate-800">Rs. {billCalculations.taxableAmount.toLocaleString()}</div>
+                          </div>
+                          <div className="bg-white/80 p-2 rounded-lg">
+                            <div className="text-[10px] text-slate-500 font-semibold">13% VAT</div>
+                            <div className="text-xs font-bold font-mono text-blue-700">Rs. {billCalculations.vatAmount.toLocaleString()}</div>
+                          </div>
+                          <div className="bg-white p-2 rounded-lg border border-emerald-300 shadow-2xs">
+                            <div className="text-[10px] text-emerald-800 font-bold uppercase">Total Bill Value</div>
+                            <div className="text-sm font-extrabold font-mono text-emerald-900">Rs. {billCalculations.grandTotal.toLocaleString()}</div>
+                          </div>
+                        </div>
+                        <div className="text-[11px] text-teal-900 flex items-center justify-between pt-1 border-t border-teal-100">
+                          <span>Posting: <strong>{billPaymentMode === 'credit' ? 'Credit Purchase (Increases Distributor Payable)' : 'Cash Purchase (Immediate Settlement)'}</strong></span>
+                          <span className="text-[10px] text-slate-500 italic">Bill value will be recorded in stockist ledger</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-xs text-emerald-900 space-y-3">
+                        <div className="font-bold flex items-center gap-1.5 text-emerald-800">
+                          <Check className="w-4 h-4 text-emerald-700" />
+                          <span>Successfully parsed {parsedImportItems.length} medicine records ready to import!</span>
+                        </div>
+
+                        {/* Import Mode Selector for Catalog */}
+                        <div className="bg-white p-3 rounded-lg border border-emerald-200">
+                          <label className="block text-[11px] font-bold text-slate-800 mb-1.5">
+                            Duplicate Batch Handling Mode:
+                          </label>
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setImportMode('merge')}
+                              className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                                importMode === 'merge'
+                                  ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div>Merge Stock</div>
+                              <div className="text-[9px] text-slate-500 font-normal mt-0.5">Add stock &amp; keep existing details</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setImportMode('replace')}
+                              className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                                importMode === 'replace'
+                                  ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div>Full Replace</div>
+                              <div className="text-[9px] text-slate-500 font-normal mt-0.5">Overwrite record (resets unlisted fields)</div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setImportMode('skip')}
+                              className={`p-2 rounded-lg text-left border transition-all text-[11px] ${
+                                importMode === 'skip'
+                                  ? 'border-teal-600 bg-teal-50 text-teal-900 font-bold'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div>Skip Existing</div>
+                              <div className="text-[9px] text-slate-500 font-normal mt-0.5">Keep existing records untouched</div>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Preview Table of First Few Items */}
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 flex justify-between">
+                        <span>Items Preview (Showing first 5 of {parsedImportItems.length})</span>
+                        <span>Quantity &amp; Rate</span>
+                      </div>
+                      <div className="max-h-36 overflow-y-auto divide-y divide-slate-100 text-[11px] p-2 bg-white">
+                        {parsedImportItems.slice(0, 5).map((item, i) => (
+                          <div key={i} className="py-1 flex justify-between items-center">
+                            <div>
+                              <span className="font-semibold text-slate-900">{item.name}</span>
+                              {item.genericName && <span className="text-slate-500 ml-1">({item.genericName})</span>}
+                              {item.batchNumber && <span className="text-[10px] text-slate-400 font-mono ml-1.5">[{item.batchNumber}]</span>}
+                              {item.supplierName && (
+                                <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1 py-0.2 rounded ml-1 font-medium" title={`Supplier: ${item.supplierName}`}>
+                                  🏢 {item.supplierName}
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-mono text-right">
+                              <span className="text-slate-700">
+                                {item.stockPacks} pk
+                                {item.stockLooseUnits && item.stockLooseUnits > 0 ? ` + ${item.stockLooseUnits} tabs` : ''}
+                              </span>
+                              {(item.costPrice > 0 || item.mrpPrice > 0) && (
+                                <span className="text-teal-700 ml-2">@ Rs. {item.costPrice > 0 ? item.costPrice : item.mrpPrice}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {parsedImportItems.length > 5 && (
+                          <div className="pt-1 text-slate-500 text-center italic text-[10px]">
+                            ...and {parsedImportItems.length - 5} more items in this file
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -741,8 +1178,10 @@ export const InventoryView: React.FC = () => {
                   {isSubmittingImport ? (
                     <>
                       <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      <span>Saving to PostgreSQL...</span>
+                      <span>{importType === 'bill' ? 'Recording Invoice & Ledger...' : 'Saving to Database...'}</span>
                     </>
+                  ) : importType === 'bill' ? (
+                    <span>Record Bill &amp; Post to Ledger (Rs. {billCalculations.grandTotal.toLocaleString()})</span>
                   ) : (
                     <span>Import {parsedImportItems.length} Medicines into Database</span>
                   )}
@@ -796,6 +1235,79 @@ export const InventoryView: React.FC = () => {
                     onChange={(e) => setFormData({ ...formData, genericName: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
+                </div>
+
+                {/* Distributor / Wholesaler Selection */}
+                <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Building className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Distributor / Wholesaler:</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setManualDistributorMode(manualDistributorMode === 'select' ? 'new' : 'select')}
+                      className="text-[11px] font-bold text-teal-700 hover:text-teal-800 cursor-pointer"
+                    >
+                      {manualDistributorMode === 'select' ? '+ Register New Distributor' : '← Pick Existing'}
+                    </button>
+                  </div>
+
+                  {manualDistributorMode === 'select' ? (
+                    <select
+                      value={formData.supplierId || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const found = stockists.find(s => s.id === val);
+                        setFormData({
+                          ...formData,
+                          supplierId: val,
+                          supplierName: found ? found.name : ''
+                        });
+                      }}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-hidden"
+                    >
+                      <option value="">Unassigned (No Distributor Selected)</option>
+                      {stockists.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Distributor Name: *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Nepal Drug House"
+                          value={manualNewDistributorName}
+                          onChange={(e) => setManualNewDistributorName(e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Phone:</label>
+                        <input
+                          type="text"
+                          placeholder="98xxxxxxxx"
+                          value={manualNewDistributorPhone}
+                          onChange={(e) => setManualNewDistributorPhone(e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">PAN:</label>
+                        <input
+                          type="text"
+                          placeholder="PAN Number"
+                          value={manualNewDistributorPan}
+                          onChange={(e) => setManualNewDistributorPan(e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1054,9 +1566,16 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
                   ) : (
                     <div className="text-[10px] text-amber-600 font-medium italic">Generic not assigned</div>
                   )}
-                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded mt-0.5 inline-block">
-                    {m.category} • {m.unitsPerPack} u/pack
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded inline-block">
+                      {m.category} • {m.unitsPerPack} u/pack
+                    </span>
+                    {m.supplierName && (
+                      <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5 font-medium" title={`Distributor: ${m.supplierName}`}>
+                        🏢 {m.supplierName}
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 <td className="py-3 px-3 font-mono text-[11px]">

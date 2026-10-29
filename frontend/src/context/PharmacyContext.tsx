@@ -489,9 +489,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               ...item,
 
               // Backend already provides frontend aliases.
-              // Supplier is not yet part of backend inventory DTO.
-              supplierId: item.supplierId || '',
-              supplierName: item.supplierName || ''
+              supplierId: item.supplierId || (item.distributorId ? String(item.distributorId) : ''),
+              supplierName: item.supplierName || item.distributorName || item.distributor?.name || ''
             })
           );
 
@@ -2063,8 +2062,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const liveMedicines: Medicine[] =
       response.data.map((item: any) => ({
         ...item,
-        supplierId: item.supplierId || '',
-        supplierName: item.supplierName || ''
+        supplierId: item.supplierId || (item.distributorId ? String(item.distributorId) : ''),
+        supplierName: item.supplierName || item.distributorName || item.distributor?.name || ''
       }));
 
     setMedicines(liveMedicines);

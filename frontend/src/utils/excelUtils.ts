@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Medicine, StockAdjustmentLog, StockistLedgerEntry, SaleInvoice } from '../types/pharmacy';
+import { Medicine, StockAdjustmentLog, StockistLedgerEntry, SaleInvoice, StockistPurchaseInvoice } from '../types/pharmacy';
 
 // Download pre-formatted Medicine Excel Import Template
 export function downloadMedicineExcelTemplate(): void {
@@ -97,19 +97,26 @@ const FIELD_ALIASES = {
     'qty', 'quantity', 'totalpacks', 'currentstock', 'availablestock', 'boxes', 'box'
   ],
   stockLooseUnits: [
-    'stocklooseunits', 'loosetabletsunits', 'loosetablets', 'looseunits', 'looseqty', 'loose', 'tabs', 'units'
+    'stocklooseunits', 'loosetabletsunits', 'loosetablets', 'looseunits', 'looseqty', 'loose',
+    'tabs', 'tab', 'tablets', 'tablet', 'units', 'loosetabs', 'loosetablet', 'looseunit',
+    'loosepills', 'pills', 'pill', 'loosecount', 'tabcount', 'loosestock', 'stripunits'
   ],
   unitsPerPack: [
     'unitsperpack', 'packsize', 'unitsinpack', 'packing', 'pack', 'stripsize', 'tabsinpack'
   ],
   costPrice: [
-    'purchasecostprice', 'costprice', 'purchaseprice', 'purchaserate', 'cost', 'buyprice', 'cp'
+    'purchasecostprice', 'costprice', 'purchaseprice', 'purchaserate', 'cost', 'buyprice', 'cp',
+    'purchaseratenpr', 'costpricenpr', 'costnpr', 'costpack', 'costperpack', 'prate', 'ratepack',
+    'netrate', 'unitrate', 'unitcost', 'rate', 'price', 'purchaseratepack'
+  ],
+  amount: [
+    'amount', 'netamount', 'totalamount', 'total', 'linetotal', 'itemtotal', 'billamount', 'value', 'netvalue', 'grossamount', 'totalprice'
   ],
   mrpPrice: [
-    'mrpprice', 'mrpsellingprice', 'sellingprice', 'salesprice', 'salerate', 'mrp', 'rate', 'price', 'sp'
+    'mrpprice', 'mrpsellingprice', 'sellingprice', 'salesprice', 'salerate', 'mrp', 'sp', 'retailprice', 'maximumretailprice'
   ],
   supplierName: [
-    'stockistsupplier', 'suppliername', 'supplier', 'stockist', 'distributor', 'vendor'
+    'stockistsupplier', 'suppliername', 'supplier', 'stockist', 'distributor', 'distributorname', 'vendor', 'wholesaler', 'company', 'agency', 'manufacturer', 'mfg'
   ],
   reorderLevel: [
     'reorderalertlevel', 'reorderlevel', 'alertlevel', 'minstock', 'minimumstock'
@@ -286,6 +293,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
           const stockLooseResult = findRowValue(rowMap, FIELD_ALIASES.stockLooseUnits);
           const unitsPerPackResult = findRowValue(rowMap, FIELD_ALIASES.unitsPerPack);
           const costPriceResult = findRowValue(rowMap, FIELD_ALIASES.costPrice);
+          const amountResult = findRowValue(rowMap, FIELD_ALIASES.amount);
           const mrpPriceResult = findRowValue(rowMap, FIELD_ALIASES.mrpPrice);
           const supplierResult = findRowValue(rowMap, FIELD_ALIASES.supplierName);
           const reorderLevelResult = findRowValue(rowMap, FIELD_ALIASES.reorderLevel);
@@ -305,13 +313,39 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
           const parsedExpiry = parseFlexibleDate(expiryRawResult.value);
           const expiryDate = parsedExpiry.found ? parsedExpiry.formatted : '';
 
-          const stockPacks = parseCleanNumber(stockPacksResult.value).value;
+          const rawStockPacks = parseCleanNumber(stockPacksResult.value).value;
           const stockLooseUnits = parseCleanNumber(stockLooseResult.value).value;
           const unitsPerPack = unitsPerPackResult.found
             ? Math.max(1, Math.round(parseCleanNumber(unitsPerPackResult.value).value))
             : 10;
-          const costPrice = parseCleanNumber(costPriceResult.value).value;
-          const mrpPrice = parseCleanNumber(mrpPriceResult.value).value;
+
+          const rawCost = parseCleanNumber(costPriceResult.value).value;
+          const rawMrp = parseCleanNumber(mrpPriceResult.value).value;
+          const rawAmount = parseCleanNumber(amountResult.value).value;
+
+          // Default stockPacks to 1 only if BOTH packs and loose units are missing/0
+          let stockPacks = rawStockPacks;
+          if (stockPacks <= 0 && stockLooseUnits <= 0 && (rawCost > 0 || rawAmount > 0)) {
+            stockPacks = 1;
+          }
+
+          // Directly calculate costPrice from cost column, line amount (taking packs + tabs into account), or MRP
+          let costPrice = rawCost;
+          if ((!costPrice || costPrice <= 0) && rawAmount > 0) {
+            const effectivePacks = stockPacks + (unitsPerPack > 1 ? stockLooseUnits / unitsPerPack : (stockLooseUnits > 0 ? stockLooseUnits : 0));
+            if (effectivePacks > 0) {
+              costPrice = Math.round((rawAmount / effectivePacks) * 100) / 100;
+            }
+          }
+          if ((!costPrice || costPrice <= 0) && rawMrp > 0) {
+            costPrice = rawMrp;
+          }
+
+          // Deduce MRP if not explicitly provided
+          let mrpPrice = rawMrp;
+          if ((!mrpPrice || mrpPrice <= 0) && costPrice > 0) {
+            mrpPrice = Math.round(costPrice * 1.25 * 100) / 100;
+          }
 
           const providedFields: Record<string, boolean> = {
             name: true,
@@ -320,10 +354,10 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
             genericName: genericResult.found,
             category: categoryResult.found,
             rackLocation: rackResult.found,
-            stockPacks: stockPacksResult.found,
+            stockPacks: stockPacksResult.found || rawAmount > 0,
             stockLooseUnits: stockLooseResult.found,
             unitsPerPack: unitsPerPackResult.found,
-            costPrice: costPriceResult.found,
+            costPrice: costPriceResult.found || rawAmount > 0 || mrpPriceResult.found,
             mrpPrice: mrpPriceResult.found,
             reorderLevel: reorderLevelResult.found,
             isVatApplicable: vatResult.found,
@@ -344,8 +378,8 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
             unitsPerPack,
             costPrice,
             mrpPrice,
-            supplierId: 'stk-import',
-            supplierName: supplierResult.found ? String(supplierResult.value).trim() : 'General Wholesaler',
+            supplierId: '',
+            supplierName: supplierResult.found ? String(supplierResult.value).trim() : '',
             reorderLevel: reorderLevelResult.found
               ? Math.round(parseCleanNumber(reorderLevelResult.value).value)
               : 15,
@@ -501,3 +535,43 @@ export function exportWholesalerAnalyticsToExcel(
   const dateStr = new Date().toISOString().split('T')[0];
   XLSX.writeFile(wb, `${storeName.replace(/\s+/g, '_')}_Wholesaler_Item_Sales_Analysis_${dateStr}.xlsx`);
 }
+
+// Export Inward Purchase Bill Details (Medicines, Batch, Cost Price, MRP, VAT, Line Total)
+export function exportPurchaseBillToExcel(
+  bill: StockistPurchaseInvoice,
+  storeName: string
+): void {
+  const data = (bill.items || []).map((it, idx) => {
+    const margin = it.mrpPrice > 0 
+      ? (((it.mrpPrice - it.costPrice) / it.mrpPrice) * 100).toFixed(1) + '%' 
+      : '0%';
+
+    return {
+      'S.N.': idx + 1,
+      'Medicine Name': it.medicineName,
+      'Generic Name': it.genericName || 'N/A',
+      'Category': it.category || 'Tablet',
+      'Batch Number': it.batchNumber || 'N/A',
+      'Expiry Date': it.expiryDate || 'N/A',
+      'Packs Qty': it.packQty,
+      'Free Packs': it.freePacks || 0,
+      'Units Per Pack': it.unitsPerPack || 1,
+      'Purchase Rate / Cost (NPR)': Number(it.costPrice || 0).toFixed(2),
+      'MRP / Selling Price (NPR)': Number(it.mrpPrice || 0).toFixed(2),
+      'Profit Margin': margin,
+      'Discount %': it.discountPercent || 0,
+      '13% VAT': it.isVatApplicable ? 'YES (13%)' : 'NO (0%)',
+      'Line Total (NPR)': Number(it.lineTotal || 0).toFixed(2),
+      'Rack Location': it.rackLocation || 'N/A'
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `Bill_${bill.invoiceNumber}`);
+
+  const safeStore = (storeName || 'Pharmacy').replace(/\s+/g, '_');
+  const safeWholesaler = (bill.stockistName || 'Wholesaler').replace(/\s+/g, '_');
+  XLSX.writeFile(wb, `${safeStore}_Purchase_Bill_${safeWholesaler}_${bill.invoiceNumber || 'INV'}_${bill.date || 'date'}.xlsx`);
+}
+

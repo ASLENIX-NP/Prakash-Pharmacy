@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Truck, 
   FileText, 
@@ -8,6 +8,8 @@ import {
   Plus, 
   Search, 
   Download, 
+  Upload,
+  FileSpreadsheet,
   Check, 
   AlertTriangle, 
   Building, 
@@ -19,7 +21,8 @@ import {
   Printer, 
   CheckCircle2,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Eye
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { 
@@ -32,7 +35,12 @@ import {
   StockistReturnReason,
   MedicineCategory
 } from '../types/pharmacy';
-import { exportStockistLedgerToExcel, exportWholesalerAnalyticsToExcel } from '../utils/excelUtils';
+import { 
+  exportStockistLedgerToExcel, 
+  exportWholesalerAnalyticsToExcel,
+  exportPurchaseBillToExcel,
+  parseMedicinesFromExcel
+} from '../utils/excelUtils';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 
 export const StockistManagementView: React.FC = () => {
@@ -108,9 +116,12 @@ export const StockistManagementView: React.FC = () => {
       lineTotal: 950
     }
   ]);
+  const excelBillInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingExcelBill, setIsImportingExcelBill] = useState(false);
 
   // Return to Stockist (Debit Note) Form State
   const [returnStockistId, setReturnStockistId] = useState<string>(stockists[0]?.id || '');
+  const [showAllMedsInReturn, setShowAllMedsInReturn] = useState<boolean>(false);
   const [debitNoteNumber, setDebitNoteNumber] = useState(`DN-${Date.now().toString().slice(-4)}`);
   const [returnItems, setReturnItems] = useState<StockistReturnItem[]>([]);
   const [selectedReturnMedId, setSelectedReturnMedId] = useState<string>('');
@@ -118,17 +129,135 @@ export const StockistManagementView: React.FC = () => {
   const [returnLoose, setReturnLoose] = useState<number>(0);
   const [returnReason, setReturnReason] = useState<StockistReturnReason>('Expired Medicine');
   const [returnNotes, setReturnNotes] = useState<string>('');
+  const [viewingPurchaseBill, setViewingPurchaseBill] = useState<StockistPurchaseInvoice | null>(null);
+  const [billItemSearch, setBillItemSearch] = useState<string>('');
+
+  // Helper to reliably match any ledger entry or purchase invoice with a stockist across string/numeric ID formats
+  const isMatchingStockist = (entry: any, stockist: Stockist | null | undefined): boolean => {
+    if (!stockist || !entry) return false;
+    const sId = String(stockist.id || '').trim().toLowerCase();
+    const sNum = String((stockist as any).distributorId || (stockist as any).numericId || stockist.id.replace(/\D/g, '')).trim();
+    const sName = String(stockist.name || '').trim().toLowerCase();
+
+    const eStockistId = String(entry.stockistId || '').trim().toLowerCase();
+    const eDistId = String(entry.distributorId || '').trim().toLowerCase();
+    const eName = String(entry.stockistName || entry.distributorName || '').trim().toLowerCase();
+
+    if (eStockistId && sId && eStockistId === sId) return true;
+    if (eDistId && sId && eDistId === sId) return true;
+    if (sNum) {
+      if (eStockistId === sNum || eDistId === sNum) return true;
+      if (eStockistId.replace(/\D/g, '') === sNum) return true;
+      if (eDistId.replace(/\D/g, '') === sNum) return true;
+    }
+    if (sName && eName && sName === eName) return true;
+    return false;
+  };
+
+  // Synchronize selectedStockistId & returnStockistId when stockists load
+  React.useEffect(() => {
+    if (!selectedStockistId && stockists.length > 0) {
+      setSelectedStockistId(stockists[0].id);
+    }
+    if (!returnStockistId && stockists.length > 0) {
+      setReturnStockistId(stockists[0].id);
+    }
+  }, [stockists, selectedStockistId, returnStockistId]);
 
   // Active Stockist for Ledger
   const currentSelectedStockist = useMemo(() => {
-    return stockists.find(s => s.id === selectedStockistId) || stockists[0];
+    if (selectedStockistId) {
+      const found = stockists.find(s => isMatchingStockist({ stockistId: selectedStockistId }, s));
+      if (found) return found;
+    }
+    return stockists[0];
   }, [stockists, selectedStockistId]);
 
-  // Ledger entries for active stockist (Latest on top, oldest at bottom)
+  // Active Stockist for Return / Debit Note
+  const currentReturnStockist = useMemo(() => {
+    if (returnStockistId) {
+      const found = stockists.find(s => isMatchingStockist({ stockistId: returnStockistId }, s));
+      if (found) return found;
+    }
+    return stockists[0];
+  }, [stockists, returnStockistId]);
+
+  // Medicines strictly imported / supplied by the selected return wholesaler
+  const eligibleReturnMedicines = useMemo(() => {
+    if (!currentReturnStockist) return [];
+
+    // Collect medicine names and batches from inward purchase invoices for this stockist
+    const stockistInvoiceItemKeys = new Set<string>();
+    const stockistInvoiceMedNames = new Set<string>();
+    purchaseInvoices.forEach(inv => {
+      if (isMatchingStockist(inv, currentReturnStockist)) {
+        inv.items?.forEach(it => {
+          if (it.medicineName) {
+            const mName = it.medicineName.trim().toLowerCase();
+            const bNum = (it.batchNumber || '').trim().toLowerCase();
+            stockistInvoiceItemKeys.add(`${mName}:::${bNum}`);
+            stockistInvoiceMedNames.add(mName);
+          }
+        });
+      }
+    });
+
+    return medicines.filter(m => {
+      // 1. Direct supplier match on medicine
+      if (isMatchingStockist({
+        stockistId: m.supplierId,
+        distributorId: (m as any).distributorId || m.supplierId,
+        stockistName: m.supplierName,
+        distributorName: (m as any).distributorName || m.supplierName
+      }, currentReturnStockist)) {
+        return true;
+      }
+
+      // 2. Cross-reference with purchase invoices
+      const mName = (m.name || '').trim().toLowerCase();
+      const bNum = (m.batchNumber || '').trim().toLowerCase();
+      if (stockistInvoiceItemKeys.has(`${mName}:::${bNum}`)) return true;
+      if (stockistInvoiceMedNames.has(mName)) return true;
+
+      return false;
+    });
+  }, [medicines, purchaseInvoices, currentReturnStockist]);
+
+  // Ledger entries for active stockist with purchase bill cross-referencing
   const filteredLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
-    return stockistLedgers
-      .filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
+
+    // 1. Get ledger records directly linked to this stockist
+    const entries = stockistLedgers.filter(entry => isMatchingStockist(entry, currentSelectedStockist));
+
+    // 2. Cross-reference with purchaseInvoices to guarantee imported purchase bills are never missing
+    const existingRefNumbers = new Set(entries.map(e => String(e.refNumber || '').trim().toLowerCase()));
+
+    const missingPurchaseEntries: StockistLedgerEntry[] = [];
+    purchaseInvoices.forEach(inv => {
+      if (isMatchingStockist(inv, currentSelectedStockist)) {
+        const invNumKey = String(inv.invoiceNumber || '').trim().toLowerCase();
+        if (invNumKey && !existingRefNumbers.has(invNumKey)) {
+          existingRefNumbers.add(invNumKey);
+          missingPurchaseEntries.push({
+            id: `bill-entry-${inv.id || inv.invoiceNumber}`,
+            stockistId: currentSelectedStockist.id,
+            date: inv.date || new Date().toISOString().split('T')[0],
+            refType: 'purchase_invoice',
+            refNumber: inv.invoiceNumber,
+            description: `Purchase Bill #${inv.invoiceNumber} (${inv.items?.length || 0} items, Mode: ${String(inv.paymentMode || 'credit').toUpperCase()})`,
+            debit: inv.paymentMode === 'cash' ? Number(inv.grandTotal || 0) : 0,
+            credit: Number(inv.grandTotal || 0),
+            balance: Number(inv.grandTotal || 0),
+            createdAt: inv.createdAt || inv.date
+          });
+        }
+      }
+    });
+
+    const combined = [...entries, ...missingPurchaseEntries];
+
+    return combined
       .filter(entry => {
         if (ledgerFilter === 'bills') return entry.refType === 'purchase_invoice';
         if (ledgerFilter === 'payments') return entry.refType === 'payment_made';
@@ -140,7 +269,7 @@ export const StockistManagementView: React.FC = () => {
         if (timeB !== timeA) return timeB - timeA;
         return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
       });
-  }, [stockistLedgers, currentSelectedStockist, ledgerFilter]);
+  }, [stockistLedgers, purchaseInvoices, currentSelectedStockist, ledgerFilter]);
 
   const visibleStockists = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -159,7 +288,7 @@ export const StockistManagementView: React.FC = () => {
 
   const ledgerSummary = useMemo(() => {
     const entries = currentSelectedStockist
-      ? stockistLedgers.filter(entry => entry.stockistId === currentSelectedStockist.id || (entry as any).distributorId === currentSelectedStockist.id)
+      ? filteredLedgerEntries
       : [];
     return {
       totalPurchases: entries
@@ -167,10 +296,87 @@ export const StockistManagementView: React.FC = () => {
         .reduce((total, entry) => total + entry.credit, 0),
       totalPaidOrReturned: entries.reduce((total, entry) => total + entry.debit, 0),
     };
-  }, [currentSelectedStockist, stockistLedgers]);
+  }, [currentSelectedStockist, filteredLedgerEntries]);
 
   const currency = (amount: number) =>
     `Rs. ${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Open Full Purchase Bill Details Modal with Fallback
+  const handleOpenBillModal = (entry: StockistLedgerEntry) => {
+    // 1. Try finding linked purchase invoice in purchaseInvoices
+    const linked = purchaseInvoices.find(inv => {
+      const invNum = String(inv.invoiceNumber || '').trim().toLowerCase();
+      const refNum = String(entry.refNumber || '').trim().toLowerCase();
+      if (invNum && refNum && invNum === refNum) return true;
+      if (inv.id && refNum && String(inv.id).trim().toLowerCase() === refNum) return true;
+      const cleanRef = refNum.replace(/^(bill-|inv-|#)/i, '').trim();
+      const cleanInv = invNum.replace(/^(bill-|inv-|#)/i, '').trim();
+      if (cleanRef && cleanInv && cleanRef === cleanInv) return true;
+      return false;
+    });
+
+    if (linked && linked.items && linked.items.length > 0) {
+      setViewingPurchaseBill(linked);
+      setBillItemSearch('');
+      return;
+    }
+
+    // 2. Fallback: match medicines from inventory supplied by this stockist
+    const matchingMeds = medicines.filter(m => 
+      isMatchingStockist({ stockistId: m.supplierId, stockistName: m.supplierName }, currentSelectedStockist)
+    );
+
+    const fallbackItems: StockistInvoiceItem[] = matchingMeds.map((m, idx) => {
+      const packs = m.stockPacks || 0;
+      const loose = m.stockLooseUnits || 0;
+      const cost = m.costPrice || 0;
+      const upp = (m.unitsPerPack && m.unitsPerPack > 0) ? m.unitsPerPack : 1;
+      const looseCost = upp > 1 ? (cost / upp) : cost;
+      const lineTotal = Math.round(((packs * cost) + (loose * looseCost)) * 100) / 100;
+
+      return {
+        id: `item-${m.id || idx}`,
+        medicineName: m.name,
+        genericName: m.genericName,
+        category: m.category,
+        batchNumber: m.batchNumber,
+        expiryDate: m.expiryDate,
+        packQty: packs > 0 ? packs : (loose > 0 ? 0 : 1),
+        looseUnits: loose,
+        freePacks: 0,
+        unitsPerPack: upp,
+        costPrice: cost,
+        discountPercent: 0,
+        isVatApplicable: m.isVatApplicable || false,
+        mrpPrice: m.mrpPrice || 0,
+        rackLocation: m.rackLocation || '',
+        lineTotal
+      };
+    });
+
+    const calculatedSubtotal = fallbackItems.reduce((acc, it) => acc + it.lineTotal, 0);
+
+    setViewingPurchaseBill({
+      id: linked?.id || entry.id,
+      invoiceNumber: entry.refNumber || linked?.invoiceNumber || 'BILL',
+      stockistId: currentSelectedStockist ? currentSelectedStockist.id : '',
+      stockistName: currentSelectedStockist ? currentSelectedStockist.name : 'Wholesaler',
+      stockistPan: currentSelectedStockist ? currentSelectedStockist.panNumber : '',
+      date: entry.date,
+      paymentMode: linked?.paymentMode || 'credit',
+      items: (linked && linked.items && linked.items.length > 0) ? linked.items : fallbackItems,
+      subtotal: linked?.subtotal || (calculatedSubtotal > 0 ? calculatedSubtotal : entry.credit),
+      totalDiscount: linked?.totalDiscount || 0,
+      taxableAmount: linked?.taxableAmount || (calculatedSubtotal > 0 ? calculatedSubtotal : entry.credit),
+      vatAmount: linked?.vatAmount || 0,
+      grandTotal: linked?.grandTotal || (entry.credit > 0 ? entry.credit : calculatedSubtotal),
+      paidAmount: linked?.paidAmount || entry.debit,
+      paymentStatus: entry.balance <= 0 ? 'paid' : 'pending',
+      notes: linked?.notes || entry.description,
+      createdAt: entry.createdAt || entry.date
+    });
+    setBillItemSearch('');
+  };
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
@@ -201,10 +407,12 @@ export const StockistManagementView: React.FC = () => {
     const updated = [...invoiceItems];
     const current = { ...updated[index], ...updates };
 
-    // Calculate line total: packQty * costPrice * (1 - discountPercent/100)
-    const baseAmount = current.packQty * current.costPrice;
+    // Calculate line total: (packQty * costPrice + looseUnits * (costPrice / unitsPerPack)) * (1 - discountPercent/100)
+    const upp = (current.unitsPerPack && current.unitsPerPack > 0) ? current.unitsPerPack : 1;
+    const looseCost = upp > 1 ? (current.costPrice / upp) : current.costPrice;
+    const baseAmount = (current.packQty * current.costPrice) + ((current.looseUnits || 0) * looseCost);
     const discountAmt = (baseAmount * (current.discountPercent || 0)) / 100;
-    current.lineTotal = Math.max(0, baseAmount - discountAmt);
+    current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
 
     updated[index] = current;
     setInvoiceItems(updated);
@@ -222,6 +430,8 @@ export const StockistManagementView: React.FC = () => {
     const med = medicines.find(m => m.id === medId);
     if (!med) return;
 
+    const costPrice = med.costPrice > 0 ? med.costPrice : (med.mrpPrice > 0 ? med.mrpPrice : 0);
+
     handleUpdateInvoiceItem(index, {
       medicineId: med.id,
       medicineName: med.name,
@@ -230,11 +440,79 @@ export const StockistManagementView: React.FC = () => {
       batchNumber: med.batchNumber,
       expiryDate: med.expiryDate,
       unitsPerPack: med.unitsPerPack,
-      costPrice: med.costPrice,
+      costPrice,
       mrpPrice: med.mrpPrice,
       isVatApplicable: med.isVatApplicable,
       rackLocation: med.rackLocation
     });
+  };
+
+  // Import Invoice Items from Excel / CSV
+  const handleImportExcelBill = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsImportingExcelBill(true);
+      const res = await parseMedicinesFromExcel(file);
+      if (res.success.length === 0) {
+        alert('No medicine items could be recognized from this file.');
+        return;
+      }
+
+      const importedRows: StockistInvoiceItem[] = res.success.map((m, idx) => {
+        const packQty = m.stockPacks || 0;
+        const looseUnits = m.stockLooseUnits || 0;
+        const costPrice = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
+        const unitsPerPack = m.unitsPerPack || 10;
+        const looseCost = unitsPerPack > 1 ? (costPrice / unitsPerPack) : costPrice;
+        const lineTotal = Math.round(((packQty * costPrice) + (looseUnits * looseCost)) * 100) / 100;
+
+        return {
+          id: `imp-${Date.now()}-${idx}`,
+          medicineName: m.name,
+          genericName: m.genericName || '',
+          category: m.category || 'Tablet',
+          batchNumber: m.batchNumber || `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
+          expiryDate: m.expiryDate || '2028-12-31',
+          packQty: packQty > 0 ? packQty : (looseUnits > 0 ? 0 : 1),
+          looseUnits,
+          freePacks: 0,
+          unitsPerPack,
+          costPrice,
+          discountPercent: 0,
+          isVatApplicable: Boolean(m.isVatApplicable),
+          mrpPrice: m.mrpPrice || (costPrice > 0 ? Math.round(costPrice * 1.25 * 100) / 100 : 0),
+          rackLocation: m.rackLocation || 'Unassigned',
+          lineTotal
+        };
+      });
+
+      setInvoiceItems(importedRows);
+
+      // Auto-match stockist if specified in sheet
+      const detectedSupplier = res.success.find(item => item.supplierName?.trim())?.supplierName?.trim();
+      if (detectedSupplier) {
+        const match = stockists.find(s => s.name.toLowerCase() === detectedSupplier.toLowerCase());
+        if (match) {
+          setInvoiceHeader(prev => ({ ...prev, stockistId: match.id }));
+        }
+      }
+
+      if (!invoiceHeader.invoiceNumber) {
+        setInvoiceHeader(prev => ({
+          ...prev,
+          invoiceNumber: `BILL-${Math.floor(1000 + Math.random() * 9000)}`
+        }));
+      }
+
+      alert(`Successfully loaded ${importedRows.length} invoice items from Excel file! Please review and click Save Purchase Invoice.`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to read Excel bill');
+    } finally {
+      setIsImportingExcelBill(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   // Totals of Purchase Invoice
@@ -245,7 +523,9 @@ export const StockistManagementView: React.FC = () => {
     let vatAmount = 0;
 
     invoiceItems.forEach(it => {
-      const gross = it.packQty * it.costPrice;
+      const upp = (it.unitsPerPack && it.unitsPerPack > 0) ? it.unitsPerPack : 1;
+      const looseCost = upp > 1 ? (it.costPrice / upp) : it.costPrice;
+      const gross = (it.packQty * it.costPrice) + ((it.looseUnits || 0) * looseCost);
       const disc = (gross * (it.discountPercent || 0)) / 100;
       const net = gross - disc;
 
@@ -358,6 +638,11 @@ export const StockistManagementView: React.FC = () => {
   const handleAddReturnItem = () => {
     const med = medicines.find(m => m.id === selectedReturnMedId);
     if (!med) return;
+
+    if (returnPacks <= 0 && returnLoose <= 0) {
+      alert('Please specify at least 1 pack to return.');
+      return;
+    }
 
     const unitCost = med.costPrice;
     const looseCost = med.unitsPerPack > 1 ? (med.costPrice / med.unitsPerPack) : med.costPrice;
@@ -834,14 +1119,33 @@ export const StockistManagementView: React.FC = () => {
               <span className="text-xs font-bold text-slate-800">
                 Item-Wise Medicine Invoice Details ({invoiceItems.length} items)
               </span>
-              <button
-                type="button"
-                onClick={handleAddInvoiceItemRow}
-                className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Add Item Row</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={excelBillInputRef}
+                  accept=".xlsx, .xls, .csv"
+                  onChange={handleImportExcelBill}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => excelBillInputRef.current?.click()}
+                  disabled={isImportingExcelBill}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="Upload Excel or CSV bill to auto-populate invoice line items"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-700" />
+                  <span>{isImportingExcelBill ? 'Importing Bill...' : 'Import Bill from Excel'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddInvoiceItemRow}
+                  className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Item Row</span>
+                </button>
+              </div>
             </div>
 
             <div className="border border-slate-200 rounded-xl overflow-x-auto">
@@ -852,6 +1156,7 @@ export const StockistManagementView: React.FC = () => {
                     <th className="py-2.5 px-2">Batch #</th>
                     <th className="py-2.5 px-2">Expiry</th>
                     <th className="py-2.5 px-2 text-center">Packs</th>
+                    <th className="py-2.5 px-2 text-center">Loose Tabs</th>
                     <th className="py-2.5 px-2 text-center">Free/Bonus</th>
                     <th className="py-2.5 px-2">Cost/Pack</th>
                     <th className="py-2.5 px-2">Disc %</th>
@@ -876,11 +1181,13 @@ export const StockistManagementView: React.FC = () => {
                         <div className="mt-1 flex items-center gap-1">
                           <select
                             onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
-                            className="text-[10px] bg-slate-100 text-slate-600 rounded p-0.5 border border-slate-200 max-w-[180px]"
+                            className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
                           >
                             <option value="">Or Pick Existing...</option>
                             {medicines.map(m => (
-                              <option key={m.id} value={m.id}>{m.name} ({m.genericName.slice(0, 15)}...)</option>
+                              <option key={m.id} value={m.id}>
+                                {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -908,10 +1215,22 @@ export const StockistManagementView: React.FC = () => {
                       <td className="py-2 px-2 text-center">
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={item.packQty}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseInt(e.target.value, 10) || 0) })}
                           className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
+                        />
+                      </td>
+
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          value={item.looseUnits || 0}
+                          onChange={(e) => handleUpdateInvoiceItem(idx, { looseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-indigo-700 font-bold"
+                          title="Loose tabs/units outside full packs"
                         />
                       </td>
 
@@ -1159,37 +1478,57 @@ export const StockistManagementView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredLedgerEntries.map(entry => (
-                      <tr key={entry.id} className="transition hover:bg-slate-50">
-                        <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">{entry.date}</td>
-                        <td className="px-3 py-3">
-                          <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
-                            entry.refType === 'payment_made'
-                              ? 'bg-emerald-50 text-emerald-800'
-                              : entry.refType === 'return_debit_note'
-                              ? 'bg-violet-50 text-violet-800'
-                              : 'bg-blue-50 text-blue-800'
-                          }`}>
-                            {entry.refType === 'purchase_invoice'
-                              ? 'Purchase invoice'
-                              : entry.refType === 'payment_made'
-                                ? 'Payment made'
-                                : 'Return debit note'}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 font-mono font-bold text-slate-900">{entry.refNumber}</td>
-                        <td className="px-4 py-3 text-slate-700">{entry.description}</td>
-                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-emerald-700">
-                          {entry.debit > 0 ? currency(entry.debit) : '—'}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-rose-700">
-                          {entry.credit > 0 ? currency(entry.credit) : '—'}
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-extrabold text-slate-900">
-                          {currency(entry.balance)}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredLedgerEntries.map(entry => {
+                      const isPurchase = entry.refType === 'purchase_invoice';
+
+                      return (
+                        <tr
+                          key={entry.id}
+                          onClick={() => isPurchase && handleOpenBillModal(entry)}
+                          className={`transition ${isPurchase ? 'hover:bg-teal-50/60 cursor-pointer' : 'hover:bg-slate-50'}`}
+                          title={isPurchase ? 'Click to view complete bill details & medicines' : undefined}
+                        >
+                          <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">{entry.date}</td>
+                          <td className="px-3 py-3">
+                            <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${
+                              entry.refType === 'payment_made'
+                                ? 'bg-emerald-50 text-emerald-800'
+                                : entry.refType === 'return_debit_note'
+                                ? 'bg-violet-50 text-violet-800'
+                                : 'bg-blue-50 text-blue-800'
+                            }`}>
+                              {entry.refType === 'purchase_invoice'
+                                ? 'Purchase invoice'
+                                : entry.refType === 'payment_made'
+                                  ? 'Payment made'
+                                  : 'Return debit note'}
+                            </span>
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 font-mono font-bold text-slate-900">
+                            {isPurchase ? (
+                              <span className="text-teal-700 hover:text-teal-900 inline-flex items-center gap-1.5 cursor-pointer">
+                                {entry.refNumber}
+                                <Eye className="w-3.5 h-3.5 text-teal-600 opacity-70" />
+                              </span>
+                            ) : (
+                              entry.refNumber
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {entry.description}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-emerald-700">
+                            {entry.debit > 0 ? currency(entry.debit) : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-rose-700">
+                            {entry.credit > 0 ? currency(entry.credit) : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-extrabold text-slate-900">
+                            {currency(entry.balance)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredLedgerEntries.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
@@ -1200,7 +1539,7 @@ export const StockistManagementView: React.FC = () => {
                       </tr>
                     )}
                   </tbody>
-                  {stockistLedgers.some(entry => entry.stockistId === currentSelectedStockist.id) && (
+                  {filteredLedgerEntries.length > 0 && (
                     <tfoot className="border-t border-slate-200 bg-slate-50 font-bold">
                       <tr>
                         <td colSpan={4} className="px-4 py-3 text-slate-700">Account totals</td>
@@ -1247,7 +1586,10 @@ export const StockistManagementView: React.FC = () => {
               <label className="block font-semibold text-slate-700 mb-1">Select Wholesaler / Party: *</label>
               <select
                 value={returnStockistId}
-                onChange={(e) => setReturnStockistId(e.target.value)}
+                onChange={(e) => {
+                  setReturnStockistId(e.target.value);
+                  setSelectedReturnMedId('');
+                }}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900"
               >
                 {stockists.map(s => (
@@ -1284,20 +1626,61 @@ export const StockistManagementView: React.FC = () => {
               Add Medicine to Return Voucher:
             </span>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
-              <div className="md:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-700 mb-1">Select Medicine from Stock:</label>
+              <div className="md:col-span-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold text-slate-700">
+                    Select Medicine to Return: *
+                  </label>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    eligibleReturnMedicines.length > 0 
+                      ? 'bg-teal-50 text-teal-800 border-teal-200' 
+                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                  }`}>
+                    {eligibleReturnMedicines.length} in stock from {currentReturnStockist?.name ? (currentReturnStockist.name.length > 20 ? currentReturnStockist.name.slice(0, 20) + '...' : currentReturnStockist.name) : 'Wholesaler'}
+                  </span>
+                </div>
                 <select
                   value={selectedReturnMedId}
-                  onChange={(e) => setSelectedReturnMedId(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-slate-900"
+                  onChange={(e) => {
+                    setSelectedReturnMedId(e.target.value);
+                    const chosen = medicines.find(m => m.id === e.target.value);
+                    if (chosen && chosen.stockPacks > 0) {
+                      setReturnPacks(1);
+                    }
+                  }}
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 font-medium focus:border-rose-600 outline-none"
                 >
-                  <option value="">-- Choose Medicine --</option>
-                  {medicines.map(m => (
+                  <option value="">
+                    {((showAllMedsInReturn ? medicines : eligibleReturnMedicines).length > 0)
+                      ? `-- Choose Medicine from ${currentReturnStockist?.name || 'Wholesaler'} (${(showAllMedsInReturn ? medicines : eligibleReturnMedicines).length} available) --`
+                      : `-- No medicines found in stock from ${currentReturnStockist?.name || 'this wholesaler'} --`}
+                  </option>
+                  {(showAllMedsInReturn ? medicines : eligibleReturnMedicines).map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.name} ({m.batchNumber}, Exp: {m.expiryDate}, Stock: {m.stockPacks} pk)
+                      {m.name} • Batch: {m.batchNumber || 'N/A'} • Exp: {m.expiryDate || 'N/A'} • Stock: {m.stockPacks} pk (Cost: Rs. {m.costPrice})
                     </option>
                   ))}
                 </select>
+                <div className="flex items-center justify-between pt-0.5">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[10px] text-slate-500 hover:text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={showAllMedsInReturn}
+                      onChange={(e) => setShowAllMedsInReturn(e.target.checked)}
+                      className="rounded text-teal-700 focus:ring-teal-600"
+                    />
+                    <span>Show all medicines (override wholesaler filter)</span>
+                  </label>
+                  {selectedReturnMedId && (() => {
+                    const chosen = medicines.find(m => m.id === selectedReturnMedId);
+                    if (!chosen) return null;
+                    return (
+                      <span className="text-[10px] font-mono text-slate-600">
+                        Available Stock: <strong className="text-slate-900">{chosen.stockPacks} pk</strong> (Rs. {chosen.costPrice}/pk)
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
 
               <div>
@@ -1708,6 +2091,307 @@ export const StockistManagementView: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Upgraded Itemized Purchase Invoice / Bill Details Modal */}
+      {viewingPurchaseBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6">
+          <div className="bg-white w-full max-w-5xl max-h-[92vh] rounded-3xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-slate-950 via-teal-950 to-slate-950 text-white px-6 py-4.5 flex flex-wrap justify-between items-center gap-4 shrink-0 border-b border-teal-900/40">
+              <div className="flex items-center gap-3.5">
+                <div className="p-2.5 bg-teal-500/20 text-teal-300 rounded-2xl border border-teal-500/30 shadow-xs">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                      {settings?.storeName || 'Prakash Pharmacy'} • Inward Tax Invoice
+                    </span>
+                    <span className="font-mono text-xs font-bold bg-white/10 px-2 py-0.5 rounded-lg border border-white/10 text-white">
+                      #{viewingPurchaseBill.invoiceNumber}
+                    </span>
+                    <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wide border ${
+                      viewingPurchaseBill.paymentMode === 'cash'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-400/30'
+                    }`}>
+                      {viewingPurchaseBill.paymentMode === 'cash' ? '💵 Cash Bill (Paid)' : '📑 Credit Bill (Payable)'}
+                    </span>
+                  </div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-white mt-0.5">
+                    {viewingPurchaseBill.stockistName}
+                  </h3>
+                  <p className="text-xs text-slate-300 mt-0.5 flex flex-wrap items-center gap-2">
+                    {viewingPurchaseBill.stockistPan && <span>PAN: <strong className="text-white font-mono">{viewingPurchaseBill.stockistPan}</strong></span>}
+                    {viewingPurchaseBill.date && <span>• Date: <strong className="text-white font-mono">{viewingPurchaseBill.date}</strong></span>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportPurchaseBillToExcel(viewingPurchaseBill, settings?.storeName || 'Pharmacy')}
+                  className="px-3.5 py-2 bg-teal-800/80 hover:bg-teal-700 text-teal-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer border border-teal-600/40"
+                  title="Download bill items to Excel (.xlsx)"
+                >
+                  <Download className="w-3.5 h-3.5 text-teal-300" />
+                  <span>Export Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer border border-slate-700"
+                  title="Print invoice"
+                >
+                  <Printer className="w-3.5 h-3.5 text-teal-400" />
+                  <span>Print</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewingPurchaseBill(null);
+                    setBillItemSearch('');
+                  }}
+                  className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition text-base font-bold cursor-pointer"
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Scrollable Line Items */}
+            <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                  <span className="text-slate-500 block text-[11px] font-medium">Wholesaler / Stockist</span>
+                  <strong className="text-slate-900 text-xs mt-1 block truncate" title={viewingPurchaseBill.stockistName}>
+                    {viewingPurchaseBill.stockistName}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
+                    PAN: {viewingPurchaseBill.stockistPan || '—'}
+                  </span>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                  <span className="text-slate-500 block text-[11px] font-medium">Invoice Info</span>
+                  <strong className="text-slate-900 text-xs mt-1 block font-mono">
+                    Bill #{viewingPurchaseBill.invoiceNumber}
+                  </strong>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    Date: {viewingPurchaseBill.date || '—'}
+                  </span>
+                </div>
+                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                  <span className="text-slate-500 block text-[11px] font-medium">Quantity Volume</span>
+                  <strong className="font-mono text-slate-900 text-xs mt-1 block">
+                    {viewingPurchaseBill.items?.reduce((sum, it) => sum + (it.packQty || 0), 0) || 0} Packs
+                    {(() => {
+                      const loose = viewingPurchaseBill.items?.reduce((sum, it) => sum + (it.looseUnits || 0), 0) || 0;
+                      return loose > 0 ? ` + ${loose} Tabs` : '';
+                    })()}
+                  </strong>
+                  <span className="text-[10px] text-teal-700 font-bold block mt-0.5 font-mono">
+                    {viewingPurchaseBill.items?.length || 0} Distinct Medicines
+                  </span>
+                </div>
+                <div className="bg-teal-50 border border-teal-200 p-3.5 rounded-2xl">
+                  <span className="text-teal-800 block text-[11px] font-semibold">Grand Total Amount</span>
+                  <strong className="font-mono font-extrabold text-base text-teal-950 mt-1 block">
+                    Rs. {Number(viewingPurchaseBill.grandTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </strong>
+                  <span className="text-[10px] text-teal-700 block mt-0.5">
+                    {Number(viewingPurchaseBill.vatAmount) > 0 ? `Includes 13% VAT portion` : 'Tax Exempt (0% VAT)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Medicine Filter Bar */}
+              {viewingPurchaseBill.items && viewingPurchaseBill.items.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200">
+                  <div className="relative flex-1 min-w-[240px]">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={billItemSearch}
+                      onChange={(e) => setBillItemSearch(e.target.value)}
+                      placeholder={`Search within ${viewingPurchaseBill.items.length} medicines by brand, generic, batch...`}
+                      className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs focus:border-teal-600 outline-none transition"
+                    />
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-500 px-2">
+                    Showing {(viewingPurchaseBill.items || []).filter(item => {
+                      if (!billItemSearch.trim()) return true;
+                      const q = billItemSearch.trim().toLowerCase();
+                      return (
+                        item.medicineName?.toLowerCase().includes(q) ||
+                        item.genericName?.toLowerCase().includes(q) ||
+                        item.batchNumber?.toLowerCase().includes(q)
+                      );
+                    }).length} of {viewingPurchaseBill.items.length} medicines
+                  </div>
+                </div>
+              )}
+
+              {/* Items Table with Medicine Prices & Margins */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-100 text-[10px] font-bold text-slate-600 uppercase tracking-wide border-b border-slate-200 sticky top-0">
+                    <tr>
+                      <th className="py-2.5 px-3">#</th>
+                      <th className="py-2.5 px-3">Medicine &amp; Generic Molecule</th>
+                      <th className="py-2.5 px-2">Batch #</th>
+                      <th className="py-2.5 px-2">Expiry</th>
+                      <th className="py-2.5 px-2 text-center">Packs</th>
+                      <th className="py-2.5 px-2 text-right">Purchase Rate (Cost)</th>
+                      <th className="py-2.5 px-2 text-right">MRP (Retail)</th>
+                      <th className="py-2.5 px-2 text-center">Profit Margin</th>
+                      <th className="py-2.5 px-2 text-center">VAT</th>
+                      <th className="py-2.5 px-3 text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs bg-white">
+                    {(viewingPurchaseBill.items || [])
+                      .filter(item => {
+                        if (!billItemSearch.trim()) return true;
+                        const q = billItemSearch.trim().toLowerCase();
+                        return (
+                          item.medicineName?.toLowerCase().includes(q) ||
+                          item.genericName?.toLowerCase().includes(q) ||
+                          item.batchNumber?.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((item, idx) => {
+                        const margin = item.mrpPrice > 0 
+                          ? (((item.mrpPrice - item.costPrice) / item.mrpPrice) * 100).toFixed(1)
+                          : '0';
+
+                        return (
+                          <tr key={item.id || idx} className="hover:bg-teal-50/30 transition">
+                            <td className="py-2.5 px-3 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                <span>{item.medicineName}</span>
+                                {item.category && (
+                                  <span className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium">
+                                    {item.category}
+                                  </span>
+                                )}
+                              </div>
+                              {item.genericName && (
+                                <div className="text-[10px] text-slate-500 italic">{item.genericName}</div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2 font-mono text-[11px] font-semibold text-slate-700">
+                              <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                                {item.batchNumber || '—'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2 font-mono text-[11px] text-slate-600">
+                              {item.expiryDate || '—'}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-bold font-mono text-slate-800">
+                              <span>{item.packQty} pk</span>
+                              {Boolean(item.looseUnits && item.looseUnits > 0) && (
+                                <span className="text-indigo-700 text-[10px] ml-1 bg-indigo-50 px-1 py-0.2 rounded font-semibold border border-indigo-200">
+                                  +{item.looseUnits} tabs
+                                </span>
+                              )}
+                              {item.freePacks > 0 && (
+                                <span className="text-emerald-700 text-[10px] ml-1 bg-emerald-50 px-1 py-0.2 rounded">
+                                  +{item.freePacks} Free
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-800">
+                              Rs. {Number(item.costPrice).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-mono text-slate-700">
+                              Rs. {Number(item.mrpPrice).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-[10px]">
+                              {Number(margin) > 0 ? (
+                                <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded font-bold">
+                                  +{margin}%
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-[10px]">
+                              {item.isVatApplicable ? (
+                                <span className="bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded font-bold">13%</span>
+                              ) : (
+                                <span className="text-slate-400">0%</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-extrabold text-slate-900">
+                              Rs. {Number(item.lineTotal).toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {(!viewingPurchaseBill.items || viewingPurchaseBill.items.length === 0) && (
+                      <tr>
+                        <td colSpan={10} className="py-8 text-center text-slate-500">
+                          No itemized medicine records linked with this purchase entry.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                    <tr>
+                      <td colSpan={6} className="py-2.5 px-3 text-slate-700">Subtotal</td>
+                      <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-slate-800">
+                        Rs. {Number(viewingPurchaseBill.subtotal).toFixed(2)}
+                      </td>
+                    </tr>
+                    {Number(viewingPurchaseBill.totalDiscount) > 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-2.5 px-3 text-rose-700">Total Discount</td>
+                        <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-rose-700">
+                          - Rs. {Number(viewingPurchaseBill.totalDiscount).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {Number(viewingPurchaseBill.vatAmount) > 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-2.5 px-3 text-blue-700">13% VAT Amount</td>
+                        <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-blue-700">
+                          Rs. {Number(viewingPurchaseBill.vatAmount).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-t border-slate-300 text-sm bg-teal-50/70">
+                      <td colSpan={6} className="py-3 px-3 text-teal-950 font-extrabold text-sm">Grand Total (Net Payable)</td>
+                      <td colSpan={4} className="py-3 px-3 text-right font-mono font-extrabold text-teal-950 text-base">
+                        Rs. {Number(viewingPurchaseBill.grandTotal).toFixed(2)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-200 flex flex-wrap justify-between items-center gap-3 shrink-0">
+              <span className="text-[11px] text-slate-500">
+                {viewingPurchaseBill.notes ? `Remarks: ${viewingPurchaseBill.notes}` : 'Official Inward Purchase Bill verified and posted in stockist ledger & inventory.'}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setViewingPurchaseBill(null);
+                  setBillItemSearch('');
+                }}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
+              >
+                Close Bill View
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

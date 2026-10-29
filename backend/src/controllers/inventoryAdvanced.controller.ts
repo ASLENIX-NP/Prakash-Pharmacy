@@ -219,6 +219,73 @@ async function resolveRack(
   return rack.id;
 }
 
+async function resolveDistributor(
+  item: AnyRecord
+): Promise<number | null> {
+  const rawDistId =
+    item.distributorId ??
+    item.supplierId ??
+    item.distributor?.id;
+
+  if (rawDistId !== undefined && rawDistId !== null) {
+    const rawValue = String(rawDistId).trim().toLowerCase();
+
+    if (
+      rawValue === "null" ||
+      rawValue === "unassigned" ||
+      rawValue === ""
+    ) {
+      return null;
+    }
+
+    const match = String(rawDistId).match(/\d+/);
+
+    if (match) {
+      const id = Number.parseInt(match[0], 10);
+
+      const existing = await prisma.distributor.findUnique({
+        where: { id },
+      });
+
+      if (existing) {
+        return existing.id;
+      }
+    }
+  }
+
+  const distName = cleanString(
+    item.distributorName ??
+    item.supplierName ??
+    item.stockistName ??
+    item.distributor ??
+    item.supplier
+  );
+
+  if (
+    !distName ||
+    distName.toLowerCase() === "unassigned" ||
+    distName.toLowerCase() === "none"
+  ) {
+    return null;
+  }
+
+  let dist = await prisma.distributor.findFirst({
+    where: { name: { equals: distName, mode: "insensitive" } },
+  });
+
+  if (!dist) {
+    dist = await prisma.distributor.create({
+      data: {
+        name: distName,
+        phone: "9800000000",
+        address: "Makwanpur, Nepal",
+      },
+    });
+  }
+
+  return dist.id;
+}
+
 
 // ============================================================
 // GET NEAR-EXPIRY INVENTORY
@@ -455,8 +522,20 @@ export const bulkImportInventory = async (
           ? Boolean(provided.notes)
           : Boolean(cleanString(item.notes));
 
-        // 1. Try to match existing medicine by brand + batch (if batch provided)
+        const hasDistributor = provided
+          ? Boolean(provided.distributorId ?? provided.distributorName ?? provided.supplierId ?? provided.supplierName)
+          : (item.distributorId !== undefined ||
+             item.supplierId !== undefined ||
+             Boolean(cleanString(item.distributorName ?? item.supplierName ?? item.stockistName ?? item.distributor ?? item.supplier)));
+
+        const targetDistId = hasDistributor ? await resolveDistributor(item) : null;
+        const distFilter = targetDistId !== null
+          ? { OR: [{ distributorId: targetDistId }, { distributorId: null }] }
+          : {};
+
+        // 1. Try to match existing medicine by brand + batch + expiry (+ distributor if specified)
         let existing = null;
+        const cleanExpiry = hasExpiry ? cleanString(item.expiryDate) : null;
         if (hasBatch && rawBatch) {
           existing = await prisma.inventory.findFirst({
             where: {
@@ -468,6 +547,13 @@ export const bulkImportInventory = async (
                 equals: rawBatch,
                 mode: "insensitive",
               },
+              ...(cleanExpiry ? {
+                expiryDate: {
+                  equals: cleanExpiry,
+                  mode: "insensitive",
+                },
+              } : {}),
+              ...distFilter,
             },
             include: {
               generic: true,
@@ -478,7 +564,7 @@ export const bulkImportInventory = async (
           });
         }
 
-        // 2. If no match by batch or batch was not specified in the sheet, match by brand name alone
+        // 2. If no match by batch or batch was not specified in the sheet, match by brand name + expiry (+ distributor if specified)
         if (!existing && (!hasBatch || !rawBatch)) {
           existing = await prisma.inventory.findFirst({
             where: {
@@ -486,6 +572,13 @@ export const bulkImportInventory = async (
                 equals: brand,
                 mode: "insensitive",
               },
+              ...(cleanExpiry ? {
+                expiryDate: {
+                  equals: cleanExpiry,
+                  mode: "insensitive",
+                },
+              } : {}),
+              ...distFilter,
             },
             orderBy: { id: "desc" },
             include: {
@@ -579,6 +672,7 @@ export const bulkImportInventory = async (
 
             const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
             const notes = hasNotes ? cleanString(item.notes) || null : null;
+            const distributorId = targetDistId;
 
             const saved = await prisma.inventory.update({
               where: { id: existing.id },
@@ -589,6 +683,7 @@ export const bulkImportInventory = async (
                 genericId,
                 categoryId,
                 rackId,
+                distributorId,
                 unitPerPack,
                 packInStock,
                 unitInStock,
@@ -720,6 +815,10 @@ export const bulkImportInventory = async (
             updateData.notes = cleanString(item.notes) || null;
           }
 
+          if (hasDistributor) {
+            updateData.distributorId = targetDistId;
+          }
+
           const saved = await prisma.inventory.update({
             where: { id: existing.id },
             data: updateData,
@@ -801,6 +900,7 @@ export const bulkImportInventory = async (
 
         const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
         const notes = hasNotes ? cleanString(item.notes) || null : null;
+        const distributorId = targetDistId;
 
         const saved = await prisma.inventory.create({
           data: {
@@ -810,6 +910,7 @@ export const bulkImportInventory = async (
             genericId,
             categoryId,
             rackId,
+            distributorId,
             unitPerPack,
             packInStock,
             unitInStock,

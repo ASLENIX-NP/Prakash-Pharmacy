@@ -227,6 +227,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         const batchNumber = String(item.batchNumber || `BAT-${Date.now().toString().slice(-5)}`).trim();
         const expiryDate = String(item.expiryDate || "2028-12-31").trim();
         const packQty = Math.max(0, parseInt(String(item.packQty ?? 0), 10) || 0);
+        const looseUnits = Math.max(0, parseInt(String(item.looseUnits ?? item.stockLooseUnits ?? item.unitInStock ?? 0), 10) || 0);
         const freePacks = Math.max(0, parseInt(String(item.freePacks ?? 0), 10) || 0);
         const totalPacksReceived = packQty + freePacks;
         const unitsPerPack = Math.max(1, parseInt(String(item.unitsPerPack ?? 10), 10) || 10);
@@ -234,7 +235,11 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         const mrpPrice = parseFloat(String(item.mrpPrice ?? (costPrice * 1.3))) || (costPrice * 1.3);
         const discountPercent = parseFloat(String(item.discountPercent ?? 0)) || 0;
         const isVatApplicable = Boolean(item.isVatApplicable);
-        const lineTotal = parseFloat(String(item.lineTotal ?? (packQty * costPrice * (1 - discountPercent / 100)))) || 0;
+
+        const looseCost = unitsPerPack > 1 ? (costPrice / unitsPerPack) : costPrice;
+        const grossLine = (packQty * costPrice) + (looseUnits * looseCost);
+        const calculatedLine = Math.round(grossLine * (1 - discountPercent / 100) * 100) / 100;
+        const lineTotal = parseFloat(String(item.lineTotal ?? calculatedLine)) || calculatedLine;
 
         // Resolve Generic
         const genericName = String(item.genericName || medicineName).trim();
@@ -272,25 +277,31 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           });
         }
 
-        // Check if an inventory batch with same brand and batch number already exists
+        // Check if an inventory batch with same brand, batch number, AND expiry date already exists for this distributor
         const existingInventory = await tx.inventory.findFirst({
           where: {
             medicineBrand: { equals: medicineName, mode: "insensitive" },
             batchNumber: { equals: batchNumber, mode: "insensitive" },
+            ...(expiryDate ? { expiryDate: { equals: expiryDate, mode: "insensitive" } } : {}),
+            OR: [
+              { distributorId: targetDistributorId },
+              { distributorId: null },
+            ],
           },
         });
 
         let linkedInventoryId: number;
 
         if (existingInventory) {
-          // Increment existing batch stock
+          // Increment existing batch stock (both full packs and loose tabs)
           const updated = await tx.inventory.update({
             where: { id: existingInventory.id },
             data: {
               packInStock: existingInventory.packInStock + totalPacksReceived,
+              unitInStock: (existingInventory.unitInStock || 0) + looseUnits,
               costPrice: costPrice > 0 ? costPrice : existingInventory.costPrice,
               sellingPrice: mrpPrice > 0 ? mrpPrice : existingInventory.sellingPrice,
-              expiryDate: expiryDate || existingInventory.expiryDate,
+              expiryDate: existingInventory.expiryDate || expiryDate,
               distributorId: targetDistributorId,
               hasvat: isVatApplicable,
               unitPerPack: unitsPerPack,
@@ -299,7 +310,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           });
           linkedInventoryId = updated.id;
         } else {
-          // Create new batch inventory record
+          // Create new batch inventory record (with packs and loose tabs)
           const created = await tx.inventory.create({
             data: {
               medicineBrand: medicineName,
@@ -311,7 +322,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
               distributorId: targetDistributorId,
               unitPerPack: unitsPerPack,
               packInStock: totalPacksReceived,
-              unitInStock: 0,
+              unitInStock: looseUnits,
               packAlertLevel: 15,
               costPrice,
               sellingPrice: mrpPrice,

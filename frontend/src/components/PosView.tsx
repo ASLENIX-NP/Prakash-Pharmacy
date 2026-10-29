@@ -88,7 +88,7 @@ export const PosView: React.FC = () => {
       return [];
     }
 
-    return medicines.filter((medicine) => {
+    const filtered = medicines.filter((medicine) => {
       // Hide completely out-of-stock batches from POS.
       // They remain visible in Inventory for history/audit purposes.
       const hasStock =
@@ -122,6 +122,13 @@ export const PosView: React.FC = () => {
           .toLowerCase()
           .includes(query)
       );
+    });
+
+    // FEFO (First Expired, First Out): show earliest expiry date first
+    return filtered.sort((a, b) => {
+      const timeA = new Date(a.expiryDate).getTime() || 0;
+      const timeB = new Date(b.expiryDate).getTime() || 0;
+      return timeA - timeB;
     });
   }, [
     medicines,

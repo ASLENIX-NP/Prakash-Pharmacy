@@ -8,9 +8,17 @@ export const formatSettingResponse = (s: any) => ({
   emailId: s.emailId || "",
   panNumber: s.panNumber || "",
   ddaLicenceNumber: s.ddaLicenceNumber || "",
+  vatRegistered: Boolean(s.vatRegistered ?? true),
+  storeLogo: s.storeLogo || "",
+  pharmacistName: s.pharmacistName || "",
+  pharmacistCouncilRegNumber: s.pharmacistCouncilRegNumber || "",
+  ddaLicenceExpiryDate: s.ddaLicenceExpiryDate || "",
   currency: s.currency || "NPR",
   fiscalYear: s.fiscalYear || "2081/82",
   invoicePrefix: s.invoicePrefix || "PP-2081/82-",
+  nextInvoiceNumber: Number(s.nextInvoiceNumber ?? 101),
+  defaultInvoiceSize: (s.defaultInvoiceSize === "Thermal" ? "Thermal" : "A5") as "A5" | "Thermal",
+  invoiceDateFormat: (s.invoiceDateFormat === "AD" ? "AD" : "BS") as "BS" | "AD",
   receiptFooterNote: s.receiptFooterNote || "",
   defaultLowStockThreshold: Number(s.defaultLowStockThreshold ?? 15),
   nearExpiryThresholdMonths: Number(s.nearExpiryThresholdMonths ?? 6),
@@ -24,9 +32,17 @@ const DEFAULT_SETTINGS = {
   emailId: "contact@prakashpharmacy.com",
   panNumber: "600123456",
   ddaLicenceNumber: "DDA-MAK-1042",
+  vatRegistered: true,
+  storeLogo: "",
+  pharmacistName: "Prakash Bhatta",
+  pharmacistCouncilRegNumber: "NPC-1425",
+  ddaLicenceExpiryDate: "",
   currency: "NPR",
   fiscalYear: "2081/82",
   invoicePrefix: "PP-2081/82-",
+  nextInvoiceNumber: 101,
+  defaultInvoiceSize: "A5",
+  invoiceDateFormat: "BS",
   receiptFooterNote: "Thank you for your visit. Medicines once sold cannot be returned without original bill.",
   defaultLowStockThreshold: 15,
   nearExpiryThresholdMonths: 6,
@@ -64,9 +80,17 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
       emailId,
       panNumber,
       ddaLicenceNumber,
+      vatRegistered,
+      storeLogo,
+      pharmacistName,
+      pharmacistCouncilRegNumber,
+      ddaLicenceExpiryDate,
       currency,
       fiscalYear,
       invoicePrefix,
+      nextInvoiceNumber,
+      defaultInvoiceSize,
+      invoiceDateFormat,
       receiptFooterNote,
       defaultLowStockThreshold,
       nearExpiryThresholdMonths,
@@ -113,6 +137,14 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
       }
     }
 
+    if (nextInvoiceNumber !== undefined) {
+      const parsed = parseInt(String(nextInvoiceNumber), 10);
+      if (isNaN(parsed) || parsed < 1) {
+        res.status(400).json({ success: false, message: "Next invoice number must be 1 or higher." });
+        return;
+      }
+    }
+
     let existing = await prisma.pharmacySetting.findFirst();
 
     const updateData: any = {};
@@ -124,9 +156,23 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
     if (emailId !== undefined) updateData.emailId = String(emailId).trim();
     if (panNumber !== undefined) updateData.panNumber = String(panNumber).trim();
     if (ddaLicenceNumber !== undefined) updateData.ddaLicenceNumber = String(ddaLicenceNumber).trim();
+    if (vatRegistered !== undefined) updateData.vatRegistered = Boolean(vatRegistered);
+    if (storeLogo !== undefined) updateData.storeLogo = typeof storeLogo === "string" ? storeLogo.trim() : null;
+    if (pharmacistName !== undefined) updateData.pharmacistName = String(pharmacistName).trim();
+    if (pharmacistCouncilRegNumber !== undefined) {
+      updateData.pharmacistCouncilRegNumber = String(pharmacistCouncilRegNumber).trim();
+    }
+    if (ddaLicenceExpiryDate !== undefined) updateData.ddaLicenceExpiryDate = String(ddaLicenceExpiryDate).trim();
     if (currency !== undefined) updateData.currency = String(currency).trim();
     if (fiscalYear !== undefined) updateData.fiscalYear = String(fiscalYear).trim();
     if (invoicePrefix !== undefined) updateData.invoicePrefix = String(invoicePrefix).trim();
+    if (nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = parseInt(String(nextInvoiceNumber), 10);
+    if (defaultInvoiceSize !== undefined) {
+      updateData.defaultInvoiceSize = String(defaultInvoiceSize).trim() === "Thermal" ? "Thermal" : "A5";
+    }
+    if (invoiceDateFormat !== undefined) {
+      updateData.invoiceDateFormat = String(invoiceDateFormat).trim() === "AD" ? "AD" : "BS";
+    }
     if (receiptFooterNote !== undefined) updateData.receiptFooterNote = String(receiptFooterNote).trim();
 
     if (defaultLowStockThreshold !== undefined) {
