@@ -48,6 +48,22 @@ model Rack {
 // ==========================================
 // 4. Inventory Table
 // ==========================================
+model DistributorReturn {
+  id              Int         @id @default(autoincrement())
+  distributorId   Int         @map("distributor_id")
+  distributor     Distributor @relation(fields: [distributorId], references: [id], onDelete: Restrict)
+  debitNoteNumber String      @unique @map("debit_note_number")
+  date            DateTime    @map("return_date")
+  items           Json
+  totalAmount     Decimal     @map("total_amount") @db.Decimal(12, 2)
+  notes           String?     @map("notes")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  @@index([distributorId])
+  @@index([date])
+  @@map("distributor_returns_tbl")
+}
+
 model Inventory {
   id            Int    @id @default(autoincrement())
   medicineBrand String @map("medicine_brand") // A-Z medicine_brand
@@ -85,10 +101,10 @@ model Inventory {
   notes   String? @map("notes")
 
   // Relations
-  billItems           BillItem[]
+  billItems            BillItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
-  createdAt           DateTime   @default(now()) @map("created_at")
-  updatedAt           DateTime   @updatedAt @map("updated_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
 
   stockAdjustmentLogs StockAdjustmentLog[]
 
@@ -118,7 +134,8 @@ model User {
   status      String   @default("active") @map("status")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  bills Bill[]
+  bills        Bill[]
+  clinicVisits ClinicVisit[]
 
   @@map("user_tbl")
 }
@@ -230,6 +247,7 @@ model Distributor {
   ledgers     Ledger[]
   inventories Inventory[]
   purchases   PurchaseInvoice[]
+  returns     DistributorReturn[]
 
   @@map("distributors_tbl")
 }
@@ -283,24 +301,24 @@ model StockAdjustmentLog {
 // 12. Purchase Invoices (Inward Stock Bills)
 // ==========================================
 model PurchaseInvoice {
-  id             Int       @id @default(autoincrement())
-  invoiceNumber  String    @map("invoice_number") // Wholesaler invoice/bill number
-  distributorId  Int       @map("distributor_id")
-  distributor    Distributor @relation(fields: [distributorId], references: [id], onDelete: Restrict)
-  purchaseDate   DateTime  @default(now()) @map("purchase_date")
-  paymentMode    String    @default("credit") @map("payment_mode") // "credit" | "cash"
-  dueDate        DateTime? @map("due_date")
+  id            Int         @id @default(autoincrement())
+  invoiceNumber String      @map("invoice_number") // Wholesaler invoice/bill number
+  distributorId Int         @map("distributor_id")
+  distributor   Distributor @relation(fields: [distributorId], references: [id], onDelete: Restrict)
+  purchaseDate  DateTime    @default(now()) @map("purchase_date")
+  paymentMode   String      @default("credit") @map("payment_mode") // "credit" | "cash"
+  dueDate       DateTime?   @map("due_date")
 
   // Financial amounts
-  subtotal       Decimal   @map("subtotal") @db.Decimal(12, 2)
-  discountAmount Decimal   @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
-  taxableAmount  Decimal   @default(0.00) @map("taxable_amount") @db.Decimal(12, 2)
-  vatAmount      Decimal   @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
-  grandTotal     Decimal   @map("grand_total") @db.Decimal(12, 2)
-  notes          String?   @map("notes")
-  createdAt      DateTime  @default(now()) @map("created_at")
+  subtotal       Decimal  @map("subtotal") @db.Decimal(12, 2)
+  discountAmount Decimal  @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  taxableAmount  Decimal  @default(0.00) @map("taxable_amount") @db.Decimal(12, 2)
+  vatAmount      Decimal  @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
+  grandTotal     Decimal  @map("grand_total") @db.Decimal(12, 2)
+  notes          String?  @map("notes")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  items          PurchaseInvoiceItem[]
+  items PurchaseInvoiceItem[]
 
   @@index([invoiceNumber])
   @@index([distributorId])
@@ -312,29 +330,29 @@ model PurchaseInvoice {
 // 13. Purchase Invoice Items
 // ==========================================
 model PurchaseInvoiceItem {
-  id              Int             @id @default(autoincrement())
-  invoiceId       Int             @map("invoice_id")
-  invoice         PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  id        Int             @id @default(autoincrement())
+  invoiceId Int             @map("invoice_id")
+  invoice   PurchaseInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
-  inventoryId     Int?            @map("inventory_id")
-  inventory       Inventory?      @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+  inventoryId Int?       @map("inventory_id")
+  inventory   Inventory? @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
 
-  medicineName    String          @map("medicine_name")
-  genericName     String?         @map("generic_name")
-  categoryName    String?         @map("category_name")
-  batchNumber     String          @map("batch_number")
-  expiryDate      String          @map("expiry_date")
+  medicineName String  @map("medicine_name")
+  genericName  String? @map("generic_name")
+  categoryName String? @map("category_name")
+  batchNumber  String  @map("batch_number")
+  expiryDate   String  @map("expiry_date")
 
-  packQty         Int             @map("pack_qty")
-  freePacks       Int             @default(0) @map("free_packs")
-  unitsPerPack    Int             @default(10) @map("units_per_pack")
+  packQty      Int @map("pack_qty")
+  freePacks    Int @default(0) @map("free_packs")
+  unitsPerPack Int @default(10) @map("units_per_pack")
 
-  costPrice       Decimal         @map("cost_price") @db.Decimal(10, 2)
-  discountPercent Decimal         @default(0.00) @map("discount_percent") @db.Decimal(5, 2)
-  isVatApplicable Boolean         @default(false) @map("is_vat_applicable")
-  mrpPrice        Decimal         @map("mrp_price") @db.Decimal(10, 2)
-  rackLocation    String?         @map("rack_location")
-  lineTotal       Decimal         @map("line_total") @db.Decimal(12, 2)
+  costPrice       Decimal @map("cost_price") @db.Decimal(10, 2)
+  discountPercent Decimal @default(0.00) @map("discount_percent") @db.Decimal(5, 2)
+  isVatApplicable Boolean @default(false) @map("is_vat_applicable")
+  mrpPrice        Decimal @map("mrp_price") @db.Decimal(10, 2)
+  rackLocation    String? @map("rack_location")
+  lineTotal       Decimal @map("line_total") @db.Decimal(12, 2)
 
   @@index([invoiceId])
   @@index([inventoryId])
@@ -371,3 +389,80 @@ model PharmacySetting {
   @@map("pharmacy_settings_tbl")
 }
 
+// ==========================================
+// 15. Clinic / OPD Doctors
+// ==========================================
+model Doctor {
+  id                     Int      @id @default(autoincrement())
+  name                   String   @map("name")
+  speciality             String?  @map("speciality")
+  qualification          String?  @map("qualification")
+  nmcNumber              String?  @unique @map("nmc_number")
+  defaultConsultationFee Decimal  @default(0.00) @map("default_consultation_fee") @db.Decimal(12, 2)
+  status                 String   @default("active") @map("status")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  visits ClinicVisit[]
+
+  @@index([name])
+  @@index([status])
+  @@map("clinic_doctors_tbl")
+}
+
+// ==========================================
+// 16. Clinic / OPD Patients
+// ==========================================
+model ClinicPatient {
+  id        Int      @id @default(autoincrement())
+  name      String   @map("name")
+  phone     String?  @map("phone")
+  gender    String?  @map("gender")
+  ageYears  Int?     @map("age_years")
+  address   String?  @map("address")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  visits ClinicVisit[]
+
+  @@index([name])
+  @@index([phone])
+  @@map("clinic_patients_tbl")
+}
+
+// ==========================================
+// 17. Clinic / OPD Visits
+// ==========================================
+model ClinicVisit {
+  id Int @id @default(autoincrement())
+
+  patientId Int           @map("patient_id")
+  patient   ClinicPatient @relation(fields: [patientId], references: [id], onDelete: Restrict)
+
+  doctorId Int    @map("doctor_id")
+  doctor   Doctor @relation(fields: [doctorId], references: [id], onDelete: Restrict)
+
+  createdById String? @map("created_by_id")
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  visitDateTime DateTime @default(now()) @map("visit_date_time")
+
+  // Snapshot of age when this particular OPD visit occurred.
+  ageAtVisit Int? @map("age_at_visit")
+
+  // One final amount for consultation / procedure / any clinic charge.
+  totalCharge Decimal @default(0.00) @map("total_charge") @db.Decimal(12, 2)
+
+  // Optional explanation:
+  // "Consultation", "Consultation + dressing", etc.
+  chargeNote String? @map("charge_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([createdById])
+  @@index([visitDateTime])
+  @@map("clinic_visits_tbl")
+}

@@ -166,36 +166,110 @@ export const UserManagementView: React.FC = () => {
     setShowAddModal(true);
   };
 
-  const handleSaveUser = (e: React.FormEvent) => {
+  const handleSaveUser = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.username.trim()) {
-      alert('Name and User ID / Username are required!');
+
+    if (
+      !formData.name.trim() ||
+      !formData.username.trim()
+    ) {
+      alert(
+        'Name and User ID / Username are required!'
+      );
       return;
     }
 
-    if (formData.phone && !/^\d{10}$/.test(formData.phone)) {
-      alert('Phone number must contain exactly 10 digits.');
+    if (
+      formData.phone &&
+      !/^\d{10}$/.test(formData.phone)
+    ) {
+      alert(
+        'Phone number must contain exactly 10 digits.'
+      );
       return;
     }
 
-    if (formData.email && !isValidEmail(formData.email)) {
-      alert('Enter a valid email address.');
+    if (
+      formData.email &&
+      !isValidEmail(formData.email)
+    ) {
+      alert(
+        'Enter a valid email address.'
+      );
       return;
     }
 
-    if (!formData.password.trim() || formData.password.length < 4) {
-      alert('Password must be at least 4 characters long!');
+    const cleanPassword =
+      formData.password.trim();
+
+    if (
+      !editingUser &&
+      cleanPassword.length < 6
+    ) {
+      alert(
+        'Password must be at least 6 characters long!'
+      );
       return;
     }
 
-    if (editingUser) {
-      updateUser(editingUser.id, formData);
-    } else {
-      addUser(formData);
+    if (
+      editingUser &&
+      cleanPassword &&
+      cleanPassword.length < 6
+    ) {
+      alert(
+        'Password must be at least 6 characters long!'
+      );
+      return;
     }
 
-    setShowAddModal(false);
-    setEditingUser(null);
+    try {
+      if (editingUser) {
+        const updates = {
+          ...formData
+        } as Partial<PharmacyUser>;
+
+        // Blank password means keep the existing password.
+        if (!cleanPassword) {
+          delete updates.password;
+        } else {
+          updates.password =
+            cleanPassword;
+        }
+
+        await updateUser(
+          editingUser.id,
+          updates
+        );
+      } else {
+        await addUser({
+          ...formData,
+          password: cleanPassword
+        });
+      }
+
+      // Close only after PostgreSQL confirms success.
+      setShowAddModal(false);
+      setEditingUser(null);
+
+    } catch (error) {
+      console.error(
+        editingUser
+          ? 'Failed to update staff user:'
+          : 'Failed to create staff user:',
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : editingUser
+            ? 'Failed to update staff user.'
+            : 'Failed to create staff user.'
+      );
+    }
   };
 
   const handleShiftTimeChange = (field: 'start' | 'end', value: string) => {
@@ -220,34 +294,66 @@ export const UserManagementView: React.FC = () => {
     setPasswordFeedback(null);
   };
 
-  const handleSavePasswordReset = (e: React.FormEvent) => {
+  const handleSavePasswordReset = async (
+    e: React.FormEvent
+  ) => {
     e.preventDefault();
+
     if (!passwordResetUser) return;
 
     if (!isAdmin) {
-      setPasswordFeedback({ type: 'error', text: 'Only Admin can change passwords!' });
+      setPasswordFeedback({
+        type: 'error',
+        text:
+          'Only Admin can change passwords!'
+      });
       return;
     }
 
-    if (newPassword.length < 4) {
-      setPasswordFeedback({ type: 'error', text: 'Password must be at least 4 characters long!' });
+    if (newPassword.length < 6) {
+      setPasswordFeedback({
+        type: 'error',
+        text:
+          'Password must be at least 6 characters long!'
+      });
       return;
     }
 
-    if (newPassword !== confirmPassword) {
-      setPasswordFeedback({ type: 'error', text: 'Passwords do not match!' });
+    if (
+      newPassword !==
+      confirmPassword
+    ) {
+      setPasswordFeedback({
+        type: 'error',
+        text:
+          'Passwords do not match!'
+      });
       return;
     }
 
-    const res = changeStaffPassword(passwordResetUser.id, newPassword);
+    const res =
+      await changeStaffPassword(
+        passwordResetUser.id,
+        newPassword
+      );
+
     if (res.success) {
-      setPasswordFeedback({ type: 'success', text: `Password for ${passwordResetUser.name} has been changed successfully!` });
+      setPasswordFeedback({
+        type: 'success',
+        text:
+          `Password for ${passwordResetUser.name} has been changed successfully!`
+      });
+
       setTimeout(() => {
         setPasswordResetUser(null);
         setPasswordFeedback(null);
       }, 1200);
+
     } else {
-      setPasswordFeedback({ type: 'error', text: res.message });
+      setPasswordFeedback({
+        type: 'error',
+        text: res.message
+      });
     }
   };
 
@@ -464,7 +570,7 @@ export const UserManagementView: React.FC = () => {
                     <button
                       onClick={() => {
                         if (confirm(`Remove staff user account for ${u.name}?`)) {
-                          deleteUser(u.id);
+                          void deleteUser(u.id);
                         }
                       }}
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-50 cursor-pointer"
@@ -592,7 +698,7 @@ export const UserManagementView: React.FC = () => {
                   <input
                     type={showPasswordText ? 'text' : 'password'}
                     required
-                    placeholder="Enter new staff password (min 4 chars)"
+                    placeholder="Enter new staff password (min 6 chars)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono font-bold text-slate-900 pr-10 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
@@ -693,8 +799,12 @@ export const UserManagementView: React.FC = () => {
                   </label>
                   <input
                     type="password"
-                    required
-                    placeholder="Min 4 chars"
+                    required={!editingUser}
+                    placeholder={
+                      editingUser
+                        ? "Leave blank to keep current password"
+                        : "Min 6 chars"
+                    }
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 font-mono text-slate-900 focus:bg-white focus:outline-hidden"

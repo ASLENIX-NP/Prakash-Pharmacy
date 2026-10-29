@@ -12,6 +12,10 @@ import billRoutes from "./routes/bill.routes.js";
 import distributorRoutes from "./routes/distributor.routes.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
 import settingRoutes from "./routes/setting.routes.js";
+import reportRoutes from "./routes/report.routes.js";
+import doctorRoutes from "./routes/doctor.routes.js";
+import clinicPatientRoutes from "./routes/clinic-patient.routes.js";
+import clinicVisitRoutes from "./routes/clinic-visit.routes.js";
 
 const app = express();
 
@@ -88,5 +92,9 @@ app.use("/api/stockists", distributorRoutes); // Alias for convenience
 app.use("/api/purchases", purchaseRoutes);
 app.use("/api/purchase-invoices", purchaseRoutes); // Alias for convenience
 app.use("/api/settings", settingRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/doctors", doctorRoutes);
+app.use("/api/clinic-patients", clinicPatientRoutes);
+app.use("/api/clinic-visits", clinicVisitRoutes);
 
 export default app;

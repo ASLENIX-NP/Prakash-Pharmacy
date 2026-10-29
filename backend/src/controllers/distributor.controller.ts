@@ -457,6 +457,36 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
   }
 };
 
+export const getDistributorReturns = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const returns = await prisma.distributorReturn.findMany({
+      include: { distributor: true },
+      orderBy: [{ date: "desc" }, { id: "desc" }],
+    });
+
+    res.status(200).json({
+      success: true,
+      data: returns.map((entry) => ({
+        id: `ret-${entry.id}`,
+        debitNoteNumber: entry.debitNoteNumber,
+        stockistId: formatDistributorCode(entry.distributorId),
+        stockistName: entry.distributor.name,
+        date: entry.date.toISOString().split("T")[0],
+        items: Array.isArray(entry.items) ? entry.items : [],
+        totalAmount: Number(entry.totalAmount),
+        notes: entry.notes || "",
+        createdAt: entry.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error("Error fetching distributor returns:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch distributor returns.",
+    });
+  }
+};
+
 export const recordDistributorReturn = async (req: Request, res: Response): Promise<void> => {
   try {
     const id = parseIdParam(req.params.id);
@@ -525,11 +555,37 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
             });
           }
 
+          if (!med) {
+            throw new Error(
+              `Medicine '${item.medicineName || item.medicineId}' was not found.`
+            );
+          }
+
+          if (med.distributorId !== id) {
+            throw new Error(
+              `Medicine '${med.medicineBrand}' does not belong to the selected distributor.`
+            );
+          }
+
           if (med) {
             const unitsPerPack = Math.max(1, med.unitPerPack || 10);
             const currentTotalUnits = med.packInStock * unitsPerPack + med.unitInStock;
             const deductTotalUnits = packsToDeduct * unitsPerPack + looseToDeduct;
-            const remainingUnits = Math.max(0, currentTotalUnits - deductTotalUnits);
+
+            if (deductTotalUnits <= 0) {
+              throw new Error(
+                `Return quantity for '${med.medicineBrand}' must be greater than zero.`
+              );
+            }
+
+            if (deductTotalUnits > currentTotalUnits) {
+              throw new Error(
+                `Return quantity exceeds available stock for '${med.medicineBrand}'.`
+              );
+            }
+
+            const remainingUnits =
+              currentTotalUnits - deductTotalUnits;
 
             const newPacks = Math.floor(remainingUnits / unitsPerPack);
             const newLoose = remainingUnits % unitsPerPack;
@@ -584,7 +640,23 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
         },
       });
 
-      return { updatedDistributor, ledgerEntry };
+      const returnVoucher =
+        await tx.distributorReturn.create({
+          data: {
+            distributorId: id,
+            debitNoteNumber: cleanDebitNote,
+            date: cleanDate,
+            items: Array.isArray(items) ? items : [],
+            totalAmount: parsedTotal,
+            notes: notes ? String(notes).trim() : null,
+          },
+        });
+
+      return {
+        updatedDistributor,
+        ledgerEntry,
+        returnVoucher
+      };
     });
 
     res.status(200).json({
@@ -602,6 +674,27 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           debit: parsedTotal,
           credit: 0,
           balance: newBal,
+        },
+        returnVoucher: {
+          id: `ret-${result.returnVoucher.id}`,
+          debitNoteNumber:
+            result.returnVoucher.debitNoteNumber,
+          stockistId: formatDistributorCode(id),
+          stockistName: distributor.name,
+          date:
+            result.returnVoucher.date
+              .toISOString()
+              .split("T")[0],
+          items:
+            Array.isArray(result.returnVoucher.items)
+              ? result.returnVoucher.items
+              : [],
+          totalAmount:
+            Number(result.returnVoucher.totalAmount),
+          notes:
+            result.returnVoucher.notes || "",
+          createdAt:
+            result.returnVoucher.createdAt.toISOString(),
         },
       },
     });

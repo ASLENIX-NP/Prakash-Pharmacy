@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { randomInt } from "node:crypto";
 import { prisma } from "../db.js";
 import { signJwt } from "../utils/jwt.js";
 import { AuthenticatedRequest } from "../middleware/auth.middleware.js";
@@ -6,6 +7,7 @@ import {
   formatUserResponse,
   verifyPassword,
   hashPassword,
+  MIN_PASSWORD_LENGTH,
 } from "../utils/user.helpers.js";
 
 // In-memory recovery token store (valid for 15 minutes)
@@ -123,6 +125,151 @@ export async function getMe(req: AuthenticatedRequest, res: Response): Promise<v
 }
 
 // ==========================================
+// Change Logged-in User Password
+// ==========================================
+export async function changePassword(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const authenticatedRequest =
+      req as Request & {
+        user?: { id: string };
+      };
+
+    if (!authenticatedRequest.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized.",
+      });
+      return;
+    }
+
+    const {
+      currentPassword,
+      newPassword
+    } = req.body;
+
+    if (
+      !currentPassword ||
+      !newPassword
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Current password and new password are required.",
+      });
+      return;
+    }
+
+    const cleanNewPassword =
+      String(newPassword).trim();
+
+    if (
+      cleanNewPassword.length <
+      MIN_PASSWORD_LENGTH
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+      });
+      return;
+    }
+
+    const user =
+      await prisma.user.findUnique({
+        where: {
+          id: authenticatedRequest.user.id,
+        },
+      });
+
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+      return;
+    }
+
+    if (
+      user.status &&
+      user.status.toLowerCase() !==
+        "active"
+    ) {
+      res.status(403).json({
+        success: false,
+        message:
+          "This staff account is not active.",
+      });
+      return;
+    }
+
+    const currentPasswordValid =
+      await verifyPassword(
+        String(currentPassword),
+        user.password
+      );
+
+    if (!currentPasswordValid) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Current password is incorrect.",
+      });
+      return;
+    }
+
+    const sameAsCurrent =
+      await verifyPassword(
+        cleanNewPassword,
+        user.password
+      );
+
+    if (sameAsCurrent) {
+      res.status(400).json({
+        success: false,
+        message:
+          "New password must be different from the current password.",
+      });
+      return;
+    }
+
+    const hashedPassword =
+      await hashPassword(
+        cleanNewPassword
+      );
+
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message:
+        "Password changed successfully.",
+    });
+
+  } catch (error) {
+    console.error(
+      "Change password error:",
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message:
+        "Failed to change password.",
+    });
+  }
+}
+
+// ==========================================
 // 3. Forgot Password Request (by Email)
 // ==========================================
 export async function forgotPassword(req: Request, res: Response): Promise<void> {
@@ -175,12 +322,17 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
     }
 
     // Generate 6-digit secure code
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const resetCode =
+      randomInt(100000, 1000000).toString();
     const expiresAt = Date.now() + 15 * 60 * 1000; // 15 mins
 
     passwordResetStore.set(cleanEmail, { code: resetCode, expiresAt });
 
-    console.log(`[PASSWORD RESET] Generated OTP ${resetCode} for ${cleanEmail} (User: ${user.username})`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[PASSWORD RESET] Generated OTP ${resetCode} for ${cleanEmail} (User: ${user.username})`
+      );
+    }
 
     // In production, an email service (Nodemailer, SendGrid, Resend) sends this.
     // For local pharmacy dev environment, we return the code and simulate email transmission.
@@ -189,7 +341,9 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       message: `Password recovery verification code has been sent to ${cleanEmail}.`,
       email: cleanEmail,
       username: user.username,
-      devCode: resetCode, // Provided for smooth local demo/testing
+      ...(process.env.NODE_ENV !== "production"
+        ? { devCode: resetCode }
+        : {}),
     });
   } catch (error) {
     console.error("Forgot password error:", error);
@@ -219,10 +373,10 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     const cleanCode = String(resetCode).trim();
     const cleanPassword = String(newPassword).trim();
 
-    if (cleanPassword.length < 6) {
+    if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
       res.status(400).json({
         success: false,
-        message: "New password must be at least 6 characters long.",
+        message: `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
       });
       return;
     }
