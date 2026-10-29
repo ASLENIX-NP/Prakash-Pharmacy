@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { apiRequest } from '../services/api';
 import { printOpdSticker } from '../utils/opdSticker';
 
@@ -208,6 +209,7 @@ const readableDateTime = (
 
 export const OpdRecordsPanel: React.FC = () => {
   const { settings, isAdmin } = usePharmacy();
+  const { confirmDialog, showToast } = useDialog();
 
 
   const [
@@ -426,9 +428,22 @@ export const OpdRecordsPanel: React.FC = () => {
     }
 
     const confirmCancel =
-      window.confirm(
-        `Cancel ${visit.opdNumber} for "${visit.patient.name}"?\n\nThis will NOT delete the OPD. Its status will become CANCELLED.`
-      );
+      await confirmDialog({
+        title:
+          `Cancel OPD Ticket ${visit.opdNumber}`,
+
+        message:
+          `Cancel OPD registration for "${visit.patient.name}"?\n\nThe record will NOT be deleted. Its status will become CANCELLED and remain in patient history.`,
+
+        confirmLabel:
+          'Cancel Ticket',
+
+        cancelLabel:
+          'Keep Ticket',
+
+        type:
+          'danger',
+      });
 
     if (!confirmCancel) {
       return;
@@ -459,9 +474,11 @@ export const OpdRecordsPanel: React.FC = () => {
           }
         );
 
-      alert(
+      showToast(
         res?.message ||
-          'OPD cancelled successfully.'
+          'OPD cancelled successfully.',
+        'success',
+        'OPD Cancelled'
       );
 
       if (
@@ -477,10 +494,12 @@ export const OpdRecordsPanel: React.FC = () => {
         filters
       );
     } catch (err) {
-      alert(
+      showToast(
         err instanceof Error
           ? err.message
-          : 'Failed to cancel OPD visit.'
+          : 'Failed to cancel OPD visit.',
+        'error',
+        'Action Failed'
       );
     } finally {
       setCancelingVisitId(

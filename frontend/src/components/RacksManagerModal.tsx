@@ -11,6 +11,7 @@ import {
   Info
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 
 interface RacksManagerModalProps {
   isOpen: boolean;
@@ -18,6 +19,7 @@ interface RacksManagerModalProps {
 }
 
 export const RacksManagerModal: React.FC<RacksManagerModalProps> = ({ isOpen, onClose }) => {
+  const { confirmDialog } = useDialog();
   const { racks, addRack, deduceRack, medicines, isAdmin } = usePharmacy();
 
   const [newRackName, setNewRackName] = useState('');
@@ -47,7 +49,15 @@ export const RacksManagerModal: React.FC<RacksManagerModalProps> = ({ isOpen, on
       ? `Rack "${rackName}" currently contains ${count} medicines. Removing this rack will reassign them to "General Shelf". Are you sure?`
       : `Are you sure you want to deduce/remove rack "${rackName}"?`;
 
-    if (confirm(confirmMsg)) {
+    const confirmed = await confirmDialog({
+      title: `Remove Rack ${rackName}`,
+      message: confirmMsg,
+      confirmLabel: 'Remove Rack',
+      cancelLabel: 'Keep Rack',
+      type: 'danger',
+    });
+
+    if (confirmed) {
       const res = await deduceRack(rackId);
       if (res.success) {
         setFeedback({ type: 'success', text: res.message });

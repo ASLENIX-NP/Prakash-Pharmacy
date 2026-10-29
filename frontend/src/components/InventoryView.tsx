@@ -25,6 +25,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { Medicine, MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
 import { 
   downloadMedicineExcelTemplate, 
@@ -52,6 +53,7 @@ const MEDICINE_CATEGORIES: MedicineCategory[] = [
 ];
 
 export const InventoryView: React.FC = () => {
+  const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
     medicines, 
     addMedicine, 
@@ -298,10 +300,13 @@ export const InventoryView: React.FC = () => {
       genericName &&
       normalizeName(medicineName) === normalizeName(genericName)
     ) {
-      const confirmed = window.confirm(
-        `Medicine name and Generic / Salt name are both "${medicineName}".\n\n` +
-        'This can be valid for generic medicines. Do you want to continue and save both names as entered?'
-      );
+      const confirmed = await confirmDialog({
+        title: 'Similar Names',
+        message: `Medicine name and Generic / Salt name are both "${medicineName}".\n\nThis can be valid for generic medicines. Do you want to continue and save both names as entered?`,
+        confirmLabel: 'Save As Entered',
+        cancelLabel: 'Review Names',
+        type: 'warning',
+      });
 
       if (!confirmed) {
         return;
@@ -351,7 +356,7 @@ export const InventoryView: React.FC = () => {
         supplierId = createdDist.id;
         supplierName = createdDist.name;
       } catch (err: any) {
-        alert(err.message || 'Failed to create new distributor');
+        showToast(err.message || 'Failed to create new distributor', 'error', 'Distributor Error');
         return;
       }
     }
@@ -437,7 +442,7 @@ export const InventoryView: React.FC = () => {
 
         if (billDistributorMode === 'new') {
           if (!newDistributorName.trim()) {
-            alert('Please specify the Distributor / Wholesaler Name.');
+            showToast('Please specify the Distributor / Wholesaler Name.', 'warning', 'Validation');
             setIsSubmittingImport(false);
             return;
           }
@@ -456,7 +461,7 @@ export const InventoryView: React.FC = () => {
         } else {
           const existing = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
           if (!existing) {
-            alert('Please select or create a Distributor.');
+            showToast('Please select or create a Distributor.', 'warning', 'Validation');
             setIsSubmittingImport(false);
             return;
           }
@@ -537,10 +542,12 @@ export const InventoryView: React.FC = () => {
         setImportErrors([]);
       }
     } catch (err: any) {
-      alert(
+      showToast(
         err instanceof Error
           ? err.message
-          : 'Bulk inventory import failed. Please verify admin privileges.'
+          : 'Bulk inventory import failed. Please verify admin privileges.',
+        'error',
+        'Import Error'
       );
     } finally {
       setIsSubmittingImport(false);
@@ -1614,6 +1621,8 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
   onOpenAudit,
   onOpenVatInfo
 }) => {
+  const { confirmDialog } = useDialog();
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-xs">
@@ -1746,12 +1755,19 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        if (confirm(`Are you sure you want to delete ${m.name} from inventory?`)) {
+                      onClick={async () => {
+                        const confirmed = await confirmDialog({
+                          title: `Delete ${m.name}`,
+                          message: `Are you sure you want to permanently delete "${m.name}" (Batch: ${m.batchNumber}) from inventory?`,
+                          confirmLabel: 'Delete Medicine',
+                          cancelLabel: 'Keep Item',
+                          type: 'danger',
+                        });
+                        if (confirmed) {
                           onDelete(m.id);
                         }
                       }}
-                      className="p-1.5 hover:bg-rose-50 text-rose-500 rounded-lg transition-colors"
+                      className="p-1.5 hover:bg-rose-50 text-rose-500 rounded-lg transition-colors cursor-pointer"
                       title="Delete medicine"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

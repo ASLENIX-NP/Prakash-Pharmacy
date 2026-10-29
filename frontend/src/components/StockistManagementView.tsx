@@ -25,6 +25,7 @@ import {
   Eye
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { 
   Stockist, 
   StockistPurchaseInvoice, 
@@ -44,6 +45,7 @@ import {
 import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
 export const StockistManagementView: React.FC = () => {
+  const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
     stockists, 
     isStockistDemoDataActive,
@@ -461,7 +463,7 @@ export const StockistManagementView: React.FC = () => {
       setIsImportingExcelBill(true);
       const res = await parseMedicinesFromExcel(file);
       if (res.success.length === 0) {
-        alert('No medicine items could be recognized from this file.');
+        showToast('No medicine items could be recognized from this file.', 'warning', 'Import Notice');
         return;
       }
 
@@ -511,9 +513,9 @@ export const StockistManagementView: React.FC = () => {
         }));
       }
 
-      alert(`Successfully loaded ${importedRows.length} invoice items from Excel file! Please review and click Save Purchase Invoice.`);
+      showToast(`Successfully loaded ${importedRows.length} invoice items from Excel file!`, 'success', 'Excel Imported');
     } catch (err: any) {
-      alert(err.message || 'Failed to read Excel bill');
+      showToast(err.message || 'Failed to read Excel bill', 'error', 'Import Error');
     } finally {
       setIsImportingExcelBill(false);
       if (e.target) e.target.value = '';
@@ -558,11 +560,11 @@ export const StockistManagementView: React.FC = () => {
   const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceHeader.invoiceNumber.trim()) {
-      alert('Invoice Number is required!');
+      showToast('Invoice Number is required!', 'warning', 'Validation');
       return;
     }
     if (invoiceItems.some(it => !it.medicineName.trim())) {
-      alert('Please fill Medicine Name for all rows.');
+      showToast('Please fill Medicine Name for all rows.', 'warning', 'Validation');
       return;
     }
 
@@ -588,7 +590,7 @@ export const StockistManagementView: React.FC = () => {
       notes: `Entered by: ${currentUser?.name || 'Admin'} (@${currentUser?.username || 'admin'}). ${invoiceHeader.notes || ''}`.trim()
     });
 
-    alert(`Purchase Invoice #${invoiceHeader.invoiceNumber} recorded successfully! Stock and stockist ledger updated.`);
+    showToast(`Purchase Invoice #${invoiceHeader.invoiceNumber} recorded successfully!`, 'success', 'Invoice Saved');
     setInvoiceHeader({
       invoiceNumber: '',
       stockistId: stockists[0]?.id || '',
@@ -636,7 +638,7 @@ export const StockistManagementView: React.FC = () => {
     setPaymentAmount(0);
     setPaymentRefNumber('');
     setPaymentNotes('');
-    alert(`Payment of Rs. ${paymentAmount.toFixed(2)} recorded in ledger!`);
+    showToast(`Payment of Rs. ${paymentAmount.toFixed(2)} recorded in ledger!`, 'success', 'Payment Recorded');
   };
 
   // Add Item to Return Voucher
@@ -645,7 +647,7 @@ export const StockistManagementView: React.FC = () => {
     if (!med) return;
 
     if (returnPacks <= 0 && returnLoose <= 0) {
-      alert('Please specify at least 1 pack to return.');
+      showToast('Please specify at least 1 pack to return.', 'warning', 'Return Notice');
       return;
     }
 
@@ -681,8 +683,10 @@ export const StockistManagementView: React.FC = () => {
     e.preventDefault();
 
     if (returnItems.length === 0) {
-      alert(
-        'Please add at least one item to return!'
+      showToast(
+        'Please add at least one item to return!',
+        'warning',
+        'Notice'
       );
       return;
     }
@@ -715,14 +719,16 @@ export const StockistManagementView: React.FC = () => {
         notes: returnNotes
       });
 
-      alert(
+      showToast(
         "Debit Note #" +
           debitNoteNumber +
           " issued! Rs. " +
           totalAmount.toFixed(2) +
           " deducted from " +
           stockist.name +
-          "'s payable balance."
+          "'s payable balance.",
+        'success',
+        'Debit Note Issued'
       );
 
       setReturnItems([]);
@@ -742,10 +748,12 @@ export const StockistManagementView: React.FC = () => {
         error
       );
 
-      alert(
+      showToast(
         error instanceof Error
           ? error.message
-          : 'Failed to record supplier return.'
+          : 'Failed to record supplier return.',
+        'error',
+        'Return Failed'
       );
     }
   };
@@ -2194,19 +2202,23 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                     type="button"
                     disabled={isDeletingPurchase}
                     onClick={async () => {
-                      const confirmDelete = window.confirm(
-                        `Are you sure you want to void Purchase Bill #${viewingPurchaseBill.invoiceNumber}?\n\nThis will permanently delete the invoice, reverse distributor outstanding balance, and deduct the received medicines from your inventory stock.`
-                      );
+                      const confirmDelete = await confirmDialog({
+                        title: `Void Purchase Bill #${viewingPurchaseBill.invoiceNumber}`,
+                        message: `Are you sure you want to void Purchase Bill #${viewingPurchaseBill.invoiceNumber}?\n\nThis will permanently delete the invoice, reverse distributor outstanding balance, and deduct the received medicines from your inventory stock.`,
+                        confirmLabel: 'Void Bill',
+                        cancelLabel: 'Keep Bill',
+                        type: 'danger',
+                      });
                       if (!confirmDelete) return;
 
                       try {
                         setIsDeletingPurchase(true);
                         const res = await deletePurchaseInvoice(viewingPurchaseBill.id);
-                        alert(res.message || 'Purchase invoice voided successfully.');
+                        showToast(res.message || 'Purchase invoice voided successfully.', 'success', 'Bill Voided');
                         setViewingPurchaseBill(null);
                         setBillItemSearch('');
                       } catch (err) {
-                        alert(err instanceof Error ? err.message : 'Failed to void purchase bill.');
+                        showToast(err instanceof Error ? err.message : 'Failed to void purchase bill.', 'error', 'Action Failed');
                       } finally {
                         setIsDeletingPurchase(false);
                       }
