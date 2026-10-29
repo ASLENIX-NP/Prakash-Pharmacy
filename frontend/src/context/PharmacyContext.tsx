@@ -111,6 +111,7 @@ interface PharmacyContextType {
   // Purchase Invoices
   purchaseInvoices: StockistPurchaseInvoice[];
   addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => Promise<StockistPurchaseInvoice>;
+  deletePurchaseInvoice: (purchaseId: string) => Promise<{ success: boolean; message: string }>;
 
   // Stockist Ledger & Payments
   stockistLedgers: StockistLedgerEntry[];
@@ -131,6 +132,8 @@ interface PharmacyContextType {
   isSalesDemoDataActive: boolean;
   clearSalesDemoData: () => void;
   completeSale: (sale: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>) => SaleInvoice;
+  returnSaleItems: (billId: string, payload: { reason?: string; returnedItems: Array<{ inventoryId: number; quantityPacks: number; quantityLoose: number }> }) => Promise<{ success: boolean; message: string; refundAmount?: number }>;
+  refreshLiveBills: () => Promise<SaleInvoice[]>;
 
   // Settings
   settings: PharmacySettings;
@@ -2238,6 +2241,29 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return created;
   };
 
+  // Void / Revert Purchase Invoice
+  const deletePurchaseInvoice = async (
+    purchaseId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const cleanId = String(purchaseId).replace(/^inv-/i, '');
+    const res = await apiRequest<{ success: boolean; message: string }>(
+      `/purchases/${encodeURIComponent(cleanId)}`,
+      { method: 'DELETE' }
+    );
+
+    const [livePurchases, liveStockists] = await Promise.all([
+      refreshLivePurchases(),
+      refreshLiveStockists(),
+      refreshLiveInventory()
+    ]);
+    await refreshLiveLedgers(liveStockists);
+
+    return {
+      success: res?.success ?? true,
+      message: res?.message ?? 'Purchase bill deleted and inventory reverted successfully.'
+    };
+  };
+
 
   // Supplier payment - backend updates running balance
   // and creates the debit ledger entry transactionally.
@@ -2461,6 +2487,41 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return newInvoice;
   };
 
+  const refreshLiveBills = async (): Promise<SaleInvoice[]> => {
+    const res = await apiRequest<{ data: SaleInvoice[] }>('/bills?limit=all');
+    if (Array.isArray(res.data)) {
+      setSalesInvoices(res.data);
+      return res.data;
+    }
+    return [];
+  };
+
+  const returnSaleItems = async (
+    billId: string,
+    payload: {
+      reason?: string;
+      returnedItems: Array<{ inventoryId: number; quantityPacks: number; quantityLoose: number }>;
+    }
+  ): Promise<{ success: boolean; message: string; refundAmount?: number }> => {
+    const cleanId = String(billId).replace(/^(sal|bill)-/i, '');
+    const res = await apiRequest<{
+      success: boolean;
+      message: string;
+      data?: { refundAmount: number; returnedCount: number };
+    }>(`/bills/${encodeURIComponent(cleanId)}/return`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    await Promise.all([refreshLiveBills(), refreshLiveInventory()]);
+
+    return {
+      success: res?.success ?? true,
+      message: res?.message ?? 'Return processed successfully.',
+      refundAmount: res?.data?.refundAmount,
+    };
+  };
+
   const clearSalesDemoData = () => {
     localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
     setIsSalesDemoDataActive(false);
@@ -2560,6 +2621,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         purchaseInvoices,
         addPurchaseInvoice,
+        deletePurchaseInvoice,
 
         stockistLedgers,
         addStockistPayment,
@@ -2571,6 +2633,8 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         isSalesDemoDataActive,
         clearSalesDemoData,
         completeSale,
+        returnSaleItems,
+        refreshLiveBills,
 
         settings,
         updateSettings,

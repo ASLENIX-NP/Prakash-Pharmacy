@@ -418,3 +418,119 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
     });
   }
 };
+
+// ==========================================
+// 4. CANCEL / DELETE PURCHASE INVOICE
+// ==========================================
+export const deletePurchase = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid purchase invoice ID.",
+      });
+      return;
+    }
+
+    const purchase = await prisma.purchaseInvoice.findUnique({
+      where: { id },
+      include: {
+        distributor: true,
+        items: true,
+      },
+    });
+
+    if (!purchase) {
+      res.status(404).json({
+        success: false,
+        message: "Purchase invoice not found.",
+      });
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Revert stock from inventory
+      for (const item of purchase.items) {
+        if (item.inventoryId) {
+          const inv = await tx.inventory.findUnique({
+            where: { id: item.inventoryId },
+          });
+
+          if (inv) {
+            const packDeduction = item.packQty + (item.freePacks || 0);
+            const newPackStock = Math.max(0, inv.packInStock - packDeduction);
+
+            // Check if there are sales from this inventory item
+            const salesCount = await tx.billItem.count({
+              where: { inventoryId: inv.id },
+            });
+
+            if (newPackStock === 0 && inv.unitInStock === 0 && salesCount === 0) {
+              await tx.stockAdjustmentLog.deleteMany({
+                where: { medicineId: inv.id },
+              });
+              await tx.inventory.delete({
+                where: { id: inv.id },
+              });
+            } else {
+              await tx.inventory.update({
+                where: { id: inv.id },
+                data: {
+                  packInStock: newPackStock,
+                },
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Revert distributor balance if credit purchase
+      const grandTotalNum = Number(purchase.grandTotal || 0);
+      if (purchase.paymentMode.toLowerCase() === "credit" && purchase.distributorId) {
+        const dist = await tx.distributor.findUnique({
+          where: { id: purchase.distributorId },
+        });
+
+        if (dist) {
+          const newBal = Math.max(0, Number(dist.currentBalance || 0) - grandTotalNum);
+          await tx.distributor.update({
+            where: { id: dist.id },
+            data: { currentBalance: newBal },
+          });
+        }
+      }
+
+      // 3. Delete linked ledger entries
+      await tx.ledger.deleteMany({
+        where: {
+          OR: [
+            { invoiceId: purchase.id },
+            { referenceNo: purchase.invoiceNumber },
+          ],
+        },
+      });
+
+      // 4. Delete purchase invoice items and invoice
+      await tx.purchaseInvoiceItem.deleteMany({
+        where: { invoiceId: purchase.id },
+      });
+
+      await tx.purchaseInvoice.delete({
+        where: { id: purchase.id },
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Purchase invoice #${purchase.invoiceNumber} cancelled and stock/ledger reverted successfully.`,
+    });
+  } catch (error) {
+    console.error("Error cancelling purchase invoice:", error);
+    res.status(500).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to cancel purchase invoice.",
+    });
+  }
+};
+

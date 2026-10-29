@@ -3,6 +3,7 @@ import {
   getAllPurchases,
   getPurchaseById,
   createPurchase,
+  deletePurchase,
 } from "../controllers/purchase.controller.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.middleware.js";
 
@@ -14,5 +15,8 @@ router.get("/:id", requireAuth, getPurchaseById);
 
 // Create new purchase inward bill (Admin only)
 router.post("/", requireAuth, requireAdmin, createPurchase);
+
+// Cancel/Delete purchase inward bill & revert stock/ledger (Admin only)
+router.delete("/:id", requireAuth, requireAdmin, deletePurchase);
 
 export default router;

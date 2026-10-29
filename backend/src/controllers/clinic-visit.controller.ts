@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db.js";
 
 
@@ -1038,3 +1038,56 @@ export const createClinicVisit = async (
     });
   }
 };
+
+/* =====================================================
+   DELETE / CANCEL OPD VISIT
+   Admin only
+   ===================================================== */
+export const deleteClinicVisit = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const visitId = parseCodeId(req.params.id, "OPD-");
+
+    if (!visitId) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid OPD ticket number. Use format OPD-000001 or numeric ID.",
+      });
+      return;
+    }
+
+    const existingVisit = await prisma.clinicVisit.findUnique({
+      where: { id: visitId },
+      include: {
+        patient: true,
+        doctor: true,
+      },
+    });
+
+    if (!existingVisit) {
+      res.status(404).json({
+        success: false,
+        message: "OPD visit not found.",
+      });
+      return;
+    }
+
+    await prisma.clinicVisit.delete({
+      where: { id: visitId },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `${formatOpdNumber(visitId)} for ${existingVisit.patient.name} has been cancelled successfully.`,
+    });
+  } catch (error) {
+    console.error("Error deleting OPD visit:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete OPD visit.",
+    });
+  }
+};
+

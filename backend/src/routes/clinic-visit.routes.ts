@@ -1,6 +1,7 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
   createClinicVisit,
+  deleteClinicVisit,
   getClinicVisitById,
   getClinicVisitReport,
   getClinicVisits,
@@ -42,6 +43,13 @@ router.post(
   "/",
   requireAuth,
   createClinicVisit
+);
+
+router.delete(
+  "/:id",
+  requireAuth,
+  requireAdmin,
+  deleteClinicVisit
 );
 
 

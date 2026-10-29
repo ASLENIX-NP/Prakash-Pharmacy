@@ -11,12 +11,14 @@ import {
   CheckCircle2, 
   Banknote, 
   QrCode, 
-  CreditCard 
+  CreditCard,
+  RotateCcw
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { salesDemoInvoices } from '../data/salesDemoData';
+import { SalesReturnModal } from './SalesReturnModal';
 
 export const SalesHistoryView: React.FC = () => {
   const {
@@ -30,6 +32,7 @@ export const SalesHistoryView: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'month'>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<SaleInvoice | null>(null);
+  const [returningInvoice, setReturningInvoice] = useState<SaleInvoice | null>(null);
 
   const registerInvoices = useMemo(
     () => isSalesDemoDataActive
@@ -325,14 +328,25 @@ export const SalesHistoryView: React.FC = () => {
                         Demo
                       </span>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setActiveInvoiceToPrint(inv)}
-                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                        title="View official VAT Tax Invoice"
-                      >
-                        <span>View invoice</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setReturningInvoice(inv)}
+                          className="inline-flex items-center justify-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-2 text-[11px] font-semibold text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+                          title="Process customer return / refund"
+                        >
+                          <RotateCcw className="h-3 w-3 text-teal-600" />
+                          <span>Return</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveInvoiceToPrint(inv)}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                          title="View official VAT Tax Invoice"
+                        >
+                          <span>View</span>
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -349,6 +363,18 @@ export const SalesHistoryView: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* Sales Return Modal */}
+      {returningInvoice && (
+        <SalesReturnModal
+          invoice={returningInvoice}
+          onClose={() => setReturningInvoice(null)}
+          onSuccess={(refund) => {
+            alert(`Sales return processed successfully! Refund amount: Rs. ${refund.toFixed(2)}`);
+            setReturningInvoice(null);
+          }}
+        />
+      )}
     </div>
   );
 };

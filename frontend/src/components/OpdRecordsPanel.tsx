@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Stethoscope,
+  Trash2,
   UserRound,
   X,
 } from 'lucide-react';
@@ -156,10 +157,11 @@ const readableDateTime = (
 
 
 export const OpdRecordsPanel: React.FC = () => {
-  const { settings } = usePharmacy();
+  const { settings, isAdmin } = usePharmacy();
 
   const [visits, setVisits] =
     useState<ClinicVisit[]>([]);
+  const [cancelingVisitId, setCancelingVisitId] = useState<string | null>(null);
 
   const [doctors, setDoctors] =
     useState<Doctor[]>([]);
@@ -262,6 +264,30 @@ export const OpdRecordsPanel: React.FC = () => {
       },
       []
     );
+
+  const handleCancelVisit = async (visit: ClinicVisit) => {
+    const confirmCancel = window.confirm(
+      `Are you sure you want to cancel OPD ticket ${visit.opdNumber} for patient "${visit.patient.name}"?\n\nThis will permanently delete this OPD registration.`
+    );
+    if (!confirmCancel) return;
+
+    try {
+      setCancelingVisitId(visit.id);
+      const res = await apiRequest<{ success: boolean; message: string }>(
+        `/clinic-visits/${encodeURIComponent(visit.id)}`,
+        { method: 'DELETE' }
+      );
+      alert(res?.message || 'OPD ticket cancelled successfully.');
+      if (selectedVisit?.id === visit.id) {
+        setSelectedVisit(null);
+      }
+      await loadVisits(filters);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to cancel OPD visit.');
+    } finally {
+      setCancelingVisitId(null);
+    }
+  };
 
 
   const loadDoctors =
@@ -1182,6 +1208,19 @@ export const OpdRecordsPanel: React.FC = () => {
                             <Eye className="h-3.5 w-3.5" />
                             View
                           </button>
+
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              disabled={cancelingVisitId === visit.id}
+                              onClick={() => handleCancelVisit(visit)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-700 hover:border-red-300 hover:bg-red-100 disabled:opacity-50"
+                              title="Cancel / Void this OPD Ticket"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-600" />
+                              {cancelingVisitId === visit.id ? 'Cancelling...' : 'Cancel'}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

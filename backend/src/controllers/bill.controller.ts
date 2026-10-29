@@ -888,3 +888,156 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
     });
   }
 };
+
+// ==========================================
+// 5. CUSTOMER SALES RETURN / REFUND
+// ==========================================
+export const returnBillItems = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const param = String(req.params.id || "").trim();
+    const id = parseInt(param, 10);
+    const { items: rawItems, returnedItems: rawReturnedItems, notes, reason } = req.body;
+    const incomingList = rawReturnedItems || rawItems;
+
+    if (!Array.isArray(incomingList) || incomingList.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: "At least one item to return must be specified.",
+      });
+      return;
+    }
+
+    const items = incomingList.map((item: any) => ({
+      ...item,
+      quantityInPack: item.quantityInPack ?? item.quantityPacks ?? 0,
+      quantityInUnit: item.quantityInUnit ?? item.quantityLoose ?? 0,
+    }));
+
+    const bill = await prisma.bill.findFirst({
+      where: isNaN(id) ? { invoiceNumber: param } : { OR: [{ id }, { invoiceNumber: param }] },
+      include: {
+        items: {
+          include: {
+            inventory: true,
+          },
+        },
+      },
+    });
+
+    if (!bill) {
+      res.status(404).json({
+        success: false,
+        message: `Bill '${param}' not found.`,
+      });
+      return;
+    }
+
+    const user = (req as any).user;
+    const recordedBy = user?.username ? `${user.firstName || user.username} (@${user.username})` : "Pharmacist";
+
+    const returnResult = await prisma.$transaction(async (tx) => {
+      let totalRefundAmount = 0;
+      const returnedLineSummaries = [];
+
+      for (const ret of items) {
+        const lineItem = bill.items.find(
+          (it) => it.id === Number(ret.billItemId) || it.inventoryId === Number(ret.inventoryId)
+        );
+
+        if (!lineItem) {
+          throw new Error(`Item with ID ${ret.billItemId || ret.inventoryId} not found on this invoice.`);
+        }
+
+        const returnPacks = Math.max(0, parseInt(String(ret.quantityInPack || 0), 10));
+        const returnUnits = Math.max(0, parseInt(String(ret.quantityInUnit || 0), 10));
+
+        if (returnPacks === 0 && returnUnits === 0) continue;
+
+        if (
+          returnPacks > lineItem.quantityInPack ||
+          returnUnits > lineItem.quantityInUnit
+        ) {
+          throw new Error(
+            `Return quantity (${returnPacks} pk, ${returnUnits} units) exceeds purchased quantity on bill (${lineItem.quantityInPack} pk, ${lineItem.quantityInUnit} units) for ${lineItem.inventory?.medicineBrand || 'item'}.`
+          );
+        }
+
+        // Calculate unit prices for refund
+        const packPrice = Number(lineItem.packPrice || 0);
+        const upp = lineItem.inventory?.unitPerPack || 10;
+        const unitPrice = upp > 1 ? packPrice / upp : packPrice;
+
+        const lineRefund = (returnPacks * packPrice) + (returnUnits * unitPrice);
+        totalRefundAmount += lineRefund;
+
+        // Restock inventory
+        const inv = lineItem.inventory;
+        if (inv) {
+          const currentTotalUnits = (inv.packInStock * inv.unitPerPack) + inv.unitInStock;
+          const returnedTotalUnits = (returnPacks * inv.unitPerPack) + returnUnits;
+          const newTotalUnits = currentTotalUnits + returnedTotalUnits;
+
+          const updatedPackInStock = Math.floor(newTotalUnits / inv.unitPerPack);
+          const updatedUnitInStock = newTotalUnits % inv.unitPerPack;
+
+          await tx.inventory.update({
+            where: { id: inv.id },
+            data: {
+              packInStock: updatedPackInStock,
+              unitInStock: updatedUnitInStock,
+            },
+          });
+
+          // Log stock return
+          await tx.stockAdjustmentLog.create({
+            data: {
+              medicineId: inv.id,
+              adjustmentType: "CORRECTION",
+              previousPacks: inv.packInStock,
+              newPacks: updatedPackInStock,
+              variancePacks: returnPacks,
+              previousLooseUnits: inv.unitInStock,
+              newLooseUnits: updatedUnitInStock,
+              varianceLooseUnits: returnUnits,
+              reason: `Customer Sales Return (Invoice #${bill.invoiceNumber}): ${ret.reason || notes || 'Medicine return'}`,
+              recordedBy,
+            },
+          });
+        }
+
+        returnedLineSummaries.push({
+          medicineName: inv?.medicineBrand || "Medicine",
+          batchNumber: inv?.batchNumber || "—",
+          returnedPacks: returnPacks,
+          returnedUnits: returnUnits,
+          refundAmount: Math.round(lineRefund * 100) / 100,
+        });
+      }
+
+      return {
+        totalRefundAmount: Math.round(totalRefundAmount * 100) / 100,
+        items: returnedLineSummaries,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully processed customer return for Invoice #${bill.invoiceNumber}. Total Refund: NPR ${returnResult.totalRefundAmount}. Stock restocked.`,
+      data: {
+        invoiceNumber: bill.invoiceNumber,
+        originalGrandTotal: Number(bill.grandTotal),
+        refundAmount: returnResult.totalRefundAmount,
+        returnedItems: returnResult.items,
+        notes: notes || "Customer Sales Return",
+        processedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Error processing sales return:", error);
+    res.status(400).json({
+      success: false,
+      message: error instanceof Error ? error.message : "Failed to process sales return.",
+    });
+  }
+};
+

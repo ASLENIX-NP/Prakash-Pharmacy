@@ -52,14 +52,18 @@ export const StockistManagementView: React.FC = () => {
     medicines, 
     purchaseInvoices, 
     addPurchaseInvoice, 
+    deletePurchaseInvoice,
     stockistLedgers, 
     addStockistPayment, 
     stockistReturns, 
     recordStockistReturn, 
     salesInvoices,
     settings,
-    currentUser
+    currentUser,
+    isAdmin
   } = usePharmacy();
+
+  const [isDeletingPurchase, setIsDeletingPurchase] = useState<boolean>(false);
 
   const [activeTab, setActiveTab] = useState<'directory' | 'new_invoice' | 'ledger' | 'return' | 'analytics'>('directory');
   const [selectedStockistId, setSelectedStockistId] = useState<string>(stockists[0]?.id || '');
@@ -2184,6 +2188,35 @@ onChange={(e) => setPaymentAmount(Number(decimalInputValue(e.target.value, 2)) |
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {isAdmin && viewingPurchaseBill.id && !viewingPurchaseBill.id.startsWith('demo-') && (
+                  <button
+                    type="button"
+                    disabled={isDeletingPurchase}
+                    onClick={async () => {
+                      const confirmDelete = window.confirm(
+                        `Are you sure you want to void Purchase Bill #${viewingPurchaseBill.invoiceNumber}?\n\nThis will permanently delete the invoice, reverse distributor outstanding balance, and deduct the received medicines from your inventory stock.`
+                      );
+                      if (!confirmDelete) return;
+
+                      try {
+                        setIsDeletingPurchase(true);
+                        const res = await deletePurchaseInvoice(viewingPurchaseBill.id);
+                        alert(res.message || 'Purchase invoice voided successfully.');
+                        setViewingPurchaseBill(null);
+                        setBillItemSearch('');
+                      } catch (err) {
+                        alert(err instanceof Error ? err.message : 'Failed to void purchase bill.');
+                      } finally {
+                        setIsDeletingPurchase(false);
+                      }
+                    }}
+                    className="px-3.5 py-2 bg-red-900/80 hover:bg-red-800 text-red-100 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-xs cursor-pointer border border-red-700/50 disabled:opacity-50"
+                    title="Void / Revert purchase invoice"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-300" />
+                    <span>{isDeletingPurchase ? 'Voiding...' : 'Void Bill'}</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => exportPurchaseBillToExcel(viewingPurchaseBill, settings?.storeName || 'Pharmacy')}
