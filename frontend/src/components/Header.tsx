@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
-import { 
-  Building2, 
-  Layers, 
-  ClipboardCheck, 
-  ShoppingCart, 
-  Truck, 
-  FileText, 
-  BarChart3, 
-  Settings, 
-  ShieldCheck, 
-  Phone, 
-  MapPin, 
+import {
+  Stethoscope,
+  Building2,
+  Layers,
+  ClipboardCheck,
+  ShoppingCart,
+  Truck,
+  FileText,
+  BarChart3,
+  Settings,
+  ShieldCheck,
+  Phone,
+  MapPin,
   FileSpreadsheet,
   Users,
   LogOut,
@@ -19,16 +20,17 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 
-export type ActiveTab = 
-  | 'dashboard' 
-  | 'inventory' 
-  | 'physical_audit' 
-  | 'pos' 
-  | 'stockists' 
-  | 'sales_history' 
-  | 'reports' 
+export type ActiveTab =
+  | 'dashboard'
+  | 'inventory'
+  | 'physical_audit'
+  | 'pos'
+  | 'stockists'
+  | 'sales_history'
+  | 'reports'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'clinic';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -36,12 +38,12 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
-  const { 
-    settings, 
-    medicines, 
-    currentUser, 
-    isAdmin, 
-    logout 
+  const {
+    settings,
+    medicines,
+    currentUser,
+    isAdmin,
+    logout
   } = usePharmacy();
 
   const lowStockCount = medicines.filter(
@@ -142,8 +144,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               </div>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
-                  isAdmin 
-                    ? 'bg-purple-100 text-purple-900 border-purple-200' 
+                  isAdmin
+                    ? 'bg-purple-100 text-purple-900 border-purple-200'
                     : 'bg-emerald-100 text-emerald-900 border-emerald-200'
                 }`}>
                   {isAdmin ? 'Admin (Full Access)' : 'Staff (Sales & Billing)'}
@@ -234,6 +236,12 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               label="Stockists &amp; Ledger"
             />
             <NavButton
+              active={activeTab === 'clinic'}
+              onClick={() => setActiveTab('clinic')}
+              icon={<Stethoscope className="w-4 h-4" />}
+              label="Clinic / OPD"
+            />
+            <NavButton
               active={activeTab === 'sales_history'}
               onClick={() => setActiveTab('sales_history')}
               icon={<FileText className="w-4 h-4" />}
@@ -269,6 +277,12 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               highlight
             />
             <NavButton
+              active={activeTab === 'clinic'}
+              onClick={() => setActiveTab('clinic')}
+              icon={<Stethoscope className="w-4 h-4" />}
+              label="Clinic / OPD"
+            />
+            <NavButton
               active={activeTab === 'sales_history'}
               onClick={() => setActiveTab('sales_history')}
               icon={<FileText className="w-4 h-4" />}
@@ -276,7 +290,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
             />
             <div className="ml-auto py-2 text-[11px] font-semibold text-emerald-800 bg-emerald-50 px-2.5 rounded-lg border border-emerald-200 flex items-center gap-1.5">
               <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Staff Mode: Sales &amp; Bill Entry Authorized</span>
+              <span>Staff Mode: Sales, Bill Entry &amp; OPD Authorized</span>
             </div>
           </>
         )}
