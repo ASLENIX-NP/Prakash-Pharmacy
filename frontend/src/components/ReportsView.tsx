@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   Download, 
   BarChart3, 
@@ -7,6 +7,75 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { exportSalesBookToExcel, exportInventoryToExcel } from '../utils/excelUtils';
+import { apiRequest } from '../services/api';
+
+type VatReportSummary = {
+  sales: {
+    totalGross: number;
+    discounts: number;
+    netSales: number;
+    withoutVat: number;
+    taxableBase: number;
+    withVat: number;
+    outputVat: number;
+  };
+  purchases: {
+    totalGross: number;
+    discounts: number;
+    totalPurchases: number;
+    withoutVat: number;
+    taxableBase: number;
+    withVat: number;
+    inputVat: number;
+  };
+  vat: {
+    outputVat: number;
+    inputVat: number;
+    netPayable: number;
+    credit: number;
+  };
+  inventory: {
+    stockAtCost: number;
+    stockAtMrp: number;
+    totalPacks: number;
+    totalLooseUnits: number;
+    medicineRows: number;
+  };
+};
+
+const EMPTY_VAT_REPORT: VatReportSummary = {
+  sales: {
+    totalGross: 0,
+    discounts: 0,
+    netSales: 0,
+    withoutVat: 0,
+    taxableBase: 0,
+    withVat: 0,
+    outputVat: 0,
+  },
+  purchases: {
+    totalGross: 0,
+    discounts: 0,
+    totalPurchases: 0,
+    withoutVat: 0,
+    taxableBase: 0,
+    withVat: 0,
+    inputVat: 0,
+  },
+  vat: {
+    outputVat: 0,
+    inputVat: 0,
+    netPayable: 0,
+    credit: 0,
+  },
+  inventory: {
+    stockAtCost: 0,
+    stockAtMrp: 0,
+    totalPacks: 0,
+    totalLooseUnits: 0,
+    medicineRows: 0,
+  },
+};
 
 export const ReportsView: React.FC = () => {
   const { medicines, salesInvoices, purchaseInvoices, stockAdjustments, settings } = usePharmacy();
@@ -28,35 +97,135 @@ export const ReportsView: React.FC = () => {
     return Object.entries(map).sort((a, b) => b[1].mrpVal - a[1].mrpVal);
   }, [medicines]);
 
-  // VAT Tax Summary for Inland Revenue Department (IRD) Nepal
-  const vatSummary = useMemo(() => {
-    const totalSalesGross = salesInvoices.reduce((acc, s) => acc + s.grossSubtotal, 0);
-    const vatExemptSales = salesInvoices.reduce((acc, s) => acc + s.vatExemptSubtotal, 0);
-    const taxableBaseSales = salesInvoices.reduce((acc, s) => acc + s.taxableBaseSubtotal, 0);
-    const outputVat13 = salesInvoices.reduce((acc, s) => acc + s.vatAmount, 0);
-    const totalDiscounts = salesInvoices.reduce((acc, s) => acc + s.discountAmount, 0);
-    const netSales = salesInvoices.reduce((acc, s) => acc + s.grandTotal, 0);
+  // VAT / IRD summary is calculated directly from PostgreSQL.
+  const [vatReport, setVatReport] =
+    useState<VatReportSummary>(
+      EMPTY_VAT_REPORT
+    );
 
-    // Purchases input tax
-    const totalPurchasesGross = purchaseInvoices.reduce((acc, p) => acc + p.subtotal, 0);
-    const purchaseTaxableBase = purchaseInvoices.reduce((acc, p) => acc + p.taxableAmount, 0);
-    const inputVat13 = purchaseInvoices.reduce((acc, p) => acc + p.vatAmount, 0);
+  const [
+    vatReportLoading,
+    setVatReportLoading
+  ] = useState(true);
 
-    const netVatPayable = Math.max(0, outputVat13 - inputVat13);
+  const [
+    vatReportError,
+    setVatReportError
+  ] = useState('');
 
-    return {
-      totalSalesGross,
-      vatExemptSales,
-      taxableBaseSales,
-      outputVat13,
-      totalDiscounts,
-      netSales,
-      totalPurchasesGross,
-      purchaseTaxableBase,
-      inputVat13,
-      netVatPayable
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadVatReport = async () => {
+      try {
+        setVatReportLoading(true);
+
+        const response =
+          await apiRequest<{
+            success: boolean;
+            data: VatReportSummary;
+          }>('/reports/vat-summary');
+
+        if (!cancelled) {
+          setVatReport(
+            response.data
+          );
+          setVatReportError('');
+        }
+
+      } catch (error) {
+        console.error(
+          'Failed to load VAT report:',
+          error
+        );
+
+        if (!cancelled) {
+          setVatReportError(
+            error instanceof Error
+              ? error.message
+              : 'Failed to load VAT report from database.'
+          );
+        }
+
+      } finally {
+        if (!cancelled) {
+          setVatReportLoading(false);
+        }
+      }
     };
-  }, [salesInvoices, purchaseInvoices]);
+
+    void loadVatReport();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    salesInvoices,
+    purchaseInvoices,
+    medicines
+  ]);
+
+  const vatSummary = {
+    totalSalesGross:
+      vatReport.sales.totalGross,
+
+    vatExemptSales:
+      vatReport.sales.withoutVat,
+
+    taxableBaseSales:
+      vatReport.sales.taxableBase,
+
+    salesWithVat:
+      vatReport.sales.withVat,
+
+    outputVat13:
+      vatReport.sales.outputVat,
+
+    totalDiscounts:
+      vatReport.sales.discounts,
+
+    netSales:
+      vatReport.sales.netSales,
+
+    totalPurchasesGross:
+      vatReport.purchases.totalGross,
+
+    purchaseDiscounts:
+      vatReport.purchases.discounts,
+
+    totalPurchases:
+      vatReport.purchases.totalPurchases,
+
+    purchaseWithoutVat:
+      vatReport.purchases.withoutVat,
+
+    purchaseTaxableBase:
+      vatReport.purchases.taxableBase,
+
+    purchaseWithVat:
+      vatReport.purchases.withVat,
+
+    inputVat13:
+      vatReport.purchases.inputVat,
+
+    netVatPayable:
+      vatReport.vat.netPayable,
+
+    vatCredit:
+      vatReport.vat.credit,
+
+    stockAtCost:
+      vatReport.inventory.stockAtCost,
+
+    stockAtMrp:
+      vatReport.inventory.stockAtMrp,
+
+    totalPacks:
+      vatReport.inventory.totalPacks,
+
+    totalLooseUnits:
+      vatReport.inventory.totalLooseUnits
+  };
 
   // Damage & Expiry write-off analysis
   const lossSummary = useMemo(() => {
@@ -113,37 +282,219 @@ export const ReportsView: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {[
-          { label: 'Net sales', value: vatSummary.netSales, detail: `After ${formatCurrency(vatSummary.totalDiscounts)} discounts`, highlight: false },
-          { label: 'Output VAT', value: vatSummary.outputVat13, detail: '13% on taxable sales', highlight: false },
-          { label: 'Input VAT claimable', value: vatSummary.inputVat13, detail: `On ${formatCurrency(vatSummary.purchaseTaxableBase)} purchases`, highlight: false },
-          { label: 'Net VAT payable', value: vatSummary.netVatPayable, detail: 'Due to IRD Nepal', highlight: true },
-          { label: 'Stock at cost', value: totalStockAtCost, detail: `${medicines.reduce((total, medicine) => total + medicine.stockPacks, 0).toLocaleString()} packs in stock`, highlight: false }
-        ].map((metric) => (
-          <div
-            key={metric.label}
-            className={`flex min-h-[150px] flex-col justify-between rounded-[20px] border p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-              metric.highlight
-                ? 'border-[#103f4d] bg-[#103f4d]'
-                : 'border-slate-200 bg-white'
-            }`}
-          >
-            <span className={`text-[11px] font-bold uppercase tracking-[0.08em] ${metric.highlight ? 'text-teal-100/80' : 'text-slate-500'}`}>
-              {metric.label}
-            </span>
-            <div>
-              <strong className={`mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight tabular-nums sm:text-[1.7rem] ${
-                metric.highlight ? 'text-white' : 'text-slate-900'
-              }`}>
-                {formatCurrency(metric.value)}
-              </strong>
-              <span className={`mt-2 block text-[11px] leading-relaxed ${metric.highlight ? 'text-teal-100/75' : 'text-slate-500'}`}>
-                {metric.detail}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] shadow-sm">
+        <span className="font-semibold text-slate-600">
+          {vatReportLoading
+            ? 'Refreshing report from PostgreSQL...'
+            : vatReportError
+              ? `Database report error: ${vatReportError}`
+              : 'Live PostgreSQL report'}
+        </span>
+
+        {!vatReportLoading && !vatReportError && (
+          <span className="font-medium text-teal-700">
+            Sales, purchases, VAT and stock are database calculated
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-7">
+
+        {/* Sales Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Sales Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              {
+                label: 'Gross sales',
+                value: vatSummary.totalSalesGross,
+                detail: 'Before bill discounts and VAT',
+                highlight: false
+              },
+              {
+                label: 'Net sales',
+                value: vatSummary.netSales,
+                detail: `After ${formatCurrency(vatSummary.totalDiscounts)} discounts`,
+                highlight: false
+              },
+              {
+                label: 'Sales without VAT',
+                value: vatSummary.vatExemptSales,
+                detail: 'VAT exempt / 0% sales',
+                highlight: false
+              },
+              {
+                label: 'Sales with VAT',
+                value: vatSummary.salesWithVat,
+                detail: `Taxable base ${formatCurrency(vatSummary.taxableBaseSales)} + VAT`,
+                highlight: false
+              },
+              {
+                label: 'Total sales VAT',
+                value: vatSummary.outputVat13,
+                detail: 'Output VAT collected on taxable sales',
+                highlight: false
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
+
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+
+        {/* Purchase Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Purchase Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Gross purchases',
+                value: vatSummary.totalPurchasesGross,
+                detail: 'Before invoice discounts and VAT'
+              },
+              {
+                label: 'Purchase without VAT',
+                value: vatSummary.purchaseWithoutVat,
+                detail: 'VAT exempt / 0% purchases'
+              },
+              {
+                label: 'Purchase with VAT',
+                value: vatSummary.purchaseWithVat,
+                detail: `Taxable base ${formatCurrency(vatSummary.purchaseTaxableBase)} + VAT`
+              },
+              {
+                label: 'Total purchase VAT',
+                value: vatSummary.inputVat13,
+                detail: 'Input VAT claimable on taxable purchases'
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
+
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+
+        {/* VAT Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              VAT Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-[#103f4d] bg-[#103f4d] p-5 shadow-sm">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-teal-100/80">
+                Net VAT payable
               </span>
+
+              <div>
+                <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-white tabular-nums sm:text-[1.7rem]">
+                  {formatCurrency(vatSummary.netVatPayable)}
+                </strong>
+
+                <span className="mt-2 block text-[11px] leading-relaxed text-teal-100/75">
+                  {vatSummary.vatCredit > 0
+                    ? `VAT credit ${formatCurrency(vatSummary.vatCredit)}`
+                    : 'Output VAT minus Input VAT'}
+                </span>
+              </div>
             </div>
           </div>
-        ))}
+        </section>
+
+
+        {/* Inventory Valuation */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Inventory Valuation
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
+            {[
+              {
+                label: 'Stock at cost',
+                value: vatSummary.stockAtCost,
+                detail: `${vatSummary.totalPacks.toLocaleString()} packs + ${vatSummary.totalLooseUnits.toLocaleString()} loose units`
+              },
+              {
+                label: 'Stock at MRP',
+                value: vatSummary.stockAtMrp,
+                detail: 'Current selling-price valuation'
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
+
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
       </div>
 
       {/* Statutory IRD VAT Return Card */}
