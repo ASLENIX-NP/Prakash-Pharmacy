@@ -271,7 +271,7 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="max-h-[395px] space-y-2.5 overflow-y-auto pr-1">
               {filteredRacks.length > 0 ? (
                 filteredRacks.map((rack) => {
                   const isGeneralShelf = rack.name.toLowerCase() === 'general shelf';

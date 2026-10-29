@@ -4,6 +4,24 @@ export const digitsOnlyUpTo = (value: string, maxDigits: number): string =>
 export const digitsOnly = (value: string): string =>
   value.replace(/\D/g, '');
 
+export const parseIntegerInput = (value: string, maxDigits: number): number | undefined => {
+  if (value === '') return undefined;
+
+  const digits = digitsOnlyUpTo(value, maxDigits);
+  if (!digits) return undefined;
+
+  return Number(digits);
+};
+
+export const parseDecimalInput = (value: string, maxDecimalPlaces = 2): number | undefined => {
+  if (value === '') return undefined;
+
+  const normalized = decimalInputValue(value, maxDecimalPlaces);
+  if (!normalized || normalized === '.') return undefined;
+
+  return Number(normalized);
+};
+
 export const decimalInputValue = (value: string, maxDecimalPlaces = 2): string => {
   if (!value) return '';
 
@@ -22,7 +40,7 @@ export const decimalInputValue = (value: string, maxDecimalPlaces = 2): string =
   }
 
   if (!whole) {
-    return `0.${truncatedDecimal}`;
+    return truncatedDecimal ? `0.${truncatedDecimal}` : '0.';
   }
 
   return `${whole}.${truncatedDecimal}`;
