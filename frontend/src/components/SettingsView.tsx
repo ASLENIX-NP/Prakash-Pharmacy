@@ -1,9 +1,8 @@
 ﻿import React, { useState } from 'react';
-import { Check, Plus, Save, Settings } from 'lucide-react';
+import { Check, Plus, Save, Search, Settings, Trash2, Warehouse } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
-
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, racks, addRack, deduceRack } = usePharmacy();
@@ -15,7 +14,10 @@ export const SettingsView: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [formError, setFormError] = useState('');
   const [newRackName, setNewRackName] = useState('');
+  const [newRackDescription, setNewRackDescription] = useState('');
   const [rackError, setRackError] = useState('');
+  const [rackSearch, setRackSearch] = useState('');
+  const [rackFilter, setRackFilter] = useState<'all' | 'custom' | 'general'>('all');
 
   const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(settings);
 
@@ -24,6 +26,19 @@ export const SettingsView: React.FC = () => {
 
   const sectionCardClass =
     'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.04)]';
+
+  const filteredRacks = racks.filter((rack) => {
+    const matchesSearch =
+      rack.name.toLowerCase().includes(rackSearch.toLowerCase()) ||
+      (rack.description ?? '').toLowerCase().includes(rackSearch.toLowerCase());
+
+    const matchesFilter =
+      rackFilter === 'all' ||
+      (rackFilter === 'general' && rack.name.toLowerCase() === 'general shelf') ||
+      (rackFilter === 'custom' && rack.name.toLowerCase() !== 'general shelf');
+
+    return matchesSearch && matchesFilter;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,10 +77,13 @@ export const SettingsView: React.FC = () => {
       return;
     }
 
-    const result = await addRack(rackName, 'User-created rack');
+    const result = await addRack(rackName, newRackDescription.trim() || 'User-created rack');
     if (result.success) {
       setNewRackName('');
+      setNewRackDescription('');
       setRackError('');
+      setRackSearch('');
+      setRackFilter('all');
       return;
     }
 
@@ -164,24 +182,46 @@ export const SettingsView: React.FC = () => {
         </section>
 
         <section className={sectionCardClass}>
-          <div className="border-b border-slate-200 bg-slate-50/60 px-5 py-4">
-            <h3 className="text-base font-extrabold text-slate-900">Inventory racks</h3>
-            <p className="mt-1 text-xs text-slate-500">Create and manage storage racks for your medicines.</p>
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50/70 px-5 py-4">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">Inventory racks</h3>
+              <p className="mt-1 text-xs text-slate-500">Create and manage storage racks for your medicines.</p>
+            </div>
+            <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-600">
+              {racks.length} racks
+            </span>
           </div>
 
-          <div className="p-5">
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row">
-              <input
-                type="text"
-                placeholder="Add rack name"
-                value={newRackName}
-                onChange={(e) => setNewRackName(e.target.value)}
-                className={`${fieldClass} sm:flex-1`}
-              />
+          <div className="bg-slate-50/70 px-5 py-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_1.4fr_auto]">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Rack name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Shelf B-2"
+                  value={newRackName}
+                  onChange={(e) => setNewRackName(e.target.value)}
+                  className={`${fieldClass} h-11`}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  What it holds <span className="font-normal lowercase tracking-normal text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Antacids, vitamins"
+                  value={newRackDescription}
+                  onChange={(e) => setNewRackDescription(e.target.value)}
+                  className={`${fieldClass} h-11`}
+                />
+              </div>
+
               <button
                 type="button"
                 onClick={handleRackCreate}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-teal-800"
+                className="inline-flex h-11 items-center justify-center gap-2 self-end rounded-xl bg-teal-700 px-4 text-xs font-bold text-white transition-colors hover:bg-teal-800"
               >
                 <Plus className="h-4 w-4" />
                 Add rack
@@ -189,35 +229,101 @@ export const SettingsView: React.FC = () => {
             </div>
 
             {rackError && (
-              <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+              <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
                 {rackError}
               </div>
             )}
+          </div>
 
-            <div className="grid gap-2">
-              {racks.map((rack) => (
-                <div key={rack.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-800">{rack.name}</div>
-                    {rack.description && <div className="text-[11px] text-slate-500">{rack.description}</div>}
-                  </div>
+          <div className="space-y-4 p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="relative w-full max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={rackSearch}
+                  onChange={(e) => setRackSearch(e.target.value)}
+                  placeholder="Search racks"
+                  className={`${fieldClass} h-10 pl-9`}
+                />
+              </div>
 
-                  {rack.name.toLowerCase() !== 'general shelf' && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        const response = await deduceRack(rack.id);
-                        if (!response.success) {
-                          setRackError(response.message);
-                        }
-                      }}
-                      className="shrink-0 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-50"
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'all', label: 'All' },
+                  { key: 'custom', label: 'Custom' },
+                  { key: 'general', label: 'General' },
+                ].map((chip) => (
+                  <button
+                    key={chip.key}
+                    type="button"
+                    aria-pressed={rackFilter === chip.key}
+                    onClick={() => setRackFilter(chip.key as 'all' | 'custom' | 'general')}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors ${
+                      rackFilter === chip.key
+                        ? 'border-teal-200 bg-teal-50 text-teal-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-teal-200 hover:text-teal-700'
+                    }`}
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {filteredRacks.length > 0 ? (
+                filteredRacks.map((rack) => {
+                  const isGeneralShelf = rack.name.toLowerCase() === 'general shelf';
+                  const isColdRack = /cold|refriger|freeze|chill/i.test(rack.name);
+                  const tileClass = isColdRack ? 'bg-sky-100 text-sky-700' : isGeneralShelf ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700';
+                  const tagClass = isColdRack ? 'bg-sky-100 text-sky-700' : isGeneralShelf ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700';
+
+                  return (
+                    <div
+                      key={rack.id}
+                      className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 transition-colors hover:border-teal-200 hover:bg-slate-100"
                     >
-                      Remove
-                    </button>
-                  )}
+                      <div className={`grid h-11 w-11 place-items-center rounded-xl ${tileClass}`}>
+                        <Warehouse className="h-5 w-5" strokeWidth={2} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-bold text-slate-800">{rack.name}</span>
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${tagClass}`}>
+                            {isGeneralShelf ? 'General' : isColdRack ? 'Cold storage' : 'Custom'}
+                          </span>
+                        </div>
+                        <div className="mt-1 truncate text-[11px] text-slate-500">
+                          {rack.description || 'Storage rack for medicine inventory'}
+                        </div>
+                      </div>
+
+                      {rack.name.toLowerCase() !== 'general shelf' && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const response = await deduceRack(rack.id);
+                            if (!response.success) {
+                              setRackError(response.message);
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 transition-colors hover:bg-rose-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
+                  <strong className="mb-1 block text-slate-700">No matching racks found</strong>
+                  Try another keyword or add a new rack.
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </section>
