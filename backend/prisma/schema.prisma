@@ -442,12 +442,28 @@ model ClinicVisit {
   // Snapshot of age when this particular OPD visit occurred.
   ageAtVisit Int? @map("age_at_visit")
 
-  // One final amount for consultation / procedure / any clinic charge.
+  // Consultation amount recorded when the patient arrives.
+  consultationFee Decimal @default(0.00) @map("consultation_fee") @db.Decimal(12, 2)
+
+  // Extra clinic/procedure amount added after consultation.
+  additionalCharge Decimal @default(0.00) @map("additional_charge") @db.Decimal(12, 2)
+
+  // Optional explanation for the additional amount.
+  additionalChargeNote String? @map("additional_charge_note")
+
+  // Final clinic revenue for this OPD visit.
+  // OPEN: normally consultationFee only.
+  // COMPLETED: consultationFee + additionalCharge.
   totalCharge Decimal @default(0.00) @map("total_charge") @db.Decimal(12, 2)
 
-  // Optional explanation:
-  // "Consultation", "Consultation + dressing", etc.
+  // Kept temporarily for backward compatibility with the first OPD version.
   chargeNote String? @map("charge_note")
+
+  // Existing historical visits become completed when this column is introduced.
+  // New registrations explicitly set this to "open".
+  status String @default("completed") @map("status")
+
+  completedAt DateTime? @map("completed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

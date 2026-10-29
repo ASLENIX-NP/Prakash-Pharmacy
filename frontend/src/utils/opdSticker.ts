@@ -4,15 +4,15 @@
   patient: {
     clinicNumber: string;
     name: string;
-    phone?: string;
-    gender?: string;
+    phone?: string | null;
+    gender?: string | null;
   };
 
   doctor: {
     name: string;
-    speciality?: string;
-    qualification?: string;
-    nmcNumber?: string;
+    speciality?: string | null;
+    qualification?: string | null;
+    nmcNumber?: string | null;
   };
 
   visitDateTime: string;
@@ -21,9 +21,10 @@
     | number
     | null;
 
+  consultationFee?: number;
   totalCharge: number;
 
-  chargeNote?: string;
+  chargeNote?: string | null;
 
   createdBy?:
     | {
@@ -400,30 +401,19 @@ export const printOpdSticker = (
 
     <div class="amount-box">
       <div class="amount-label">
-        TOTAL
+        CONSULTATION FEE
       </div>
 
       <div class="amount">
         Rs. ${escapeHtml(
           Number(
-            visit.totalCharge ||
+            visit.consultationFee ??
+              visit.totalCharge ??
               0
           ).toFixed(2)
         )}
       </div>
     </div>
-
-    ${
-      visit.chargeNote
-        ? `
-    <div class="note">
-      <strong>Note:</strong>
-      ${escapeHtml(
-        visit.chargeNote
-      )}
-    </div>`
-        : ''
-    }
 
     <div class="footer">
       ${

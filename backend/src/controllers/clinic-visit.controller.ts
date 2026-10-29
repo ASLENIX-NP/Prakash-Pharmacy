@@ -122,109 +122,188 @@ const parseDateBoundary = (
 
 const formatVisit = (
   visit: any
-) => ({
-  id:
-    formatOpdNumber(visit.id),
-
-  opdNumber:
-    formatOpdNumber(visit.id),
-
-  patient: {
-    id:
-      formatClinicNumber(
-        visit.patient.id
-      ),
-
-    clinicNumber:
-      formatClinicNumber(
-        visit.patient.id
-      ),
-
-    name:
-      visit.patient.name,
-
-    phone:
-      visit.patient.phone ?? "",
-
-    gender:
-      visit.patient.gender ?? "",
-
-    ageYears:
-      visit.patient.ageYears ?? null,
-
-    address:
-      visit.patient.address ?? "",
-  },
-
-  doctor: {
-    id:
-      formatDoctorCode(
-        visit.doctor.id
-      ),
-
-    doctorCode:
-      formatDoctorCode(
-        visit.doctor.id
-      ),
-
-    name:
-      visit.doctor.name,
-
-    speciality:
-      visit.doctor.speciality ?? "",
-
-    qualification:
-      visit.doctor.qualification ?? "",
-
-    nmcNumber:
-      visit.doctor.nmcNumber ?? "",
-
-    defaultConsultationFee:
-      Number(
-        visit.doctor
-          .defaultConsultationFee || 0
-      ),
-
-    status:
-      visit.doctor.status,
-  },
-
-  visitDateTime:
-    visit.visitDateTime.toISOString(),
-
-  ageAtVisit:
-    visit.ageAtVisit ?? null,
-
-  totalCharge:
+) => {
+  const totalCharge =
     Number(
       visit.totalCharge || 0
-    ),
+    );
 
-  chargeNote:
-    visit.chargeNote ?? "",
+  const additionalCharge =
+    Number(
+      visit.additionalCharge || 0
+    );
 
-  createdBy:
-    visit.createdBy
-      ? {
-          id:
-            visit.createdBy.id,
+  let consultationFee =
+    Number(
+      visit.consultationFee || 0
+    );
 
-          username:
-            visit.createdBy.username,
+  /*
+   * Compatibility for visits recorded before
+   * consultationFee existed.
+   */
+  if (
+    consultationFee === 0 &&
+    additionalCharge === 0 &&
+    totalCharge > 0 &&
+    String(
+      visit.status || ""
+    ).toLowerCase() ===
+      "completed"
+  ) {
+    consultationFee =
+      totalCharge;
+  }
 
-          name:
-            `${visit.createdBy.firstName} ${visit.createdBy.lastName}`.trim(),
-        }
-      : null,
+  const additionalChargeNote =
+    visit.additionalChargeNote ??
+    visit.chargeNote ??
+    null;
 
-  createdAt:
-    visit.createdAt?.toISOString?.() ??
-    visit.createdAt,
+  return {
+    id:
+      formatOpdNumber(
+        visit.id
+      ),
 
-  updatedAt:
-    visit.updatedAt?.toISOString?.() ??
-    visit.updatedAt,
-});
+    opdNumber:
+      formatOpdNumber(
+        visit.id
+      ),
+
+    patient: {
+      id:
+        formatClinicNumber(
+          visit.patient.id
+        ),
+
+      clinicNumber:
+        formatClinicNumber(
+          visit.patient.id
+        ),
+
+      name:
+        visit.patient.name,
+
+      phone:
+        visit.patient.phone,
+
+      gender:
+        visit.patient.gender,
+
+      ageYears:
+        visit.patient.ageYears,
+
+      address:
+        visit.patient.address,
+    },
+
+    doctor: {
+      id:
+        formatDoctorCode(
+          visit.doctor.id
+        ),
+
+      doctorCode:
+        formatDoctorCode(
+          visit.doctor.id
+        ),
+
+      name:
+        visit.doctor.name,
+
+      speciality:
+        visit.doctor.speciality,
+
+      qualification:
+        visit.doctor.qualification,
+
+      nmcNumber:
+        visit.doctor.nmcNumber,
+
+      defaultConsultationFee:
+        Number(
+          visit.doctor
+            .defaultConsultationFee ||
+            0
+        ),
+
+      status:
+        visit.doctor.status,
+    },
+
+    visitDateTime:
+      new Date(
+        visit.visitDateTime
+      ).toISOString(),
+
+    ageAtVisit:
+      visit.ageAtVisit,
+
+    consultationFee,
+
+    additionalCharge,
+
+    additionalChargeNote,
+
+    totalCharge,
+
+    /*
+     * Temporary compatibility alias for
+     * the existing frontend.
+     */
+    chargeNote:
+      additionalChargeNote,
+
+    status:
+      String(
+        visit.status ||
+          "completed"
+      ).toLowerCase(),
+
+    completedAt:
+      visit.completedAt
+        ? new Date(
+            visit.completedAt
+          ).toISOString()
+        : null,
+
+    createdBy:
+      visit.createdBy
+        ? {
+            id:
+              visit.createdBy.id,
+
+            username:
+              visit.createdBy.username,
+
+            name:
+              [
+                visit.createdBy
+                  .firstName,
+
+                visit.createdBy
+                  .lastName,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .trim() ||
+              visit.createdBy
+                .username,
+          }
+        : null,
+
+    createdAt:
+      new Date(
+        visit.createdAt
+      ).toISOString(),
+
+    updatedAt:
+      new Date(
+        visit.updatedAt
+      ).toISOString(),
+  };
+};
 
 
 const visitInclude = {
@@ -458,6 +537,27 @@ const buildVisitWhere = (
   }
 
 
+  const status =
+    firstQueryValue(
+      req.query.status
+    ).toLowerCase();
+
+  if (status) {
+    if (
+      status !== "open" &&
+      status !== "completed"
+    ) {
+      return {
+        error:
+          'Status must be "open" or "completed".',
+      };
+    }
+
+    where.status =
+      status;
+  }
+
+
   return {
     where,
   };
@@ -557,6 +657,7 @@ export const getClinicVisitReport = async (
       return;
     }
 
+
     const visits =
       await prisma.clinicVisit.findMany({
         where:
@@ -572,15 +673,36 @@ export const getClinicVisitReport = async (
       });
 
 
+    const completedVisits =
+      visits.filter(
+        (visit) =>
+          String(
+            visit.status
+          ).toLowerCase() ===
+          "completed"
+      );
+
+
+    const openVisits =
+      visits.filter(
+        (visit) =>
+          String(
+            visit.status
+          ).toLowerCase() ===
+          "open"
+      );
+
+
     const totalRevenue =
-      visits.reduce(
+      completedVisits.reduce(
         (
           sum,
           visit
         ) =>
           sum +
           Number(
-            visit.totalCharge || 0
+            visit.totalCharge ||
+              0
           ),
         0
       );
@@ -599,10 +721,18 @@ export const getClinicVisitReport = async (
       visits.length;
 
 
+    const completedVisitCount =
+      completedVisits.length;
+
+
+    const openVisitCount =
+      openVisits.length;
+
+
     const averageRevenuePerVisit =
-      totalVisits > 0
+      completedVisitCount > 0
         ? totalRevenue /
-          totalVisits
+          completedVisitCount
         : 0;
 
 
@@ -611,6 +741,12 @@ export const getClinicVisitReport = async (
 
       summary: {
         totalVisits,
+
+        openVisits:
+          openVisitCount,
+
+        completedVisits:
+          completedVisitCount,
 
         uniquePatients,
 
@@ -654,6 +790,223 @@ export const getClinicVisitReport = async (
    GET ONE OPD VISIT
    Staff + Admin
    ===================================================== */
+
+export const completeClinicVisit = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const visitId =
+      parseCodeId(
+        req.params.id,
+        "OPD-"
+      );
+
+    if (!visitId) {
+      res.status(400).json({
+        success: false,
+        message:
+          "A valid OPD No. is required.",
+      });
+
+      return;
+    }
+
+
+    const existingVisit =
+      await prisma.clinicVisit.findUnique({
+        where: {
+          id:
+            visitId,
+        },
+
+        include:
+          visitInclude,
+      });
+
+
+    if (!existingVisit) {
+      res.status(404).json({
+        success: false,
+        message:
+          "OPD visit not found.",
+      });
+
+      return;
+    }
+
+
+    if (
+      String(
+        existingVisit.status
+      ).toLowerCase() ===
+      "completed"
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "This OPD visit has already been completed.",
+      });
+
+      return;
+    }
+
+
+    const {
+      consultationFee,
+
+      additionalCharge,
+
+      additionalChargeNote,
+    } = req.body;
+
+
+    const parsedConsultationFee =
+      consultationFee !==
+        undefined &&
+      consultationFee !==
+        null &&
+      String(
+        consultationFee
+      ).trim() !== ""
+        ? Number(
+            consultationFee
+          )
+        : Number(
+            existingVisit
+              .consultationFee ||
+              0
+          );
+
+
+    const parsedAdditionalCharge =
+      additionalCharge !==
+        undefined &&
+      additionalCharge !==
+        null &&
+      String(
+        additionalCharge
+      ).trim() !== ""
+        ? Number(
+            additionalCharge
+          )
+        : 0;
+
+
+    if (
+      !Number.isFinite(
+        parsedConsultationFee
+      ) ||
+      parsedConsultationFee < 0
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Consultation fee must be zero or a positive number.",
+      });
+
+      return;
+    }
+
+
+    if (
+      !Number.isFinite(
+        parsedAdditionalCharge
+      ) ||
+      parsedAdditionalCharge < 0
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Additional charge must be zero or a positive number.",
+      });
+
+      return;
+    }
+
+
+    const note =
+      String(
+        additionalChargeNote ??
+          ""
+      ).trim() ||
+      null;
+
+
+    const totalCharge =
+      Number(
+        (
+          parsedConsultationFee +
+          parsedAdditionalCharge
+        ).toFixed(2)
+      );
+
+
+    const visit =
+      await prisma.clinicVisit.update({
+        where: {
+          id:
+            visitId,
+        },
+
+        data: {
+          consultationFee:
+            parsedConsultationFee,
+
+          additionalCharge:
+            parsedAdditionalCharge,
+
+          additionalChargeNote:
+            note,
+
+          totalCharge,
+
+          /*
+           * Temporary compatibility with the
+           * original Clinic UI.
+           */
+          chargeNote:
+            note,
+
+          status:
+            "completed",
+
+          completedAt:
+            new Date(),
+        },
+
+        include:
+          visitInclude,
+      });
+
+
+    res.status(200).json({
+      success: true,
+
+      message:
+        `${formatOpdNumber(
+          visit.id
+        )} completed successfully.`,
+
+      data:
+        formatVisit(
+          visit
+        ),
+    });
+  } catch (error) {
+    console.error(
+      "Error completing OPD visit:",
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message:
+        "Failed to complete OPD visit.",
+    });
+  }
+};
+
 
 export const getClinicVisitById = async (
   req: Request,
@@ -743,11 +1096,9 @@ export const createClinicVisit = async (
     const authenticatedRequest =
       req as RequestWithUser;
 
-
     const createdById =
       authenticatedRequest
         .user?.id;
-
 
     if (!createdById) {
       res.status(401).json({
@@ -771,9 +1122,14 @@ export const createClinicVisit = async (
 
       ageAtVisit,
 
-      totalCharge,
+      consultationFee,
 
-      chargeNote,
+      /*
+       * Accepted temporarily so the existing
+       * frontend keeps working until its next patch.
+       */
+      totalCharge:
+        legacyTotalCharge,
     } = req.body;
 
 
@@ -782,7 +1138,6 @@ export const createClinicVisit = async (
         patientRaw,
         "CL-"
       );
-
 
     if (!patientId) {
       res.status(400).json({
@@ -800,7 +1155,6 @@ export const createClinicVisit = async (
         doctorRaw,
         "DOC-"
       );
-
 
     if (!doctorId) {
       res.status(400).json({
@@ -873,7 +1227,6 @@ export const createClinicVisit = async (
     let parsedVisitDate =
       new Date();
 
-
     if (
       visitDateTime !==
         undefined &&
@@ -911,7 +1264,6 @@ export const createClinicVisit = async (
       | null =
       patient.ageYears;
 
-
     if (
       ageAtVisit !==
         undefined &&
@@ -944,37 +1296,52 @@ export const createClinicVisit = async (
     }
 
 
-    const hasExplicitCharge =
-      totalCharge !==
+    const explicitConsultationFee =
+      consultationFee !==
         undefined &&
-      totalCharge !==
+      consultationFee !==
         null &&
       String(
-        totalCharge
+        consultationFee
       ).trim() !== "";
 
 
-    const parsedCharge =
-      hasExplicitCharge
+    const legacyExplicitFee =
+      legacyTotalCharge !==
+        undefined &&
+      legacyTotalCharge !==
+        null &&
+      String(
+        legacyTotalCharge
+      ).trim() !== "";
+
+
+    const parsedConsultationFee =
+      explicitConsultationFee
         ? Number(
-            totalCharge
+            consultationFee
           )
-        : Number(
-            doctor.defaultConsultationFee ||
-              0
-          );
+        : legacyExplicitFee
+          ? Number(
+              legacyTotalCharge
+            )
+          : Number(
+              doctor
+                .defaultConsultationFee ||
+                0
+            );
 
 
     if (
       !Number.isFinite(
-        parsedCharge
+        parsedConsultationFee
       ) ||
-      parsedCharge < 0
+      parsedConsultationFee < 0
     ) {
       res.status(400).json({
         success: false,
         message:
-          "Total charge must be zero or a positive number.",
+          "Consultation fee must be zero or a positive number.",
       });
 
       return;
@@ -996,14 +1363,25 @@ export const createClinicVisit = async (
           ageAtVisit:
             parsedAge,
 
+          consultationFee:
+            parsedConsultationFee,
+
+          additionalCharge:
+            0,
+
+          additionalChargeNote:
+            null,
+
           totalCharge:
-            parsedCharge,
+            parsedConsultationFee,
 
           chargeNote:
-            String(
-              chargeNote ??
-                ""
-            ).trim() ||
+            null,
+
+          status:
+            "open",
+
+          completedAt:
             null,
         },
 
@@ -1018,7 +1396,7 @@ export const createClinicVisit = async (
       message:
         `${formatOpdNumber(
           visit.id
-        )} recorded successfully.`,
+        )} registered successfully and is ready for consultation.`,
 
       data:
         formatVisit(
@@ -1027,14 +1405,14 @@ export const createClinicVisit = async (
     });
   } catch (error) {
     console.error(
-      "Error creating OPD visit:",
+      "Error registering OPD visit:",
       error
     );
 
     res.status(500).json({
       success: false,
       message:
-        "Failed to record OPD visit.",
+        "Failed to register OPD visit.",
     });
   }
 };

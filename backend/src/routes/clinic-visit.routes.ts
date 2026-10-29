@@ -1,5 +1,6 @@
 ﻿import { Router } from "express";
 import {
+  completeClinicVisit,
   createClinicVisit,
   getClinicVisitById,
   getClinicVisitReport,
@@ -31,6 +32,14 @@ router.get(
 );
 
 
+// Staff + Admin can complete an OPEN OPD after consultation.
+router.put(
+  "/:id/complete",
+  requireAuth,
+  completeClinicVisit
+);
+
+
 router.get(
   "/:id",
   requireAuth,
@@ -38,6 +47,8 @@ router.get(
 );
 
 
+// Registration creates an OPEN OPD.
+// Sticker can be printed immediately after this call.
 router.post(
   "/",
   requireAuth,
