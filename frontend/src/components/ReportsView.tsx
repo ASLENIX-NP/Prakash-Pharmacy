@@ -298,109 +298,203 @@ export const ReportsView: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {[
-          {
-            label: 'Gross sales',
-            value: vatSummary.totalSalesGross,
-            detail: 'Before bill discounts and VAT',
-            highlight: false
-          },
-          {
-            label: 'Net sales',
-            value: vatSummary.netSales,
-            detail: `After ${formatCurrency(vatSummary.totalDiscounts)} discounts`,
-            highlight: false
-          },
-          {
-            label: 'Sales without VAT',
-            value: vatSummary.vatExemptSales,
-            detail: 'VAT exempt / 0% sales',
-            highlight: false
-          },
-          {
-            label: 'Sales with VAT',
-            value: vatSummary.salesWithVat,
-            detail: `Taxable base ${formatCurrency(vatSummary.taxableBaseSales)} + VAT`,
-            highlight: false
-          },
-          {
-            label: 'Total sales VAT',
-            value: vatSummary.outputVat13,
-            detail: 'Output VAT collected on taxable sales',
-            highlight: false
-          },
+      <div className="space-y-7">
 
-          {
-            label: 'Gross purchases',
-            value: vatSummary.totalPurchasesGross,
-            detail: 'Before invoice discounts and VAT',
-            highlight: false
-          },
-          {
-            label: 'Purchase without VAT',
-            value: vatSummary.purchaseWithoutVat,
-            detail: 'VAT exempt / 0% purchases',
-            highlight: false
-          },
-          {
-            label: 'Purchase with VAT',
-            value: vatSummary.purchaseWithVat,
-            detail: `Taxable base ${formatCurrency(vatSummary.purchaseTaxableBase)} + VAT`,
-            highlight: false
-          },
-          {
-            label: 'Total purchase VAT',
-            value: vatSummary.inputVat13,
-            detail: 'Input VAT claimable on taxable purchases',
-            highlight: false
-          },
+        {/* Sales Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Sales Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
 
-          {
-            label: 'Net VAT payable',
-            value: vatSummary.netVatPayable,
-            detail: vatSummary.vatCredit > 0
-              ? `VAT credit ${formatCurrency(vatSummary.vatCredit)}`
-              : 'Output VAT minus Input VAT',
-            highlight: true
-          },
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              {
+                label: 'Gross sales',
+                value: vatSummary.totalSalesGross,
+                detail: 'Before bill discounts and VAT',
+                highlight: false
+              },
+              {
+                label: 'Net sales',
+                value: vatSummary.netSales,
+                detail: `After ${formatCurrency(vatSummary.totalDiscounts)} discounts`,
+                highlight: false
+              },
+              {
+                label: 'Sales without VAT',
+                value: vatSummary.vatExemptSales,
+                detail: 'VAT exempt / 0% sales',
+                highlight: false
+              },
+              {
+                label: 'Sales with VAT',
+                value: vatSummary.salesWithVat,
+                detail: `Taxable base ${formatCurrency(vatSummary.taxableBaseSales)} + VAT`,
+                highlight: false
+              },
+              {
+                label: 'Total sales VAT',
+                value: vatSummary.outputVat13,
+                detail: 'Output VAT collected on taxable sales',
+                highlight: false
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
 
-          {
-            label: 'Stock at cost',
-            value: vatSummary.stockAtCost,
-            detail: `${vatSummary.totalPacks.toLocaleString()} packs + ${vatSummary.totalLooseUnits.toLocaleString()} loose units`,
-            highlight: false
-          },
-          {
-            label: 'Stock at MRP',
-            value: vatSummary.stockAtMrp,
-            detail: 'Current selling-price valuation',
-            highlight: false
-          }
-        ].map((metric) => (
-          <div
-            key={metric.label}
-            className={`flex min-h-[150px] flex-col justify-between rounded-[20px] border p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-              metric.highlight
-                ? 'border-[#103f4d] bg-[#103f4d]'
-                : 'border-slate-200 bg-white'
-            }`}
-          >
-            <span className={`text-[11px] font-bold uppercase tracking-[0.08em] ${metric.highlight ? 'text-teal-100/80' : 'text-slate-500'}`}>
-              {metric.label}
-            </span>
-            <div>
-              <strong className={`mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight tabular-nums sm:text-[1.7rem] ${
-                metric.highlight ? 'text-white' : 'text-slate-900'
-              }`}>
-                {formatCurrency(metric.value)}
-              </strong>
-              <span className={`mt-2 block text-[11px] leading-relaxed ${metric.highlight ? 'text-teal-100/75' : 'text-slate-500'}`}>
-                {metric.detail}
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+
+        {/* Purchase Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Purchase Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Gross purchases',
+                value: vatSummary.totalPurchasesGross,
+                detail: 'Before invoice discounts and VAT'
+              },
+              {
+                label: 'Purchase without VAT',
+                value: vatSummary.purchaseWithoutVat,
+                detail: 'VAT exempt / 0% purchases'
+              },
+              {
+                label: 'Purchase with VAT',
+                value: vatSummary.purchaseWithVat,
+                detail: `Taxable base ${formatCurrency(vatSummary.purchaseTaxableBase)} + VAT`
+              },
+              {
+                label: 'Total purchase VAT',
+                value: vatSummary.inputVat13,
+                detail: 'Input VAT claimable on taxable purchases'
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
+
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+
+        {/* VAT Summary */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              VAT Summary
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-[#103f4d] bg-[#103f4d] p-5 shadow-sm">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-teal-100/80">
+                Net VAT payable
               </span>
+
+              <div>
+                <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-white tabular-nums sm:text-[1.7rem]">
+                  {formatCurrency(vatSummary.netVatPayable)}
+                </strong>
+
+                <span className="mt-2 block text-[11px] leading-relaxed text-teal-100/75">
+                  {vatSummary.vatCredit > 0
+                    ? `VAT credit ${formatCurrency(vatSummary.vatCredit)}`
+                    : 'Output VAT minus Input VAT'}
+                </span>
+              </div>
             </div>
           </div>
-        ))}
+        </section>
+
+
+        {/* Inventory Valuation */}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h3 className="text-sm font-extrabold tracking-tight text-slate-900">
+              Inventory Valuation
+            </h3>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-2">
+            {[
+              {
+                label: 'Stock at cost',
+                value: vatSummary.stockAtCost,
+                detail: `${vatSummary.totalPacks.toLocaleString()} packs + ${vatSummary.totalLooseUnits.toLocaleString()} loose units`
+              },
+              {
+                label: 'Stock at MRP',
+                value: vatSummary.stockAtMrp,
+                detail: 'Current selling-price valuation'
+              }
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  {metric.label}
+                </span>
+
+                <div>
+                  <strong className="mt-3 block whitespace-nowrap font-mono text-[1.55rem] font-extrabold leading-none tracking-tight text-slate-900 tabular-nums sm:text-[1.7rem]">
+                    {formatCurrency(metric.value)}
+                  </strong>
+
+                  <span className="mt-2 block text-[11px] leading-relaxed text-slate-500">
+                    {metric.detail}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
       </div>
 
       {/* Statutory IRD VAT Return Card */}
