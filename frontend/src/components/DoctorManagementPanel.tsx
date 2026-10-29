@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { apiRequest } from '../services/api';
+import { useDialog } from '../context/DialogContext';
 
 interface Doctor {
   id: string;
@@ -64,6 +65,7 @@ const EMPTY_FORM: DoctorFormState = {
 };
 
 export const DoctorManagementPanel: React.FC = () => {
+  const { confirmDialog, showToast } = useDialog();
   const [doctors, setDoctors] =
     useState<Doctor[]>([]);
 
@@ -317,11 +319,13 @@ export const DoctorManagementPanel: React.FC = () => {
         nextStatus === 'inactive'
       ) {
         const confirmed =
-          window.confirm(
-            `Deactivate ${doctor.name}?\n\n` +
-            'The doctor will no longer be selectable for new OPD visits. ' +
-            'Existing OPD history will remain unchanged.'
-          );
+          await confirmDialog({
+            title: `Deactivate ${doctor.name}`,
+            message: `Deactivate ${doctor.name}?\n\nThe doctor will no longer be selectable for new OPD visits. Existing OPD history will remain unchanged.`,
+            confirmLabel: 'Deactivate',
+            cancelLabel: 'Keep Active',
+            type: 'warning',
+          });
 
         if (!confirmed) {
           return;

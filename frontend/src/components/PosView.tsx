@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { decimalInputValue, digitsOnlyUpTo, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import {
   Medicine,
@@ -15,6 +16,7 @@ import {
 } from '../types/pharmacy';
 
 export const PosView: React.FC = () => {
+  const { showToast, confirmDialog } = useDialog();
   const {
     medicines,
     completeSale,
@@ -149,8 +151,10 @@ export const PosView: React.FC = () => {
       Date.now();
 
     if (isExpired) {
-      alert(
-        `Cannot sell ${medicine.name}. Batch ${medicine.batchNumber} expired on ${medicine.expiryDate}.`
+      showToast(
+        `Cannot sell ${medicine.name}. Batch ${medicine.batchNumber} expired on ${medicine.expiryDate}.`,
+        'error',
+        'Expired Drug'
       );
       return;
     }
@@ -161,8 +165,10 @@ export const PosView: React.FC = () => {
       medicine.stockLooseUnits;
 
     if (currentTotalUnits <= 0) {
-      alert(
-        `${medicine.name} is out of stock.`
+      showToast(
+        `${medicine.name} is out of stock.`,
+        'warning',
+        'Out of Stock'
       );
       return;
     }
@@ -202,8 +208,10 @@ export const PosView: React.FC = () => {
         totalUnitsNeeded >
         currentTotalUnits
       ) {
-        alert(
-          `Cannot add more. Only ${currentTotalUnits} units are available.`
+        showToast(
+          `Cannot add more. Only ${currentTotalUnits} units available in stock.`,
+          'warning',
+          'Stock Limit'
         );
         return;
       }
@@ -312,8 +320,10 @@ export const PosView: React.FC = () => {
       unitsNeeded >
       currentTotalUnits
     ) {
-      alert(
-        `Requested quantity exceeds available stock (${currentTotalUnits} units).`
+      showToast(
+        `Requested quantity exceeds available stock (${currentTotalUnits} units).`,
+        'warning',
+        'Stock Limit'
       );
       return;
     }
@@ -433,16 +443,22 @@ export const PosView: React.FC = () => {
   // CLEAR
   // ============================================================
 
-  const handleClearCart = () => {
-    if (
-      cart.length > 0 &&
-      window.confirm(
-        'Clear all items from the current bill?'
-      )
-    ) {
+  const handleClearCart = async () => {
+    if (cart.length === 0) return;
+
+    const confirmed = await confirmDialog({
+      title: 'Clear Current Bill',
+      message: 'Are you sure you want to remove all items from the current bill?',
+      confirmLabel: 'Clear Bill',
+      cancelLabel: 'Keep Items',
+      type: 'warning',
+    });
+
+    if (confirmed) {
       setCart([]);
       setDiscountValue(0);
       setCashTendered(0);
+      showToast('Billing cart cleared.', 'info', 'Cart');
     }
   };
 
@@ -554,19 +570,21 @@ export const PosView: React.FC = () => {
 
   const handleCompleteSale = () => {
     if (cart.length === 0) {
-      alert(
-        'Cart is empty. Add medicines before billing.'
+      showToast(
+        'Cart is empty. Add medicines before checkout.',
+        'warning',
+        'Empty Cart'
       );
       return;
     }
 
     if (customerPhone && !/^\d{7,10}$/.test(customerPhone)) {
-      alert('Customer phone number must contain between 7 and 10 digits.');
+      showToast('Customer phone number must contain between 7 and 10 digits.', 'warning', 'Validation');
       return;
     }
 
     if (customerPan && !/^\d{9}$/.test(customerPan)) {
-      alert('Buyer PAN must contain exactly 9 digits.');
+      showToast('Buyer PAN must contain exactly 9 digits.', 'warning', 'Validation');
       return;
     }
 

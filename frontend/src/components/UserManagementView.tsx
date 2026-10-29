@@ -22,6 +22,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { PharmacyUser, UserRole } from '../types/pharmacy';
 import { isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 
@@ -82,6 +83,7 @@ const getShiftTimes = (shiftTiming?: string) => {
 };
 
 export const UserManagementView: React.FC = () => {
+  const { showToast, confirmDialog } = useDialog();
   const { 
     users, 
     currentUser, 
@@ -175,8 +177,10 @@ export const UserManagementView: React.FC = () => {
       !formData.name.trim() ||
       !formData.username.trim()
     ) {
-      alert(
-        'Name and User ID / Username are required!'
+      showToast(
+        'Name and User ID / Username are required!',
+        'warning',
+        'Validation'
       );
       return;
     }
@@ -185,8 +189,10 @@ export const UserManagementView: React.FC = () => {
       formData.phone &&
       !/^\d{10}$/.test(formData.phone)
     ) {
-      alert(
-        'Phone number must contain exactly 10 digits.'
+      showToast(
+        'Phone number must contain exactly 10 digits.',
+        'warning',
+        'Validation'
       );
       return;
     }
@@ -195,8 +201,10 @@ export const UserManagementView: React.FC = () => {
       formData.email &&
       !isValidEmail(formData.email)
     ) {
-      alert(
-        'Enter a valid email address.'
+      showToast(
+        'Enter a valid email address.',
+        'warning',
+        'Validation'
       );
       return;
     }
@@ -208,8 +216,10 @@ export const UserManagementView: React.FC = () => {
       !editingUser &&
       cleanPassword.length < 6
     ) {
-      alert(
-        'Password must be at least 6 characters long!'
+      showToast(
+        'Password must be at least 6 characters long!',
+        'warning',
+        'Validation'
       );
       return;
     }
@@ -219,8 +229,10 @@ export const UserManagementView: React.FC = () => {
       cleanPassword &&
       cleanPassword.length < 6
     ) {
-      alert(
-        'Password must be at least 6 characters long!'
+      showToast(
+        'Password must be at least 6 characters long!',
+        'warning',
+        'Validation'
       );
       return;
     }
@@ -253,6 +265,13 @@ export const UserManagementView: React.FC = () => {
       // Close only after PostgreSQL confirms success.
       setShowAddModal(false);
       setEditingUser(null);
+      showToast(
+        editingUser
+          ? `Staff user ${formData.name} updated successfully.`
+          : `Staff user ${formData.name} created successfully.`,
+        'success',
+        'Staff Saved'
+      );
 
     } catch (error) {
       console.error(
@@ -262,12 +281,14 @@ export const UserManagementView: React.FC = () => {
         error
       );
 
-      alert(
+      showToast(
         error instanceof Error
           ? error.message
           : editingUser
             ? 'Failed to update staff user.'
-            : 'Failed to create staff user.'
+            : 'Failed to create staff user.',
+        'error',
+        'Staff Error'
       );
     }
   };
@@ -285,7 +306,7 @@ export const UserManagementView: React.FC = () => {
 
   const handleOpenPasswordReset = (user: PharmacyUser) => {
     if (!isAdmin) {
-      alert('Access Denied: Only Admin is authorized to change staff passwords!');
+      showToast('Access Denied: Only Admin is authorized to change staff passwords!', 'error', 'Permission Denied');
       return;
     }
     setPasswordResetUser(user);
@@ -361,7 +382,7 @@ export const UserManagementView: React.FC = () => {
     if (!currentUser) return;
     if (targetUser.id === currentUser.id) return;
     if (!targetUser.isActive) {
-      alert('This staff account is deactivated!');
+      showToast('This staff account is deactivated!', 'warning', 'Account Deactivated');
       return;
     }
 
@@ -568,9 +589,17 @@ export const UserManagementView: React.FC = () => {
                   </button>
                   {users.length > 1 && u.id !== currentUser?.id && (
                     <button
-                      onClick={() => {
-                        if (confirm(`Remove staff user account for ${u.name}?`)) {
-                          void deleteUser(u.id);
+                      onClick={async () => {
+                        const confirmed = await confirmDialog({
+                          title: `Delete Staff User`,
+                          message: `Are you sure you want to remove the staff user account for "${u.name}" (@${u.username})?`,
+                          confirmLabel: 'Delete Account',
+                          cancelLabel: 'Keep Account',
+                          type: 'danger',
+                        });
+                        if (confirmed) {
+                          await deleteUser(u.id);
+                          showToast(`Staff account for ${u.name} removed.`, 'info', 'Account Deleted');
                         }
                       }}
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition-colors hover:border-rose-300 hover:bg-rose-50 cursor-pointer"

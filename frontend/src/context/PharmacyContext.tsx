@@ -18,6 +18,7 @@ import {
   STOCKIST_DEMO_STATUS_KEY,
 } from '../data/stockistDemoData';
 import { SALES_DEMO_STATUS_KEY } from '../data/salesDemoData';
+import { useDialog } from './DialogContext';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -330,6 +331,7 @@ function readStoredSettings(): PharmacySettings {
 }
 
 export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { showToast } = useDialog();
   const [users, setUsers] = useState<PharmacyUser[]>(() => {
     return readStoredCollection<PharmacyUser>(STORAGE_KEYS.USERS).map(user => ({
       ...user,
@@ -1387,15 +1389,19 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     id: string
   ): Promise<void> => {
     if (users.length <= 1) {
-      alert(
-        'Cannot delete the only existing staff account!'
+      showToast(
+        'Cannot delete the only existing staff account!',
+        'warning',
+        'Action Blocked'
       );
       return;
     }
 
     if (currentUserId === id) {
-      alert(
-        'You cannot delete the account that is currently signed in.'
+      showToast(
+        'You cannot delete the account that is currently signed in.',
+        'warning',
+        'Action Blocked'
       );
       return;
     }
@@ -1425,12 +1431,14 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         error
       );
 
-      alert(
+      showToast(
         error instanceof Error
           ? error.message
           : `Failed to delete ${
               deletedUser?.name || 'staff user'
-            }.`
+            }.`,
+        'error',
+        'Delete Error'
       );
     }
   };
@@ -1502,10 +1510,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        alert(
+        showToast(
           error instanceof Error
             ? error.message
-            : 'Failed to create medicine.'
+            : 'Failed to create medicine.',
+          'error',
+          'Create Medicine'
         );
       });
 
@@ -1584,10 +1594,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        alert(
+        showToast(
           error instanceof Error
             ? error.message
-            : 'Failed to update medicine.'
+            : 'Failed to update medicine.',
+          'error',
+          'Update Medicine'
         );
       });
   };
@@ -1620,10 +1632,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        alert(
+        showToast(
           error instanceof Error
             ? error.message
-            : 'Failed to delete medicine.'
+            : 'Failed to delete medicine.',
+          'error',
+          'Delete Medicine'
         );
       });
   };
@@ -2478,10 +2492,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        alert(
+        showToast(
           error instanceof Error
             ? error.message
-            : 'Sale could not be completed.'
+            : 'Sale could not be completed.',
+          'error',
+          'Checkout Failed'
         );
       });
     return newInvoice;

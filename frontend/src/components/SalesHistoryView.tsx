@@ -15,12 +15,14 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { salesDemoInvoices } from '../data/salesDemoData';
 import { SalesReturnModal } from './SalesReturnModal';
 
 export const SalesHistoryView: React.FC = () => {
+  const { showToast } = useDialog();
   const {
     salesInvoices,
     isSalesDemoDataActive,
@@ -370,7 +372,7 @@ export const SalesHistoryView: React.FC = () => {
           invoice={returningInvoice}
           onClose={() => setReturningInvoice(null)}
           onSuccess={(refund) => {
-            alert(`Sales return processed successfully! Refund amount: Rs. ${refund.toFixed(2)}`);
+            showToast(`Sales return processed successfully! Refund amount: Rs. ${refund.toFixed(2)}`, 'success', 'Return Processed');
             setReturningInvoice(null);
           }}
         />

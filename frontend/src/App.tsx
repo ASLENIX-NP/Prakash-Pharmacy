@@ -327,11 +327,15 @@ const PharmacyAppContent: React.FC = () => {
   );
 };
 
+import { DialogProvider } from './context/DialogContext';
+
 const App: React.FC = () => {
   return (
-    <PharmacyProvider>
-      <PharmacyAppContent />
-    </PharmacyProvider>
+    <DialogProvider>
+      <PharmacyProvider>
+        <PharmacyAppContent />
+      </PharmacyProvider>
+    </DialogProvider>
   );
 };
 

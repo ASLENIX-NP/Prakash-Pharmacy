@@ -19,6 +19,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 
 export type ActiveTab =
   | 'dashboard'
@@ -38,6 +39,7 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
+  const { confirmDialog } = useDialog();
   const {
     settings,
     medicines,
@@ -57,8 +59,15 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
     return diffMonths <= 6;
   }).length;
 
-  const handleLogout = () => {
-    if (confirm(`Sign out of Prakash Pharmacy (${currentUser?.name})?`)) {
+  const handleLogout = async () => {
+    const confirmed = await confirmDialog({
+      title: 'Sign Out',
+      message: `Sign out of Prakash Pharmacy (${currentUser?.name || 'User'})?`,
+      confirmLabel: 'Sign Out',
+      cancelLabel: 'Stay Logged In',
+      type: 'warning',
+    });
+    if (confirmed) {
       logout();
     }
   };
