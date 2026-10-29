@@ -15,10 +15,10 @@ import { requireAuth, requireAdmin } from "../middleware/auth.middleware.js";
 const router = Router();
 
 // Read distributors & ledgers (Staff + Admin)
-router.get("/", requireAuth, getAllDistributors);
-router.get("/returns/history", requireAuth, getDistributorReturns);
-router.get("/:id", requireAuth, getDistributorById);
-router.get("/:id/ledger", requireAuth, getDistributorLedger);
+router.get("/", requireAuth, requireAdmin, getAllDistributors);
+router.get("/returns/history", requireAuth, requireAdmin, getDistributorReturns);
+router.get("/:id", requireAuth, requireAdmin, getDistributorById);
+router.get("/:id/ledger", requireAuth, requireAdmin, getDistributorLedger);
 
 // Management & Payments (Admin only)
 router.post("/", requireAuth, requireAdmin, createDistributor);

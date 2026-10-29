@@ -3,6 +3,308 @@ import { prisma } from "../db.js";
 import { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import { formatMedicineCode, parseIdParam } from "../utils/id.helpers.js";
 
+const roundMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+type AuthoritativeSaleItem = {
+  inventoryId: number;
+  isLoose: boolean;
+  quantity: number;
+  unitsPerPack: number;
+  packPrice: number;
+  grossLineAmount: number;
+  discountShare: number;
+  netLineAmount: number;
+  vatAmount: number;
+  taxBase: number;
+  isVatApplicable: boolean;
+};
+
+type AuthoritativeSaleFinancials = {
+  items: AuthoritativeSaleItem[];
+  grossSubtotal: number;
+  discountAmount: number;
+  vatExemptSubtotal: number;
+  taxableBaseSubtotal: number;
+  vatAmount: number;
+  grandTotal: number;
+};
+
+const buildAuthoritativeSaleFinancials = async (
+  rawItems: any[],
+  discountTypeInput: unknown,
+  discountValueInput: unknown,
+  legacyDiscountAmountInput: unknown
+): Promise<AuthoritativeSaleFinancials> => {
+  const normalizedItems: AuthoritativeSaleItem[] = [];
+
+  for (const item of rawItems) {
+    const inventoryId = parseIdParam(
+      item.medicineId ??
+      item.inventoryId ??
+      item.id
+    );
+
+    if (!inventoryId) {
+      throw new Error(
+        `Invalid medicine identifier: ${
+          item.medicineId ||
+          item.name ||
+          "Unknown"
+        }`
+      );
+    }
+
+    const inventory =
+      await prisma.inventory.findUnique({
+        where: { id: inventoryId },
+      });
+
+    if (!inventory) {
+      throw new Error(
+        `Medicine not found in inventory (ID: ${inventoryId})`
+      );
+    }
+
+    const quantity = Number.parseInt(
+      String(item.quantity ?? ""),
+      10
+    );
+
+    if (
+      !Number.isInteger(quantity) ||
+      quantity <= 0
+    ) {
+      throw new Error(
+        `Invalid sale quantity for '${inventory.medicineBrand}'.`
+      );
+    }
+
+    const unitsPerPack = Math.max(
+      1,
+      inventory.unitPerPack || 10
+    );
+
+    const packPrice = Number(
+      inventory.sellingPrice
+    );
+
+    if (
+      !Number.isFinite(packPrice) ||
+      packPrice < 0
+    ) {
+      throw new Error(
+        `Invalid selling price for '${inventory.medicineBrand}'.`
+      );
+    }
+
+    const isLoose = Boolean(
+      item.isLooseUnit
+    );
+
+    const unitPrice = isLoose
+      ? packPrice / unitsPerPack
+      : packPrice;
+
+    const grossLineAmount = roundMoney(
+      unitPrice * quantity
+    );
+
+    normalizedItems.push({
+      inventoryId,
+      isLoose,
+      quantity,
+      unitsPerPack,
+      packPrice: roundMoney(packPrice),
+      grossLineAmount,
+      discountShare: 0,
+      netLineAmount:
+        grossLineAmount,
+      vatAmount: 0,
+      taxBase: 0,
+      isVatApplicable:
+        Boolean(inventory.hasvat),
+    });
+  }
+
+  const grossSubtotal = roundMoney(
+    normalizedItems.reduce(
+      (sum, item) =>
+        sum + item.grossLineAmount,
+      0
+    )
+  );
+
+  const discountType =
+    String(
+      discountTypeInput || "flat"
+    )
+      .trim()
+      .toLowerCase() ===
+    "percent"
+      ? "percent"
+      : "flat";
+
+  const rawDiscountValue = Number(
+    discountValueInput ??
+    legacyDiscountAmountInput ??
+    0
+  );
+
+  if (
+    !Number.isFinite(
+      rawDiscountValue
+    ) ||
+    rawDiscountValue < 0
+  ) {
+    throw new Error(
+      "Discount must be zero or a positive number."
+    );
+  }
+
+  if (
+    discountType ===
+      "percent" &&
+    rawDiscountValue > 100
+  ) {
+    throw new Error(
+      "Percentage discount cannot exceed 100%."
+    );
+  }
+
+  let discountAmount =
+    discountType ===
+    "percent"
+      ? roundMoney(
+          grossSubtotal *
+            rawDiscountValue /
+            100
+        )
+      : roundMoney(
+          Math.min(
+            grossSubtotal,
+            rawDiscountValue
+          )
+        );
+
+  discountAmount = Math.min(
+    grossSubtotal,
+    Math.max(
+      0,
+      discountAmount
+    )
+  );
+
+  let remainingDiscount =
+    discountAmount;
+
+  let vatExemptSubtotal = 0;
+  let taxableBaseSubtotal = 0;
+  let vatAmount = 0;
+
+  normalizedItems.forEach(
+    (item, index) => {
+      const isLastLine =
+        index ===
+        normalizedItems.length - 1;
+
+      const proportionalDiscount =
+        grossSubtotal > 0
+          ? roundMoney(
+              discountAmount *
+                item.grossLineAmount /
+                grossSubtotal
+            )
+          : 0;
+
+      const lineDiscount =
+        Math.min(
+          item.grossLineAmount,
+          remainingDiscount,
+          isLastLine
+            ? remainingDiscount
+            : proportionalDiscount
+        );
+
+      remainingDiscount =
+        roundMoney(
+          Math.max(
+            0,
+            remainingDiscount -
+              lineDiscount
+          )
+        );
+
+      item.discountShare =
+        lineDiscount;
+
+      item.netLineAmount =
+        roundMoney(
+          item.grossLineAmount -
+            lineDiscount
+        );
+
+      if (
+        item.isVatApplicable
+      ) {
+        item.taxBase =
+          roundMoney(
+            item.netLineAmount /
+              1.13
+          );
+
+        item.vatAmount =
+          roundMoney(
+            item.netLineAmount -
+              item.taxBase
+          );
+
+        taxableBaseSubtotal +=
+          item.taxBase;
+
+        vatAmount +=
+          item.vatAmount;
+      } else {
+        vatExemptSubtotal +=
+          item.netLineAmount;
+      }
+    }
+  );
+
+  vatExemptSubtotal =
+    roundMoney(
+      vatExemptSubtotal
+    );
+
+  taxableBaseSubtotal =
+    roundMoney(
+      taxableBaseSubtotal
+    );
+
+  vatAmount =
+    roundMoney(vatAmount);
+
+  const grandTotal =
+    roundMoney(
+      normalizedItems.reduce(
+        (sum, item) =>
+          sum +
+          item.netLineAmount,
+        0
+      )
+    );
+
+  return {
+    items: normalizedItems,
+    grossSubtotal,
+    discountAmount,
+    vatExemptSubtotal,
+    taxableBaseSubtotal,
+    vatAmount,
+    grandTotal,
+  };
+};
+
 // Helper to format database bill row into rich frontend-compatible SaleInvoice
 export const formatBillResponse = (bill: any) => {
   const dateObj = new Date(bill.transactionDate);
@@ -16,18 +318,82 @@ export const formatBillResponse = (bill: any) => {
   const formattedItems = (bill.items || []).map((bi: any) => {
     const inv = bi.inventory;
     const isLoose = bi.quantityInUnit > 0 && bi.quantityInPack === 0;
-    const quantity = isLoose ? bi.quantityInUnit : bi.quantityInPack;
-    const unitsPerPack = inv?.unitPerPack || 10;
+    const quantity =
+      isLoose
+        ? bi.quantityInUnit
+        : bi.quantityInPack;
+
+    const returnedPacks =
+      (bi.salesReturnItems || [])
+        .reduce(
+          (
+            sum: number,
+            item: any
+          ) =>
+            sum +
+            Number(
+              item.quantityInPack || 0
+            ),
+          0
+        );
+
+    const returnedUnits =
+      (bi.salesReturnItems || [])
+        .reduce(
+          (
+            sum: number,
+            item: any
+          ) =>
+            sum +
+            Number(
+              item.quantityInUnit || 0
+            ),
+          0
+        );
+
+    const alreadyReturnedQuantity =
+      isLoose
+        ? returnedUnits
+        : returnedPacks;
+
+    const returnableQuantity =
+      Math.max(
+        0,
+        Number(quantity || 0) -
+          alreadyReturnedQuantity
+      );
+
+    const unitsPerPack =
+      inv?.unitPerPack || 10;
     const packPrice = Number(bi.packPrice);
     const unitPrice = isLoose ? packPrice / unitsPerPack : packPrice;
-    const lineTotal = Number(bi.netItemPrice);
-    const hasVat = inv?.hasvat || false;
-    const vatAmt = Number(bi.vatitemPrice);
-    const taxBase = hasVat ? Math.max(0, lineTotal - vatAmt) : 0;
+    const grossLineTotal =
+      Number(bi.grossItemPrice);
+
+    const netLineTotal =
+      Number(bi.netItemPrice);
+
+    const hasVat =
+      inv?.hasvat || false;
+
+    const vatAmt =
+      Number(bi.vatitemPrice);
+
+    const taxBase = hasVat
+      ? Math.max(
+          0,
+          netLineTotal - vatAmt
+        )
+      : 0;
 
     return {
       id: String(bi.id),
-      medicineId: formatMedicineCode(bi.inventoryId),
+      billItemId: bi.id,
+      inventoryId: bi.inventoryId,
+      medicineId:
+        formatMedicineCode(
+          bi.inventoryId
+        ),
       medicineName: inv?.medicineBrand || "Medicine",
       genericName: inv?.generic?.name || "Generic",
       category: inv?.category?.name || "Tablet",
@@ -40,8 +406,10 @@ export const formatBillResponse = (bill: any) => {
       costPrice: Number(inv?.costPrice || 0),
       isVatApplicable: hasVat,
       rackLocation: inv?.rack?.name || "Unassigned",
-      lineTotal,
-      taxBase: Math.round(taxBase * 100) / 100,
+      lineTotal:
+        grossLineTotal,
+      taxBase:
+        roundMoney(taxBase),
       vatAmount: vatAmt,
     };
   });
@@ -51,19 +419,45 @@ export const formatBillResponse = (bill: any) => {
   const discountAmount = Number(bill.discountAmount);
   const grandTotal = Number(bill.grandTotal);
 
-  const vatExemptSubtotal = Number(
-    formattedItems
-      .filter((it: any) => !it.isVatApplicable)
-      .reduce((sum: number, it: any) => sum + it.lineTotal, 0)
-      .toFixed(2)
-  );
+  const vatExemptSubtotal =
+    roundMoney(
+      (bill.items || [])
+        .filter(
+          (bi: any) =>
+            !Boolean(
+              bi.inventory?.hasvat
+            )
+        )
+        .reduce(
+          (
+            sum: number,
+            bi: any
+          ) =>
+            sum +
+            Number(
+              bi.netItemPrice ||
+                0
+            ),
+          0
+        )
+    );
 
-  const taxableBaseSubtotal = Number(
-    formattedItems
-      .filter((it: any) => it.isVatApplicable)
-      .reduce((sum: number, it: any) => sum + it.taxBase, 0)
-      .toFixed(2)
-  );
+  const taxableBaseSubtotal =
+    roundMoney(
+      formattedItems
+        .filter(
+          (it: any) =>
+            it.isVatApplicable
+        )
+        .reduce(
+          (
+            sum: number,
+            it: any
+          ) =>
+            sum + it.taxBase,
+          0
+        )
+    );
 
   return {
     id: String(bill.id),
@@ -111,15 +505,11 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       paymentMode,
       paymentMethod,
       items,
-      grossSubtotal,
-      subTotal,
+      discountType,
+      discountValue,
       discountAmount = 0,
-      vatAmount = 0,
-      grandTotal,
       cashTendered,
       amountReceived,
-      changeGiven,
-      changeReturned,
       cashierId: inputCashierId,
     } = req.body;
 
@@ -176,14 +566,79 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       finalInvoiceNumber = `PP-2081/82-${seq}`;
     }
 
-    // Calculations & Defaults
-    const calculatedSubtotal = parseFloat(String(grossSubtotal ?? subTotal ?? 0)) || 0;
-    const calculatedDiscount = parseFloat(String(discountAmount ?? 0)) || 0;
-    const calculatedVat = parseFloat(String(vatAmount ?? 0)) || 0;
-    const calculatedGrandTotal = parseFloat(String(grandTotal ?? (calculatedSubtotal - calculatedDiscount + calculatedVat))) || 0;
-    const calculatedReceived = parseFloat(String(cashTendered ?? amountReceived ?? calculatedGrandTotal)) || calculatedGrandTotal;
-    const calculatedChange = parseFloat(String(changeGiven ?? changeReturned ?? Math.max(0, calculatedReceived - calculatedGrandTotal))) || 0;
-    const finalPaymentMethod = String(paymentMode || paymentMethod || "cash").toLowerCase();
+    // Financial values are recalculated from PostgreSQL.
+    // Browser-submitted subtotal, VAT and grand total are not trusted.
+    const authoritativeFinancials =
+      await buildAuthoritativeSaleFinancials(
+        items,
+        discountType,
+        discountValue,
+        discountAmount
+      );
+
+    const finalPaymentMethod =
+      String(
+        paymentMode ||
+        paymentMethod ||
+        "cash"
+      )
+        .trim()
+        .toLowerCase();
+
+    const requestedReceived =
+      Number(
+        cashTendered ??
+        amountReceived ??
+        authoritativeFinancials.grandTotal
+      );
+
+    if (
+      !Number.isFinite(
+        requestedReceived
+      ) ||
+      requestedReceived < 0
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Amount received must be zero or a positive number.",
+      });
+      return;
+    }
+
+    if (
+      finalPaymentMethod ===
+        "cash" &&
+      requestedReceived + 0.001 <
+        authoritativeFinancials.grandTotal
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Cash tendered is less than the grand total.",
+      });
+      return;
+    }
+
+    const calculatedReceived =
+      finalPaymentMethod ===
+      "cash"
+        ? roundMoney(
+            requestedReceived
+          )
+        : authoritativeFinancials.grandTotal;
+
+    const calculatedChange =
+      finalPaymentMethod ===
+      "cash"
+        ? roundMoney(
+            Math.max(
+              0,
+              calculatedReceived -
+                authoritativeFinancials.grandTotal
+            )
+          )
+        : 0;
 
     // 3. Atomic Transaction: Create Bill + Items + Deduct Stock
     const createdBill = await prisma.$transaction(async (tx) => {
@@ -197,10 +652,17 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           prescribingDoctor: (doctorName || prescribingDoctor) ? String(doctorName || prescribingDoctor).trim() : null,
           paymentMethod: finalPaymentMethod,
           paymentStatus: "paid",
-          subTotal: calculatedSubtotal,
-          discountAmount: calculatedDiscount,
-          vatAmount: calculatedVat,
-          grandTotal: calculatedGrandTotal,
+          subTotal:
+            authoritativeFinancials.grossSubtotal,
+
+          discountAmount:
+            authoritativeFinancials.discountAmount,
+
+          vatAmount:
+            authoritativeFinancials.vatAmount,
+
+          grandTotal:
+            authoritativeFinancials.grandTotal,
           amountReceived: calculatedReceived,
           changeReturned: calculatedChange,
           cashierId: finalCashierId,
@@ -231,23 +693,30 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         return new Date(text);
       };
 
-      for (const item of items) {
-        const inventoryId =
-          parseIdParam(
-            item.medicineId ??
-            item.inventoryId ??
-            item.id
-          );
+      for (
+        let itemIndex = 0;
+        itemIndex < items.length;
+        itemIndex += 1
+      ) {
+        const item =
+          items[itemIndex];
 
-        if (!inventoryId) {
+        const authoritativeItem =
+          authoritativeFinancials.items[
+            itemIndex
+          ];
+
+        if (
+          !item ||
+          !authoritativeItem
+        ) {
           throw new Error(
-            `Invalid medicine identifier: ${
-              item.medicineId ||
-              item.name ||
-              "Unknown"
-            }`
+            "Sale item financial validation failed."
           );
         }
+
+        const inventoryId =
+          authoritativeItem.inventoryId;
 
         const selectedInventory =
           await tx.inventory.findUnique({
@@ -261,25 +730,41 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         }
 
         const isLoose =
-          Boolean(item.isLooseUnit);
+          authoritativeItem.isLoose;
 
         const qty =
-          parseInt(
-            String(item.quantity ?? 1),
-            10
-          ) || 1;
-
-        if (qty <= 0) {
-          throw new Error(
-            `Invalid sale quantity for '${selectedInventory.medicineBrand}'.`
-          );
-        }
+          authoritativeItem.quantity;
 
         const unitsPerPack =
           Math.max(
             1,
-            selectedInventory.unitPerPack || 10
+            selectedInventory.unitPerPack ||
+              10
           );
+
+        const currentPackPrice =
+          roundMoney(
+            Number(
+              selectedInventory.sellingPrice
+            )
+          );
+
+        if (
+          unitsPerPack !==
+            authoritativeItem.unitsPerPack ||
+          Math.abs(
+            currentPackPrice -
+              authoritativeItem.packPrice
+          ) > 0.001 ||
+          Boolean(
+            selectedInventory.hasvat
+          ) !==
+            authoritativeItem.isVatApplicable
+        ) {
+          throw new Error(
+            `Medicine pricing or VAT settings changed for '${selectedInventory.medicineBrand}'. Refresh POS and retry.`
+          );
+        }
 
         // ----------------------------------------------------
         // Find every batch of the same medicine.
@@ -380,55 +865,30 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         }
 
         // ----------------------------------------------------
-        // Sale price remains the price shown to the customer.
-        // Actual inventory allocation may span several batches.
+        // Use only server-calculated prices/tax values.
+        // Browser-submitted line totals and VAT are not trusted.
         // ----------------------------------------------------
 
-        const selectedPackPrice =
-          Number(
-            selectedInventory.sellingPrice
-          );
-
-        const requestedUnitPrice =
-          item.unitPrice !== undefined
-            ? Number(item.unitPrice)
-            : Number.NaN;
-
-        const effectiveUnitPrice =
-          Number.isFinite(
-            requestedUnitPrice
-          )
-            ? requestedUnitPrice
-            : isLoose
-              ? selectedPackPrice /
-                unitsPerPack
-              : selectedPackPrice;
-
         const billItemPackPrice =
-          isLoose
-            ? effectiveUnitPrice *
-              unitsPerPack
-            : effectiveUnitPrice;
+          authoritativeItem.packPrice;
+
+        const totalGrossLineAmount =
+          authoritativeItem.grossLineAmount;
+
+        const totalNetLineAmount =
+          authoritativeItem.netLineAmount;
 
         const totalVatAmount =
-          parseFloat(
-            String(
-              item.vatAmount ?? 0
-            )
-          ) || 0;
-
-        const totalLineAmount =
-          parseFloat(
-            String(
-              item.lineTotal ??
-              effectiveUnitPrice * qty
-            )
-          ) ||
-          effectiveUnitPrice * qty;
+          authoritativeItem.vatAmount;
 
         let remainingQty = qty;
-        let remainingLineAmount =
-          totalLineAmount;
+
+        let remainingGrossLineAmount =
+          totalGrossLineAmount;
+
+        let remainingNetLineAmount =
+          totalNetLineAmount;
+
         let remainingVatAmount =
           totalVatAmount;
 
@@ -519,27 +979,32 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
             allocatedQty ===
             remainingQty;
 
-          const allocatedLineAmount =
+          const allocatedGrossLineAmount =
             isFinalAllocation
-              ? remainingLineAmount
-              : Math.round(
-                  (
-                    totalLineAmount *
+              ? remainingGrossLineAmount
+              : roundMoney(
+                  totalGrossLineAmount *
                     allocatedQty /
                     qty
-                  ) * 100
-                ) / 100;
+                );
+
+          const allocatedNetLineAmount =
+            isFinalAllocation
+              ? remainingNetLineAmount
+              : roundMoney(
+                  totalNetLineAmount *
+                    allocatedQty /
+                    qty
+                );
 
           const allocatedVatAmount =
             isFinalAllocation
               ? remainingVatAmount
-              : Math.round(
-                  (
-                    totalVatAmount *
+              : roundMoney(
+                  totalVatAmount *
                     allocatedQty /
                     qty
-                  ) * 100
-                ) / 100;
+                );
 
           await tx.billItem.create({
             data: {
@@ -566,31 +1031,33 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
                 allocatedVatAmount,
 
               grossItemPrice:
-                allocatedLineAmount,
+                allocatedGrossLineAmount,
 
               netItemPrice:
-                allocatedLineAmount,
+                allocatedNetLineAmount,
             },
           });
 
           remainingQty -=
             allocatedQty;
 
-          remainingLineAmount =
-            Math.round(
-              (
-                remainingLineAmount -
-                allocatedLineAmount
-              ) * 100
-            ) / 100;
+          remainingGrossLineAmount =
+            roundMoney(
+              remainingGrossLineAmount -
+                allocatedGrossLineAmount
+            );
+
+          remainingNetLineAmount =
+            roundMoney(
+              remainingNetLineAmount -
+                allocatedNetLineAmount
+            );
 
           remainingVatAmount =
-            Math.round(
-              (
-                remainingVatAmount -
+            roundMoney(
+              remainingVatAmount -
                 allocatedVatAmount
-              ) * 100
-            ) / 100;
+            );
         }
 
         if (remainingQty > 0) {
@@ -606,6 +1073,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           cashier: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -710,6 +1178,7 @@ export const getAllBills = async (req: Request, res: Response): Promise<void> =>
           cashier: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -770,6 +1239,7 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
           cashier: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -790,6 +1260,7 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
           cashier: true,
           items: {
             include: {
+              salesReturnItems: true,
               inventory: {
                 include: {
                   generic: true,
@@ -918,9 +1389,11 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
       include: {
         items: {
           include: {
+              salesReturnItems: true,
             inventory: true,
           },
         },
+        salesReturns: true,
       },
     });
 
@@ -936,12 +1409,22 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
     const recordedBy = user?.username ? `${user.firstName || user.username} (@${user.username})` : "Pharmacist";
 
     const returnResult = await prisma.$transaction(async (tx) => {
+      // Generate unique Credit Note Number
+      const fiscalYear = "2081/82";
+      const countReturns = await tx.salesReturn.count();
+      const creditNoteNumber = `CN-${fiscalYear}-${String(countReturns + 1).padStart(5, "0")}`;
+
       let totalRefundAmount = 0;
-      const returnedLineSummaries = [];
+      const validatedItems: Array<{
+        lineItem: any;
+        returnPacks: number;
+        returnUnits: number;
+        lineRefund: number;
+      }> = [];
 
       for (const ret of items) {
         const lineItem = bill.items.find(
-          (it) => it.id === Number(ret.billItemId) || it.inventoryId === Number(ret.inventoryId)
+          (it) => (ret.billItemId && it.id === Number(ret.billItemId)) || (ret.inventoryId && it.inventoryId === Number(ret.inventoryId))
         );
 
         if (!lineItem) {
@@ -953,24 +1436,118 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
 
         if (returnPacks === 0 && returnUnits === 0) continue;
 
-        if (
-          returnPacks > lineItem.quantityInPack ||
-          returnUnits > lineItem.quantityInUnit
-        ) {
+        // Calculate already returned quantities
+        const alreadyReturnedPacks = (lineItem.salesReturnItems || []).reduce(
+          (sum: number, r: any) => sum + Number(r.quantityInPack || 0),
+          0
+        );
+        const alreadyReturnedUnits = (lineItem.salesReturnItems || []).reduce(
+          (sum: number, r: any) => sum + Number(r.quantityInUnit || 0),
+          0
+        );
+
+        const returnablePacks = Math.max(0, lineItem.quantityInPack - alreadyReturnedPacks);
+        const returnableUnits = Math.max(0, lineItem.quantityInUnit - alreadyReturnedUnits);
+
+        if (returnPacks > returnablePacks || returnUnits > returnableUnits) {
           throw new Error(
-            `Return quantity (${returnPacks} pk, ${returnUnits} units) exceeds purchased quantity on bill (${lineItem.quantityInPack} pk, ${lineItem.quantityInUnit} units) for ${lineItem.inventory?.medicineBrand || 'item'}.`
+            `Return quantity (${returnPacks} pk, ${returnUnits} units) exceeds remaining returnable quantity (${returnablePacks} pk, ${returnableUnits} units) for ${lineItem.inventory?.medicineBrand || 'item'}.`
           );
         }
 
         // Calculate unit prices for refund
-        const packPrice = Number(lineItem.packPrice || 0);
-        const upp = lineItem.inventory?.unitPerPack || 10;
-        const unitPrice = upp > 1 ? packPrice / upp : packPrice;
+        const soldPacks =
+          Number(
+            lineItem.quantityInPack || 0
+          );
 
-        const lineRefund = (returnPacks * packPrice) + (returnUnits * unitPrice);
+        const soldUnits =
+          Number(
+            lineItem.quantityInUnit || 0
+          );
+
+        const soldQuantity =
+          soldPacks > 0
+            ? soldPacks
+            : soldUnits;
+
+        const returnedQuantity =
+          soldPacks > 0
+            ? returnPacks
+            : returnUnits;
+
+        if (soldQuantity <= 0) {
+          throw new Error(
+            "Cannot calculate refund for a zero-quantity bill line."
+          );
+        }
+
+        /*
+         * Refund from the NET amount actually paid.
+         *
+         * netItemPrice already contains the allocated
+         * bill discount and VAT-inclusive final line value.
+         * This prevents refunding an undiscounted amount
+         * when the original customer received a discount.
+         */
+        const netLineAmount =
+          Number(
+            lineItem.netItemPrice || 0
+          );
+
+        const netPricePerSoldQuantity =
+          netLineAmount /
+          soldQuantity;
+
+        const lineRefund =
+          roundMoney(
+            returnedQuantity *
+              netPricePerSoldQuantity
+          );
+
         totalRefundAmount += lineRefund;
 
-        // Restock inventory
+        validatedItems.push({
+          lineItem,
+          returnPacks,
+          returnUnits,
+          lineRefund,
+        });
+      }
+
+      if (validatedItems.length === 0) {
+        throw new Error("No items were specified with a return quantity greater than 0.");
+      }
+
+      // 1. Create persistent SalesReturn record
+      const salesReturn = await tx.salesReturn.create({
+        data: {
+          creditNoteNumber,
+          invoiceId: bill.id,
+          refundAmount: totalRefundAmount,
+          reason: notes || reason || "Customer Sales Return",
+          recordedBy,
+        },
+      });
+
+      const returnedLineSummaries = [];
+
+      for (const val of validatedItems) {
+        const { lineItem, returnPacks, returnUnits, lineRefund } = val;
+
+        // 2. Create SalesReturnItem record
+        await tx.salesReturnItem.create({
+          data: {
+            returnId: salesReturn.id,
+            billItemId: lineItem.id,
+            inventoryId: lineItem.inventoryId,
+            quantityInPack: returnPacks,
+            quantityInUnit: returnUnits,
+            refundAmount: lineRefund,
+          },
+        });
+
+        // 3. Restock inventory directly to the exact sold batch
         const inv = lineItem.inventory;
         if (inv) {
           const currentTotalUnits = (inv.packInStock * inv.unitPerPack) + inv.unitInStock;
@@ -999,7 +1576,7 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
               previousLooseUnits: inv.unitInStock,
               newLooseUnits: updatedUnitInStock,
               varianceLooseUnits: returnUnits,
-              reason: `Customer Sales Return (Invoice #${bill.invoiceNumber}): ${ret.reason || notes || 'Medicine return'}`,
+              reason: `Customer Sales Return (Credit Note #${creditNoteNumber}, Inv #${bill.invoiceNumber}): ${notes || reason || 'Medicine return'}`,
               recordedBy,
             },
           });
@@ -1010,11 +1587,12 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
           batchNumber: inv?.batchNumber || "—",
           returnedPacks: returnPacks,
           returnedUnits: returnUnits,
-          refundAmount: Math.round(lineRefund * 100) / 100,
+          refundAmount: lineRefund,
         });
       }
 
       return {
+        creditNoteNumber,
         totalRefundAmount: Math.round(totalRefundAmount * 100) / 100,
         items: returnedLineSummaries,
       };
@@ -1022,13 +1600,14 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
 
     res.status(200).json({
       success: true,
-      message: `Successfully processed customer return for Invoice #${bill.invoiceNumber}. Total Refund: NPR ${returnResult.totalRefundAmount}. Stock restocked.`,
+      message: `Successfully processed customer return. Credit Note #${returnResult.creditNoteNumber}. Total Refund: NPR ${returnResult.totalRefundAmount}. Stock restocked.`,
       data: {
+        creditNoteNumber: returnResult.creditNoteNumber,
         invoiceNumber: bill.invoiceNumber,
         originalGrandTotal: Number(bill.grandTotal),
         refundAmount: returnResult.totalRefundAmount,
         returnedItems: returnResult.items,
-        notes: notes || "Customer Sales Return",
+        notes: notes || reason || "Customer Sales Return",
         processedAt: new Date().toISOString(),
       },
     });
@@ -1041,3 +1620,154 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
   }
 };
 
+export const getAllSalesReturns = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const returns =
+      await prisma.salesReturn.findMany({
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNumber: true,
+              customerName: true,
+              customerPhone: true,
+              grandTotal: true,
+            },
+          },
+
+          items: {
+            include: {
+              inventory: {
+                select: {
+                  medicineBrand: true,
+                  batchNumber: true,
+                },
+              },
+            },
+          },
+        },
+
+        orderBy: {
+          returnDate: "desc",
+        },
+      });
+
+    const data =
+      returns.map((sr) => ({
+        id: sr.id,
+        creditNoteNumber:
+          sr.creditNoteNumber,
+
+        invoiceId:
+          sr.invoiceId,
+
+        invoiceNumber:
+          sr.invoice.invoiceNumber,
+
+        customerName:
+          sr.invoice.customerName ||
+          "Counter Customer",
+
+        customerPhone:
+          sr.invoice.customerPhone ||
+          undefined,
+
+        originalInvoiceTotal:
+          Number(
+            sr.invoice.grandTotal
+          ),
+
+        returnDate:
+          sr.returnDate.toISOString(),
+
+        refundAmount:
+          Number(
+            sr.refundAmount
+          ),
+
+        reason:
+          sr.reason ||
+          undefined,
+
+        recordedBy:
+          sr.recordedBy ||
+          undefined,
+
+        invoice: {
+          id:
+            sr.invoice.id,
+
+          invoiceNumber:
+            sr.invoice.invoiceNumber,
+
+          customerName:
+            sr.invoice.customerName ||
+            "Counter Customer",
+
+          customerPhone:
+            sr.invoice.customerPhone ||
+            undefined,
+
+          totalAmount:
+            Number(
+              sr.invoice.grandTotal
+            ),
+        },
+
+        items:
+          sr.items.map((item) => ({
+            id:
+              item.id,
+
+            medicineName:
+              item.inventory
+                .medicineBrand,
+
+            batchNumber:
+              item.inventory
+                .batchNumber,
+
+            quantityInPack:
+              item.quantityInPack,
+
+            quantityInUnit:
+              item.quantityInUnit,
+
+            refundAmount:
+              Number(
+                item.refundAmount
+              ),
+
+            inventory: {
+              brandName:
+                item.inventory
+                  .medicineBrand,
+
+              batchNumber:
+                item.inventory
+                  .batchNumber,
+            },
+          })),
+      }));
+
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error(
+      "Error fetching sales returns:",
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message:
+        "Failed to retrieve customer sales returns.",
+    });
+  }
+};

@@ -15,20 +15,24 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
+import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { salesDemoInvoices } from '../data/salesDemoData';
 import { SalesReturnModal } from './SalesReturnModal';
 
 export const SalesHistoryView: React.FC = () => {
+  const { showToast } = useDialog();
   const {
     salesInvoices,
+    customerSalesReturns,
     isSalesDemoDataActive,
     clearSalesDemoData,
     setActiveInvoiceToPrint,
     settings,
   } = usePharmacy();
 
+  const [activeTab, setActiveTab] = useState<'sales' | 'returns'>('sales');
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'month'>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<SaleInvoice | null>(null);
@@ -41,7 +45,7 @@ export const SalesHistoryView: React.FC = () => {
     [isSalesDemoDataActive, salesInvoices]
   );
 
-  // Filter sales
+  // Filter sales invoices
   const filteredSales = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const yesterday = new Date();
@@ -75,14 +79,67 @@ export const SalesHistoryView: React.FC = () => {
     });
   }, [registerInvoices, searchQuery, dateFilter]);
 
-  // Aggregate stats
-  const stats = useMemo(() => {
+  // Filter customer returns
+  const filteredReturns = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    return (customerSalesReturns || []).filter(ret => {
+      const q = searchQuery.toLowerCase();
+      const returnDateStr = ret.returnDate ? ret.returnDate.split('T')[0] : '';
+      const invoiceNumber = ret.invoice?.invoiceNumber || '';
+      const customerName = ret.invoice?.customerName || '';
+
+      const matchesSearch = !q ||
+        ret.creditNoteNumber.toLowerCase().includes(q) ||
+        invoiceNumber.toLowerCase().includes(q) ||
+        customerName.toLowerCase().includes(q) ||
+        (ret.reason && ret.reason.toLowerCase().includes(q)) ||
+        ret.items.some(it =>
+          (it.inventory?.brandName && it.inventory.brandName.toLowerCase().includes(q)) ||
+          (it.inventory?.batchNumber && it.inventory.batchNumber.toLowerCase().includes(q))
+        );
+
+      if (!matchesSearch) return false;
+
+      if (dateFilter === 'today') return returnDateStr === todayStr;
+      if (dateFilter === 'yesterday') return returnDateStr === yesterdayStr;
+      if (dateFilter === '7days') return new Date(ret.returnDate) >= sevenDaysAgo;
+      if (dateFilter === 'month') return new Date(ret.returnDate) >= firstOfMonth;
+
+      return true;
+    });
+  }, [customerSalesReturns, searchQuery, dateFilter]);
+
+  // Aggregate stats for sales invoices
+  const salesStats = useMemo(() => {
     const totalRevenue = filteredSales.reduce((acc, s) => acc + s.grandTotal, 0);
     const totalVat = filteredSales.reduce((acc, s) => acc + s.vatAmount, 0);
     const totalExempt = filteredSales.reduce((acc, s) => acc + s.vatExemptSubtotal, 0);
     const totalTaxable = filteredSales.reduce((acc, s) => acc + s.taxableBaseSubtotal, 0);
     return { totalRevenue, totalVat, totalExempt, totalTaxable };
   }, [filteredSales]);
+
+  // Aggregate stats for returns
+  const returnStats = useMemo(() => {
+    const totalRefunded = filteredReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
+    const totalPacks = filteredReturns.reduce(
+      (acc, r) => acc + r.items.reduce((s, it) => s + (it.quantityInPack || 0), 0),
+      0
+    );
+    const totalUnits = filteredReturns.reduce(
+      (acc, r) => acc + r.items.reduce((s, it) => s + (it.quantityInUnit || 0), 0),
+      0
+    );
+    return { totalRefunded, totalPacks, totalUnits, count: filteredReturns.length };
+  }, [filteredReturns]);
 
   return (
     <div className="space-y-5 pb-3">
@@ -118,112 +175,215 @@ export const SalesHistoryView: React.FC = () => {
               Sales Register &amp; Statutory Tax Invoices
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-slate-500 sm:text-sm">
-              Billing audit log and sales history for IRD Nepal VAT compliance
+              Billing audit log, customer returns &amp; credit notes for IRD Nepal VAT compliance
             </p>
           </div>
         </div>
 
+        {activeTab === 'sales' && (
+          <button
+            onClick={() => exportSalesBookToExcel(filteredSales, settings.storeName)}
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-bold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export Sales Book (.xlsx)</span>
+          </button>
+        )}
+      </div>
+
+      {/* Register Tab Navigation */}
+      <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
         <button
-          onClick={() => exportSalesBookToExcel(filteredSales, settings.storeName)}
-          className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-bold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+          type="button"
+          onClick={() => setActiveTab('sales')}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
+            activeTab === 'sales'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
         >
-          <Download className="h-3.5 w-3.5" />
-          <span>Export Sales Book (.xlsx)</span>
+          <FileText className="h-4 w-4" />
+          <span>Sales Invoices ({registerInvoices.length})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('returns')}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all ${
+            activeTab === 'returns'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <RotateCcw className="h-4 w-4 text-teal-500" />
+          <span>Customer Returns &amp; Credit Notes ({(customerSalesReturns || []).length})</span>
         </button>
       </div>
 
       {/* Aggregate Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: 'Total Revenue',
-            value: stats.totalRevenue,
-            detail: `${filteredSales.length} bills completed`,
-            accent: 'teal',
-            icon: <Banknote className="h-4 w-4" />
-          },
-          {
-            label: 'VAT-Free Sales',
-            value: stats.totalExempt,
-            detail: '0% VAT therapeutic drugs',
-            accent: 'emerald',
-            icon: <CheckCircle2 className="h-4 w-4" />
-          },
-          {
-            label: 'Taxable Base',
-            value: stats.totalTaxable,
-            detail: 'Subject to 13% VAT',
-            accent: 'blue',
-            icon: <Filter className="h-4 w-4" />
-          },
-          {
-            label: '13% VAT Collected',
-            value: stats.totalVat,
-            detail: 'Payable to IRD Nepal',
-            accent: 'indigo',
-            icon: <QrCode className="h-4 w-4" />
-          }
-        ].map((card) => (
-          <div
-            key={card.label}
-            className={`rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-              card.accent === 'teal'
-                ? 'border-teal-100 bg-teal-50/80'
-                : card.accent === 'emerald'
-                  ? 'border-emerald-100 bg-emerald-50/80'
-                  : card.accent === 'blue'
-                    ? 'border-blue-100 bg-blue-50/80'
-                    : 'border-indigo-100 bg-indigo-50/80'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+      {activeTab === 'sales' ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              label: 'Total Revenue',
+              value: salesStats.totalRevenue,
+              detail: `${filteredSales.length} bills completed`,
+              accent: 'teal',
+              icon: <Banknote className="h-4 w-4" />
+            },
+            {
+              label: 'VAT-Free Sales',
+              value: salesStats.totalExempt,
+              detail: '0% VAT therapeutic drugs',
+              accent: 'emerald',
+              icon: <CheckCircle2 className="h-4 w-4" />
+            },
+            {
+              label: 'Taxable Base',
+              value: salesStats.totalTaxable,
+              detail: 'Subject to 13% VAT',
+              accent: 'blue',
+              icon: <Filter className="h-4 w-4" />
+            },
+            {
+              label: '13% VAT Collected',
+              value: salesStats.totalVat,
+              detail: 'Payable to IRD Nepal',
+              accent: 'indigo',
+              icon: <QrCode className="h-4 w-4" />
+            }
+          ].map((card) => (
+            <div
+              key={card.label}
+              className={`rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                 card.accent === 'teal'
-                  ? 'bg-white text-teal-700 ring-teal-100'
+                  ? 'border-teal-100 bg-teal-50/80'
                   : card.accent === 'emerald'
-                    ? 'bg-white text-emerald-700 ring-emerald-100'
+                    ? 'border-emerald-100 bg-emerald-50/80'
                     : card.accent === 'blue'
-                      ? 'bg-white text-blue-700 ring-blue-100'
-                      : 'bg-white text-indigo-700 ring-indigo-100'
-              }`}>
-                {card.icon}
+                      ? 'border-blue-100 bg-blue-50/80'
+                      : 'border-indigo-100 bg-indigo-50/80'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+                  card.accent === 'teal'
+                    ? 'bg-white text-teal-700 ring-teal-100'
+                    : card.accent === 'emerald'
+                      ? 'bg-white text-emerald-700 ring-emerald-100'
+                      : card.accent === 'blue'
+                        ? 'bg-white text-blue-700 ring-blue-100'
+                        : 'bg-white text-indigo-700 ring-indigo-100'
+                }`}>
+                  {card.icon}
+                </span>
+                <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                  card.accent === 'teal'
+                    ? 'text-teal-700'
+                    : card.accent === 'emerald'
+                      ? 'text-emerald-700'
+                      : card.accent === 'blue'
+                        ? 'text-blue-700'
+                        : 'text-indigo-700'
+                }`}>
+                  Summary
+                </span>
+              </div>
+              <div className="mt-5">
+                <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
+                <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
+                  card.accent === 'teal'
+                    ? 'text-teal-800'
+                    : card.accent === 'emerald'
+                      ? 'text-emerald-800'
+                      : card.accent === 'blue'
+                        ? 'text-blue-800'
+                        : 'text-indigo-800'
+                }`}>
+                  Rs. {card.value.toFixed(2)}
+                </div>
+                <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[20px] border border-teal-100 bg-teal-50/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white text-teal-700 ring-1 ring-teal-100">
+                <RotateCcw className="h-4 w-4" />
               </span>
-              <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                card.accent === 'teal'
-                  ? 'text-teal-700'
-                  : card.accent === 'emerald'
-                    ? 'text-emerald-700'
-                    : card.accent === 'blue'
-                      ? 'text-blue-700'
-                      : 'text-indigo-700'
-              }`}>
-                Summary
-              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-teal-700">Returns</span>
             </div>
             <div className="mt-5">
-              <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
-              <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
-                card.accent === 'teal'
-                  ? 'text-teal-800'
-                  : card.accent === 'emerald'
-                    ? 'text-emerald-800'
-                    : card.accent === 'blue'
-                      ? 'text-blue-800'
-                      : 'text-indigo-800'
-              }`}>
-                Rs. {card.value.toFixed(2)}
+              <div className="text-[11px] font-medium text-slate-500">Total Customer Returns</div>
+              <div className="mt-2 font-mono text-[1.75rem] font-extrabold text-teal-800">
+                {returnStats.count}
               </div>
-              <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+              <div className="mt-2 text-[11px] text-slate-500">Credit notes recorded</div>
             </div>
           </div>
-        ))}
-      </div>
+
+          <div className="rounded-[20px] border border-amber-100 bg-amber-50/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white text-amber-700 ring-1 ring-amber-100">
+                <Banknote className="h-4 w-4" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700">Refunds</span>
+            </div>
+            <div className="mt-5">
+              <div className="text-[11px] font-medium text-slate-500">Total Refund Paid</div>
+              <div className="mt-2 font-mono text-[1.75rem] font-extrabold text-amber-900">
+                Rs. {returnStats.totalRefunded.toFixed(2)}
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">Paid out to patients</div>
+            </div>
+          </div>
+
+          <div className="rounded-[20px] border border-blue-100 bg-blue-50/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white text-blue-700 ring-1 ring-blue-100">
+                <Filter className="h-4 w-4" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-700">Packs Restocked</span>
+            </div>
+            <div className="mt-5">
+              <div className="text-[11px] font-medium text-slate-500">Returned Full Packs</div>
+              <div className="mt-2 font-mono text-[1.75rem] font-extrabold text-blue-800">
+                {returnStats.totalPacks}
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">Restocked to batch inventory</div>
+            </div>
+          </div>
+
+          <div className="rounded-[20px] border border-purple-100 bg-purple-50/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white text-purple-700 ring-1 ring-purple-100">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-purple-700">Units Restocked</span>
+            </div>
+            <div className="mt-5">
+              <div className="text-[11px] font-medium text-slate-500">Returned Loose Units</div>
+              <div className="mt-2 font-mono text-[1.75rem] font-extrabold text-purple-800">
+                {returnStats.totalUnits}
+              </div>
+              <div className="mt-2 text-[11px] text-slate-500">Restocked to batch inventory</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter & Search Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white p-3 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
         <div className="flex flex-wrap items-center gap-1.5">
           {[
-            { key: 'all', label: `All Time (${registerInvoices.length})`, active: dateFilter === 'all' },
+            {
+              key: 'all',
+              label: `All Time (${activeTab === 'sales' ? registerInvoices.length : (customerSalesReturns || []).length})`,
+              active: dateFilter === 'all'
+            },
             { key: 'today', label: 'Today', active: dateFilter === 'today' },
             { key: 'yesterday', label: 'Yesterday', active: dateFilter === 'yesterday' },
             { key: '7days', label: 'Last 7 Days', active: dateFilter === '7days' },
@@ -248,7 +408,11 @@ export const SalesHistoryView: React.FC = () => {
           <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search invoice #, customer, doctor..."
+            placeholder={
+              activeTab === 'sales'
+                ? 'Search invoice #, customer, doctor...'
+                : 'Search credit note #, invoice, customer, medicine...'
+            }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:outline-none"
@@ -256,113 +420,216 @@ export const SalesHistoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Sales Invoices Table */}
-      <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-xs">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Date &amp; Time</th>
-                <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Tax Invoice #</th>
-                <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Patient / Customer</th>
-                <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Items Sold</th>
-                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">0% VAT Exempt</th>
-                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Taxable Base</th>
-                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">13% VAT</th>
-                <th className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-[0.08em]">Payment</th>
-                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Grand Total</th>
-                <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredSales.map((inv) => (
-                <tr key={inv.id} className="transition-colors hover:bg-slate-50/70">
-                  <td className="px-4 py-3 align-top text-slate-500">
-                    <div className="text-[11px] font-semibold text-slate-700">{inv.date}</div>
-                    <div className="mt-1 text-[10px] text-slate-400">{inv.time}</div>
-                  </td>
-
-                  <td className="px-3 py-3 align-top font-mono text-[11px] font-bold text-slate-900">
-                    {inv.invoiceNumber}
-                  </td>
-
-                  <td className="px-3 py-3 align-top">
-                    <div className="font-semibold text-slate-900">{inv.customerName}</div>
-                    {inv.doctorName && (
-                      <div className="mt-1 text-[10px] text-slate-500">Dr: {inv.doctorName}</div>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-slate-600">
-                    <div className="font-medium text-slate-700">{inv.items.length} item{inv.items.length > 1 ? 's' : ''}</div>
-                    <div className="mt-1 max-w-[180px] truncate text-[10px] text-slate-400">
-                      {inv.items.map((it) => it.medicineName).join(', ')}
-                    </div>
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-right font-mono text-[11px] font-semibold text-emerald-700">
-                    Rs. {inv.vatExemptSubtotal.toFixed(2)}
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-right font-mono text-[11px] text-slate-700">
-                    Rs. {inv.taxableBaseSubtotal.toFixed(2)}
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-right font-mono text-[11px] font-bold text-blue-700">
-                    Rs. {inv.vatAmount.toFixed(2)}
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-center">
-                    <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-700">
-                      {inv.paymentMode.replace('_', ' ')}
-                    </span>
-                  </td>
-
-                  <td className="px-4 py-3 align-top text-right font-mono text-sm font-extrabold text-slate-900">
-                    Rs. {inv.grandTotal.toFixed(2)}
-                  </td>
-
-                  <td className="px-3 py-3 align-top text-right">
-                    {inv.id.startsWith('demo-sale-') ? (
-                      <span className="inline-flex rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-amber-700">
-                        Demo
-                      </span>
-                    ) : (
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setReturningInvoice(inv)}
-                          className="inline-flex items-center justify-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-2 text-[11px] font-semibold text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
-                          title="Process customer return / refund"
-                        >
-                          <RotateCcw className="h-3 w-3 text-teal-600" />
-                          <span>Return</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveInvoiceToPrint(inv)}
-                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
-                          title="View official VAT Tax Invoice"
-                        >
-                          <span>View</span>
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-
-              {filteredSales.length === 0 && (
+      {/* Main Table: Sales Invoices vs Customer Returns */}
+      {activeTab === 'sales' ? (
+        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600">
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500">
-                    No sales invoices found matching the current search or filter.
-                  </td>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Date &amp; Time</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Tax Invoice #</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Patient / Customer</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Items Sold</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">0% VAT Exempt</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Taxable Base</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">13% VAT</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-[0.08em]">Payment</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Grand Total</th>
+                  <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Action</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredSales.map((inv) => (
+                  <tr key={inv.id} className="transition-colors hover:bg-slate-50/70">
+                    <td className="px-4 py-3 align-top text-slate-500">
+                      <div className="text-[11px] font-semibold text-slate-700">{inv.date}</div>
+                      <div className="mt-1 text-[10px] text-slate-400">{inv.time}</div>
+                    </td>
+
+                    <td className="px-3 py-3 align-top font-mono text-[11px] font-bold text-slate-900">
+                      {inv.invoiceNumber}
+                    </td>
+
+                    <td className="px-3 py-3 align-top">
+                      <div className="font-semibold text-slate-900">{inv.customerName}</div>
+                      {inv.doctorName && (
+                        <div className="mt-1 text-[10px] text-slate-500">Dr: {inv.doctorName}</div>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-slate-600">
+                      <div className="font-medium text-slate-700">{inv.items.length} item{inv.items.length > 1 ? 's' : ''}</div>
+                      <div className="mt-1 max-w-[180px] truncate text-[10px] text-slate-400">
+                        {inv.items.map((it) => it.medicineName).join(', ')}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-right font-mono text-[11px] font-semibold text-emerald-700">
+                      Rs. {inv.vatExemptSubtotal.toFixed(2)}
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-right font-mono text-[11px] text-slate-700">
+                      Rs. {inv.taxableBaseSubtotal.toFixed(2)}
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-right font-mono text-[11px] font-bold text-blue-700">
+                      Rs. {inv.vatAmount.toFixed(2)}
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-center">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-700">
+                        {inv.paymentMode.replace('_', ' ')}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-3 align-top text-right font-mono text-sm font-extrabold text-slate-900">
+                      Rs. {inv.grandTotal.toFixed(2)}
+                    </td>
+
+                    <td className="px-3 py-3 align-top text-right">
+                      {inv.id.startsWith('demo-sale-') ? (
+                        <span className="inline-flex rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-amber-700">
+                          Demo
+                        </span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setReturningInvoice(inv)}
+                            className="inline-flex items-center justify-center gap-1 rounded-xl border border-teal-200 bg-teal-50 px-2.5 py-2 text-[11px] font-semibold text-teal-800 transition hover:border-teal-300 hover:bg-teal-100"
+                            title="Process customer return / refund"
+                          >
+                            <RotateCcw className="h-3 w-3 text-teal-600" />
+                            <span>Return</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveInvoiceToPrint(inv)}
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                            title="View official VAT Tax Invoice"
+                          >
+                            <span>View</span>
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+
+                {filteredSales.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="py-12 text-center text-slate-500">
+                      No sales invoices found matching the current search or filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Customer Returns & Credit Notes Table */
+        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1050px] text-left text-xs">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Return Date &amp; Time</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Credit Note #</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Tax Invoice #</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Customer / Patient</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Returned Items &amp; Batches</th>
+                  <th className="px-3 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Return Reason</th>
+                  <th className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-[0.08em]">Recorded By</th>
+                  <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Refund Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredReturns.map((ret) => {
+                  const dateObj = new Date(ret.returnDate);
+                  const dateFormatted = !isNaN(dateObj.getTime())
+                    ? dateObj.toLocaleDateString()
+                    : ret.returnDate;
+                  const timeFormatted = !isNaN(dateObj.getTime())
+                    ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : '';
+
+                  return (
+                    <tr key={ret.id} className="transition-colors hover:bg-slate-50/70">
+                      <td className="px-4 py-3 align-top text-slate-500">
+                        <div className="text-[11px] font-semibold text-slate-700">{dateFormatted}</div>
+                        <div className="mt-0.5 text-[10px] text-slate-400">{timeFormatted}</div>
+                      </td>
+
+                      <td className="px-3 py-3 align-top font-mono text-[11px] font-bold text-teal-800">
+                        {ret.creditNoteNumber}
+                      </td>
+
+                      <td className="px-3 py-3 align-top font-mono text-[11px] font-semibold text-slate-800">
+                        {ret.invoice?.invoiceNumber || (ret as any).invoiceNumber || `#${ret.invoiceId}`}
+                      </td>
+
+                      <td className="px-3 py-3 align-top">
+                        <div className="font-semibold text-slate-900">
+                          {ret.invoice?.customerName || (ret as any).customerName || 'Counter Patient'}
+                        </div>
+                        {(ret.invoice?.customerPhone || (ret as any).customerPhone) && (
+                          <div className="text-[10px] text-slate-400">
+                            {ret.invoice?.customerPhone || (ret as any).customerPhone}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="px-3 py-3 align-top text-slate-700">
+                        <div className="space-y-1.5">
+                          {ret.items.map((it, idx) => {
+                            const medName = (it as any).medicineName || it.inventory?.brandName || 'Medicine';
+                            const batch = (it as any).batchNumber || it.inventory?.batchNumber;
+                            const qtyP = it.quantityInPack > 0 ? `${it.quantityInPack} Pack(s)` : '';
+                            const qtyU = it.quantityInUnit > 0 ? `${it.quantityInUnit} Loose` : '';
+                            const qtyStr = [qtyP, qtyU].filter(Boolean).join(', ');
+
+                            return (
+                              <div key={idx} className="text-[11px]">
+                                <span className="font-bold text-slate-800">{medName}</span>
+                                {batch && <span className="text-slate-500 text-[10px]"> (B: {batch})</span>}
+                                <span className="font-semibold text-amber-700"> — {qtyStr}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+
+                      <td className="px-3 py-3 align-top text-slate-600 max-w-[200px]">
+                        <span className="text-[11px]">{ret.reason || 'Customer return / prescription adjustment'}</span>
+                      </td>
+
+                      <td className="px-3 py-3 align-top text-center text-slate-600">
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                          {ret.recordedBy || 'Pharmacist'}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3 align-top text-right font-mono text-sm font-extrabold text-amber-900">
+                        Rs. {ret.refundAmount.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {filteredReturns.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-slate-500">
+                      No customer returns or credit notes recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Sales Return Modal */}
       {returningInvoice && (
@@ -370,7 +637,7 @@ export const SalesHistoryView: React.FC = () => {
           invoice={returningInvoice}
           onClose={() => setReturningInvoice(null)}
           onSuccess={(refund) => {
-            alert(`Sales return processed successfully! Refund amount: Rs. ${refund.toFixed(2)}`);
+            showToast(`Sales return processed successfully! Refund amount: Rs. ${refund.toFixed(2)}`, 'success', 'Return Processed');
             setReturningInvoice(null);
           }}
         />

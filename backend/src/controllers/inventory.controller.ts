@@ -377,7 +377,7 @@ export const getAllInventory = async (req: Request, res: Response): Promise<void
           generic: true,
           category: true,
           rack: true,
-        
+
         distributor: true,},
         orderBy,
         skip: isAll || isLowStockRequested ? undefined : (parsedPage - 1) * (parsedLimit || 50),
@@ -436,7 +436,7 @@ export const getInventoryById = async (req: Request, res: Response): Promise<voi
         generic: true,
         category: true,
         rack: true,
-      
+
         distributor: true,},
     });
 
@@ -522,7 +522,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    
+
     // ========================================================
     // DUPLICATE MEDICINE + BATCH PROTECTION
     //
@@ -546,7 +546,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
     }
 
 
-    
+
     const distributorResolutionOnCreate =
       await resolveInventoryDistributor(
         req.body
@@ -672,7 +672,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         genericId: finalGenericId,
         categoryId: finalCategoryId,
         rackId: finalRackId,
-        
+
         distributorId:
           finalDistributorId,
 
@@ -694,7 +694,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      
+
         distributor: true,},
     });
 
@@ -844,14 +844,98 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       if (!isNaN(val) && val > 0) updateData.unitPerPack = val;
     }
 
-    if (packInStock !== undefined || stockPacks !== undefined) {
-      const val = parseInt(String(packInStock ?? stockPacks), 10);
-      if (!isNaN(val)) updateData.packInStock = Math.max(0, val);
+    /*
+     * STOCK QUANTITY SAFETY
+     *
+     * Normal inventory editing may update medicine metadata,
+     * pricing, rack, VAT, etc., but it must not silently
+     * change physical stock.
+     *
+     * All actual stock changes must go through:
+     *
+     *   POST /inventory/:id/adjust
+     *
+     * so a StockAdjustmentLog is always created.
+     *
+     * We still tolerate forms that send the current unchanged
+     * stock values back to the API.
+     */
+    if (
+      packInStock !== undefined ||
+      stockPacks !== undefined
+    ) {
+      const requestedPacks =
+        Number(
+          packInStock ??
+          stockPacks
+        );
+
+      if (
+        !Number.isInteger(
+          requestedPacks
+        ) ||
+        requestedPacks < 0
+      ) {
+        res.status(400).json({
+          success: false,
+          message:
+            "Pack stock must be a non-negative whole number.",
+        });
+
+        return;
+      }
+
+      if (
+        requestedPacks !==
+        existing.packInStock
+      ) {
+        res.status(409).json({
+          success: false,
+          message:
+            "Physical stock cannot be changed through normal inventory editing. Use the Physical Stock Adjustment workflow so the change is audited.",
+        });
+
+        return;
+      }
     }
 
-    if (unitInStock !== undefined || stockLooseUnits !== undefined) {
-      const val = parseInt(String(unitInStock ?? stockLooseUnits), 10);
-      if (!isNaN(val)) updateData.unitInStock = Math.max(0, val);
+    if (
+      unitInStock !== undefined ||
+      stockLooseUnits !== undefined
+    ) {
+      const requestedLoose =
+        Number(
+          unitInStock ??
+          stockLooseUnits
+        );
+
+      if (
+        !Number.isInteger(
+          requestedLoose
+        ) ||
+        requestedLoose < 0
+      ) {
+        res.status(400).json({
+          success: false,
+          message:
+            "Loose-unit stock must be a non-negative whole number.",
+        });
+
+        return;
+      }
+
+      if (
+        requestedLoose !==
+        existing.unitInStock
+      ) {
+        res.status(409).json({
+          success: false,
+          message:
+            "Physical stock cannot be changed through normal inventory editing. Use the Physical Stock Adjustment workflow so the change is audited.",
+        });
+
+        return;
+      }
     }
 
     if (packAlertLevel !== undefined || reorderLevel !== undefined) {
@@ -903,7 +987,7 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
 
-    
+
     const distributorResolutionOnUpdate =
       await resolveInventoryDistributor(
         req.body
@@ -963,7 +1047,7 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
         generic: true,
         category: true,
         rack: true,
-      
+
         distributor: true,},
     });
 

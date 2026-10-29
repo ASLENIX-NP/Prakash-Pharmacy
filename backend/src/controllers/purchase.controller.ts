@@ -23,6 +23,7 @@ export const formatPurchaseResponse = (purchase: any) => {
     batchNumber: it.batchNumber,
     expiryDate: it.expiryDate,
     packQty: it.packQty,
+    looseUnits: it.looseUnits || 0,
     freePacks: it.freePacks || 0,
     unitsPerPack: it.unitsPerPack || 10,
     costPrice: Number(it.costPrice || 0),
@@ -142,6 +143,14 @@ export const getPurchaseById = async (req: Request, res: Response): Promise<void
     });
   }
 };
+
+class PurchaseValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PurchaseValidationError";
+  }
+}
+
 
 export const createPurchase = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -293,22 +302,64 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         let linkedInventoryId: number;
 
         if (existingInventory) {
-          // Increment existing batch stock (both full packs and loose tabs)
-          const updated = await tx.inventory.update({
-            where: { id: existingInventory.id },
-            data: {
-              packInStock: existingInventory.packInStock + totalPacksReceived,
-              unitInStock: (existingInventory.unitInStock || 0) + looseUnits,
-              costPrice: costPrice > 0 ? costPrice : existingInventory.costPrice,
-              sellingPrice: mrpPrice > 0 ? mrpPrice : existingInventory.sellingPrice,
-              expiryDate: existingInventory.expiryDate || expiryDate,
-              distributorId: targetDistributorId,
-              hasvat: isVatApplicable,
-              unitPerPack: unitsPerPack,
-              rackId: rack.id,
-            },
-          });
-          linkedInventoryId = updated.id;
+          /*
+           * EXISTING-BATCH SAFETY
+           *
+           * A later purchase may add quantity to an existing
+           * batch, but must not overwrite that batch's metadata.
+           *
+           * Otherwise cancellation could subtract stock but
+           * could not reliably restore the previous metadata.
+           */
+          const existingUnitsPerPack =
+            Math.max(
+              1,
+              Number(
+                existingInventory.unitPerPack ||
+                1
+              )
+            );
+
+          if (
+            unitsPerPack !==
+            existingUnitsPerPack
+          ) {
+            throw new PurchaseValidationError(
+              `Cannot add purchase item '${medicineName}' batch '${batchNumber}' to the existing inventory batch because units per pack differ. Existing batch: ${existingUnitsPerPack}; purchase: ${unitsPerPack}. Use a separate batch/inventory record instead.`
+            );
+          }
+
+          /*
+           * QUANTITY ONLY.
+           *
+           * Preserve the existing batch's:
+           * cost price, selling price, VAT flag, expiry,
+           * distributor, rack, pack size, generic/category,
+           * barcode and notes.
+           */
+          const updated =
+            await tx.inventory.update({
+              where: {
+                id:
+                  existingInventory.id,
+              },
+
+              data: {
+                packInStock:
+                  existingInventory.packInStock +
+                  totalPacksReceived,
+
+                unitInStock:
+                  (
+                    existingInventory.unitInStock ||
+                    0
+                  ) +
+                  looseUnits,
+              },
+            });
+
+          linkedInventoryId =
+            updated.id;
         } else {
           // Create new batch inventory record (with packs and loose tabs)
           const created = await tx.inventory.create({
@@ -344,6 +395,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
             batchNumber,
             expiryDate,
             packQty,
+            looseUnits,
             freePacks,
             unitsPerPack,
             costPrice,
@@ -411,125 +463,531 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       data: formatPurchaseResponse(createdPurchase),
     });
   } catch (error) {
-    console.error("Error creating purchase invoice:", error);
-    res.status(500).json({
+    console.error(
+      "Error creating purchase invoice:",
+      error
+    );
+
+    const statusCode =
+      error instanceof PurchaseValidationError
+        ? 409
+        : 500;
+
+    res.status(statusCode).json({
       success: false,
-      message: error instanceof Error ? error.message : "Failed to record purchase invoice.",
+
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to record purchase invoice.",
     });
   }
 };
 
+class PurchaseCancellationConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name =
+      "PurchaseCancellationConflictError";
+  }
+}
+
+
 // ==========================================
 // 4. CANCEL / DELETE PURCHASE INVOICE
 // ==========================================
-export const deletePurchase = async (req: Request, res: Response): Promise<void> => {
+export const deletePurchase = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
-    const id = parseIdParam(req.params.id);
+    const id =
+      parseIdParam(
+        req.params.id
+      );
+
     if (!id) {
       res.status(400).json({
         success: false,
-        message: "Invalid purchase invoice ID.",
+        message:
+          "Invalid purchase invoice ID.",
       });
+
       return;
     }
 
-    const purchase = await prisma.purchaseInvoice.findUnique({
-      where: { id },
-      include: {
-        distributor: true,
-        items: true,
-      },
-    });
+
+    const purchase =
+      await prisma.purchaseInvoice.findUnique({
+        where: {
+          id,
+        },
+
+        include: {
+          distributor: true,
+          items: true,
+        },
+      });
+
 
     if (!purchase) {
       res.status(404).json({
         success: false,
-        message: "Purchase invoice not found.",
+        message:
+          "Purchase invoice not found.",
       });
+
       return;
     }
 
-    await prisma.$transaction(async (tx) => {
-      // 1. Revert stock from inventory
-      for (const item of purchase.items) {
-        if (item.inventoryId) {
-          const inv = await tx.inventory.findUnique({
-            where: { id: item.inventoryId },
-          });
 
-          if (inv) {
-            const packDeduction = item.packQty + (item.freePacks || 0);
-            const newPackStock = Math.max(0, inv.packInStock - packDeduction);
+    await prisma.$transaction(
+      async (tx) => {
+        /*
+         * CREDIT PURCHASE ACCOUNTING GUARD
+         *
+         * Payments/returns are not allocated to individual
+         * purchase invoices in the current schema.
+         *
+         * Therefore an older credit purchase must not be
+         * deleted after later supplier ledger activity,
+         * otherwise currentBalance and later ledger balance
+         * snapshots become unreliable.
+         */
+        if (
+          purchase.paymentMode
+            .toLowerCase() ===
+          "credit"
+        ) {
+          const purchaseLedger =
+            await tx.ledger.findFirst({
+              where: {
+                distributorId:
+                  purchase.distributorId,
 
-            // Check if there are sales from this inventory item
-            const salesCount = await tx.billItem.count({
-              where: { inventoryId: inv.id },
+                OR: [
+                  {
+                    invoiceId:
+                      purchase.id,
+                  },
+
+                  {
+                    referenceNo:
+                      purchase.invoiceNumber,
+
+                    ledgerType:
+                      "purchase",
+                  },
+                ],
+              },
+
+              orderBy: {
+                id: "asc",
+              },
             });
 
-            if (newPackStock === 0 && inv.unitInStock === 0 && salesCount === 0) {
-              await tx.stockAdjustmentLog.deleteMany({
-                where: { medicineId: inv.id },
-              });
-              await tx.inventory.delete({
-                where: { id: inv.id },
-              });
-            } else {
-              await tx.inventory.update({
-                where: { id: inv.id },
-                data: {
-                  packInStock: newPackStock,
+
+          if (!purchaseLedger) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: its supplier ledger entry is missing. Manual accounting review is required.`
+            );
+          }
+
+
+          const laterLedger =
+            await tx.ledger.findFirst({
+              where: {
+                distributorId:
+                  purchase.distributorId,
+
+                id: {
+                  gt:
+                    purchaseLedger.id,
                 },
-              });
-            }
+              },
+
+              orderBy: {
+                id: "asc",
+              },
+            });
+
+
+          if (laterLedger) {
+            const activity =
+              laterLedger.ledgerType ===
+              "payment"
+                ? "supplier payment"
+                : laterLedger.ledgerType ===
+                  "return"
+                  ? "supplier return / debit note"
+                  : laterLedger.ledgerType ===
+                    "purchase"
+                    ? "later purchase"
+                    : "later supplier ledger activity";
+
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel credit purchase #${purchase.invoiceNumber} because a ${activity} was recorded afterward. Reverse/reconcile the later supplier activity first.`
+            );
           }
         }
-      }
 
-      // 2. Revert distributor balance if credit purchase
-      const grandTotalNum = Number(purchase.grandTotal || 0);
-      if (purchase.paymentMode.toLowerCase() === "credit" && purchase.distributorId) {
-        const dist = await tx.distributor.findUnique({
-          where: { id: purchase.distributorId },
-        });
 
-        if (dist) {
-          const newBal = Math.max(0, Number(dist.currentBalance || 0) - grandTotalNum);
+        /*
+         * STOCK SAFETY GUARDS
+         *
+         * Never clamp stock to zero.
+         *
+         * If the linked stock was sold, returned, adjusted,
+         * or there is no longer enough quantity available,
+         * cancellation is rejected instead of corrupting
+         * inventory.
+         */
+        for (
+          const item of
+            purchase.items
+        ) {
+          if (!item.inventoryId) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: linked inventory is missing for '${item.medicineName}'.`
+            );
+          }
+
+
+          const inventory =
+            await tx.inventory.findUnique({
+              where: {
+                id:
+                  item.inventoryId,
+              },
+            });
+
+
+          if (!inventory) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: inventory batch for '${item.medicineName}' no longer exists.`
+            );
+          }
+
+
+          const purchasedPacks =
+            item.packQty +
+            (item.freePacks || 0);
+
+          const purchasedLoose =
+            item.looseUnits || 0;
+
+
+          /*
+           * A sale after this purchase means we cannot prove
+           * that the exact purchased quantity remains untouched.
+           */
+          const laterSales =
+            await tx.billItem.count({
+              where: {
+                inventoryId:
+                  inventory.id,
+
+                invoice: {
+                  transactionDate: {
+                    gte:
+                      purchase.createdAt,
+                  },
+                },
+              },
+            });
+
+
+          if (laterSales > 0) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: '${item.medicineName}' has sales recorded after this purchase. Reverse/return those sales before cancelling the purchase.`
+            );
+          }
+
+
+          /*
+           * Wholesaler returns and physical stock changes create
+           * StockAdjustmentLog rows. Once that happens, deleting
+           * the original purchase is no longer a safe reversal.
+           */
+          const laterAdjustments =
+            await tx.stockAdjustmentLog.count({
+              where: {
+                medicineId:
+                  inventory.id,
+
+                createdAt: {
+                  gte:
+                    purchase.createdAt,
+                },
+              },
+            });
+
+
+          if (
+            laterAdjustments > 0
+          ) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: stock for '${item.medicineName}' was adjusted or returned after this purchase.`
+            );
+          }
+
+
+          if (
+            inventory.packInStock <
+              purchasedPacks ||
+            inventory.unitInStock <
+              purchasedLoose
+          ) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: insufficient remaining stock for '${item.medicineName}'. Available: ${inventory.packInStock} packs + ${inventory.unitInStock} loose; required to reverse: ${purchasedPacks} packs + ${purchasedLoose} loose.`
+            );
+          }
+
+
+          const newPackStock =
+            inventory.packInStock -
+            purchasedPacks;
+
+          const newLooseStock =
+            inventory.unitInStock -
+            purchasedLoose;
+
+
+          /*
+           * Historical BillItem records reference inventory.
+           * Keep a zero-stock inventory row if old sales exist.
+           */
+          const historicalSales =
+            await tx.billItem.count({
+              where: {
+                inventoryId:
+                  inventory.id,
+              },
+            });
+
+
+          /*
+           * Do not assume a zero-stock inventory row was created
+           * by this purchase.
+           *
+           * A pre-existing batch may have had zero stock before
+           * the purchase. Deleting that row during cancellation
+           * would destroy metadata that existed beforehand.
+           */
+          const otherPurchaseLinks =
+            await tx.purchaseInvoiceItem.count({
+              where: {
+                inventoryId:
+                  inventory.id,
+
+                invoiceId: {
+                  not:
+                    purchase.id,
+                },
+              },
+            });
+
+
+          const purchaseCreationNote =
+            `Purchased via Inward Invoice #${purchase.invoiceNumber}`;
+
+
+          const createdByThisPurchase =
+            String(
+              inventory.notes ||
+              ""
+            ).trim() ===
+              purchaseCreationNote &&
+            inventory.createdAt >=
+              purchase.createdAt;
+
+
+          const canDeleteInventoryRow =
+            newPackStock === 0 &&
+            newLooseStock === 0 &&
+            historicalSales === 0 &&
+            otherPurchaseLinks === 0 &&
+            createdByThisPurchase;
+
+
+          if (
+            canDeleteInventoryRow
+          ) {
+            await tx.stockAdjustmentLog.deleteMany({
+              where: {
+                medicineId:
+                  inventory.id,
+              },
+            });
+
+            await tx.inventory.delete({
+              where: {
+                id:
+                  inventory.id,
+              },
+            });
+          }
+          else {
+            /*
+             * Quantity reversal only.
+             *
+             * Existing batch metadata remains intact.
+             */
+            await tx.inventory.update({
+              where: {
+                id:
+                  inventory.id,
+              },
+
+              data: {
+                packInStock:
+                  newPackStock,
+
+                unitInStock:
+                  newLooseStock,
+              },
+            });
+          }
+        }
+
+
+        /*
+         * Only now is it safe to reverse the credit liability.
+         * Do NOT clamp the balance to zero; a negative supplier
+         * balance can represent a legitimate advance/overpayment.
+         */
+        if (
+          purchase.paymentMode
+            .toLowerCase() ===
+            "credit"
+        ) {
+          const distributor =
+            await tx.distributor.findUnique({
+              where: {
+                id:
+                  purchase.distributorId,
+              },
+            });
+
+
+          if (!distributor) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: distributor record no longer exists.`
+            );
+          }
+
+
+          const newBalance =
+            Number(
+              distributor.currentBalance ||
+                0
+            ) -
+            Number(
+              purchase.grandTotal ||
+                0
+            );
+
+
           await tx.distributor.update({
-            where: { id: dist.id },
-            data: { currentBalance: newBal },
+            where: {
+              id:
+                distributor.id,
+            },
+
+            data: {
+              currentBalance:
+                newBalance,
+            },
           });
         }
+
+
+        /*
+         * Delete only ledger rows belonging to this purchase.
+         */
+        await tx.ledger.deleteMany({
+          where: {
+            OR: [
+              {
+                invoiceId:
+                  purchase.id,
+              },
+
+              {
+                AND: [
+                  {
+                    distributorId:
+                      purchase.distributorId,
+                  },
+
+                  {
+                    referenceNo:
+                      purchase.invoiceNumber,
+                  },
+
+                  {
+                    ledgerType:
+                      "purchase",
+                  },
+                ],
+              },
+            ],
+          },
+        });
+
+
+        await tx.purchaseInvoiceItem.deleteMany({
+          where: {
+            invoiceId:
+              purchase.id,
+          },
+        });
+
+
+        await tx.purchaseInvoice.delete({
+          where: {
+            id:
+              purchase.id,
+          },
+        });
       }
+    );
 
-      // 3. Delete linked ledger entries
-      await tx.ledger.deleteMany({
-        where: {
-          OR: [
-            { invoiceId: purchase.id },
-            { referenceNo: purchase.invoiceNumber },
-          ],
-        },
-      });
-
-      // 4. Delete purchase invoice items and invoice
-      await tx.purchaseInvoiceItem.deleteMany({
-        where: { invoiceId: purchase.id },
-      });
-
-      await tx.purchaseInvoice.delete({
-        where: { id: purchase.id },
-      });
-    });
 
     res.status(200).json({
       success: true,
-      message: `Purchase invoice #${purchase.invoiceNumber} cancelled and stock/ledger reverted successfully.`,
+
+      message:
+        `Purchase invoice #${purchase.invoiceNumber} cancelled safely. Stock and supplier ledger were reverted.`,
     });
   } catch (error) {
-    console.error("Error cancelling purchase invoice:", error);
+    if (
+      error instanceof
+      PurchaseCancellationConflictError
+    ) {
+      res.status(409).json({
+        success: false,
+        message:
+          error.message,
+      });
+
+      return;
+    }
+
+
+    console.error(
+      "Error cancelling purchase invoice:",
+      error
+    );
+
+
     res.status(500).json({
       success: false,
-      message: error instanceof Error ? error.message : "Failed to cancel purchase invoice.",
+
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to cancel purchase invoice.",
     });
   }
 };

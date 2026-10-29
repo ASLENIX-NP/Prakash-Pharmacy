@@ -75,8 +75,14 @@ interface ClinicVisit {
   // Temporary compatibility alias from backend.
   chargeNote: string | null;
 
-  status: 'open' | 'completed';
+  status: 'open' | 'completed' | 'cancelled' | 'voided';
   completedAt: string | null;
+
+  cancelledAt: string | null;
+  cancelReason: string | null;
+
+  voidedAt: string | null;
+  voidReason: string | null;
 
   createdBy: CreatedBy | null;
 
@@ -108,8 +114,14 @@ interface PatientHistoryVisit {
 
   chargeNote: string | null;
 
-  status: 'open' | 'completed';
+  status: 'open' | 'completed' | 'cancelled' | 'voided';
   completedAt: string | null;
+
+  cancelledAt: string | null;
+  cancelReason: string | null;
+
+  voidedAt: string | null;
+  voidReason: string | null;
 
   createdBy: CreatedBy | null;
 }
@@ -393,27 +405,182 @@ export const OpdRecordsPanel: React.FC = () => {
       []
     );
 
-  const handleCancelVisit = async (visit: ClinicVisit) => {
-    const confirmCancel = window.confirm(
-      `Are you sure you want to cancel OPD ticket ${visit.opdNumber} for patient "${visit.patient.name}"?\n\nThis will permanently delete this OPD registration.`
-    );
-    if (!confirmCancel) return;
+  const handleCancelVisit = async (
+    visit: ClinicVisit
+  ) => {
+    if (
+      visit.status !==
+      'open'
+    ) {
+      return;
+    }
+
+    const reason =
+      window.prompt(
+        `Reason for cancelling ${visit.opdNumber}?\n\nThe OPD record will be preserved as CANCELLED.`,
+        ''
+      );
+
+    if (reason === null) {
+      return;
+    }
+
+    const confirmCancel =
+      window.confirm(
+        `Cancel ${visit.opdNumber} for "${visit.patient.name}"?\n\nThis will NOT delete the OPD. Its status will become CANCELLED.`
+      );
+
+    if (!confirmCancel) {
+      return;
+    }
 
     try {
-      setCancelingVisitId(visit.id);
-      const res = await apiRequest<{ success: boolean; message: string }>(
-        `/clinic-visits/${encodeURIComponent(visit.id)}`,
-        { method: 'DELETE' }
+      setCancelingVisitId(
+        visit.id
       );
-      alert(res?.message || 'OPD ticket cancelled successfully.');
-      if (selectedVisit?.id === visit.id) {
-        setSelectedVisit(null);
+
+      const res =
+        await apiRequest<{
+          success: boolean;
+          message: string;
+        }>(
+          `/clinic-visits/${encodeURIComponent(
+            visit.id
+          )}`,
+          {
+            method:
+              'DELETE',
+
+            body:
+              JSON.stringify({
+                reason:
+                  reason.trim(),
+              }),
+          }
+        );
+
+      alert(
+        res?.message ||
+          'OPD cancelled successfully.'
+      );
+
+      if (
+        selectedVisit?.id ===
+        visit.id
+      ) {
+        setSelectedVisit(
+          null
+        );
       }
-      await loadVisits(filters);
+
+      await fetchVisits(
+        filters
+      );
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to cancel OPD visit.');
+      alert(
+        err instanceof Error
+          ? err.message
+          : 'Failed to cancel OPD visit.'
+      );
     } finally {
-      setCancelingVisitId(null);
+      setCancelingVisitId(
+        null
+      );
+    }
+  };
+
+
+  const handleVoidVisit = async (
+    visit: ClinicVisit
+  ) => {
+    if (
+      visit.status !==
+      'completed'
+    ) {
+      return;
+    }
+
+    const reason =
+      window.prompt(
+        `Reason for voiding completed OPD ${visit.opdNumber}?\n\nThe completed consultation will remain in history but will no longer count as finalized clinic revenue.`,
+        ''
+      );
+
+    if (reason === null) {
+      return;
+    }
+
+    if (
+      reason.trim().length < 3
+    ) {
+      alert(
+        'Please enter a reason for voiding this completed OPD.'
+      );
+
+      return;
+    }
+
+    const confirmVoid =
+      window.confirm(
+        `Void completed OPD ${visit.opdNumber}?\n\nThis does not delete the record. Charges and completion history will be preserved.`
+      );
+
+    if (!confirmVoid) {
+      return;
+    }
+
+    try {
+      setCancelingVisitId(
+        visit.id
+      );
+
+      const res =
+        await apiRequest<{
+          success: boolean;
+          message: string;
+        }>(
+          `/clinic-visits/${encodeURIComponent(
+            visit.id
+          )}/void`,
+          {
+            method:
+              'PUT',
+
+            body:
+              JSON.stringify({
+                reason:
+                  reason.trim(),
+              }),
+          }
+        );
+
+      alert(
+        res?.message ||
+          'OPD voided successfully.'
+      );
+
+      if (
+        selectedVisit?.id ===
+        visit.id
+      ) {
+        setSelectedVisit(
+          null
+        );
+      }
+
+      await fetchVisits(
+        filters
+      );
+    } catch (err) {
+      alert(
+        err instanceof Error
+          ? err.message
+          : 'Failed to void OPD visit.'
+      );
+    } finally {
+      setCancelingVisitId(
+        null
+      );
     }
   };
 
@@ -989,6 +1156,14 @@ export const OpdRecordsPanel: React.FC = () => {
 
             <option value="completed">
               Completed
+            </option>
+
+            <option value="cancelled">
+              Cancelled
+            </option>
+
+            <option value="voided">
+              Voided
             </option>
           </select>
 
@@ -2010,13 +2185,35 @@ export const OpdRecordsPanel: React.FC = () => {
                           {isAdmin && (
                             <button
                               type="button"
-                              disabled={cancelingVisitId === visit.id}
-                              onClick={() => handleCancelVisit(visit)}
+                              disabled={
+                                cancelingVisitId === visit.id ||
+                                visit.status === 'cancelled' ||
+                                visit.status === 'voided'
+                              }
+                              onClick={() =>
+                                visit.status === 'completed'
+                                  ? void handleVoidVisit(visit)
+                                  : void handleCancelVisit(visit)
+                              }
                               className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-700 hover:border-red-300 hover:bg-red-100 disabled:opacity-50"
-                              title="Cancel / Void this OPD Ticket"
+                              title={
+                                visit.status === 'completed'
+                                  ? 'Void completed OPD'
+                                  : visit.status === 'open'
+                                    ? 'Cancel open OPD'
+                                    : 'No further action available'
+                              }
                             >
                               <Trash2 className="h-3.5 w-3.5 text-red-600" />
-                              {cancelingVisitId === visit.id ? 'Cancelling...' : 'Cancel'}
+                              {cancelingVisitId === visit.id
+                                ? 'Saving...'
+                                : visit.status === 'completed'
+                                  ? 'Void'
+                                  : visit.status === 'open'
+                                    ? 'Cancel'
+                                    : visit.status === 'voided'
+                                      ? 'Voided'
+                                      : 'Cancelled'}
                             </button>
                           )}
                         </div>

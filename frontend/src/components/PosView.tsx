@@ -36,6 +36,11 @@ export const PosView: React.FC = () => {
 
   const [cart, setCart] = useState<SaleItem[]>([]);
 
+  const [
+    isCompletingSale,
+    setIsCompletingSale,
+  ] = useState(false);
+
   // ============================================================
   // CUSTOMER
   // ============================================================
@@ -247,6 +252,7 @@ export const PosView: React.FC = () => {
 
     const newItem: SaleItem = {
       medicineId: medicine.id,
+      inventoryId: Number(medicine.id) || undefined,
       medicineName: medicine.name,
       genericName: medicine.genericName,
       category: medicine.category,
@@ -451,86 +457,120 @@ export const PosView: React.FC = () => {
   // ============================================================
 
   const totals = useMemo(() => {
-    const grossSubtotal =
+    const roundMoney = (value: number) =>
+      Math.round((value + Number.EPSILON) * 100) / 100;
+
+    const grossSubtotal = roundMoney(
       cart.reduce(
-        (total, item) =>
-          total + item.lineTotal,
+        (total, item) => total + item.lineTotal,
         0
+      )
+    );
+
+    const safeDiscountValue = Math.max(
+      0,
+      Number(discountValue) || 0
+    );
+
+    let discountAmount =
+      discountType === 'percent'
+        ? roundMoney(
+            grossSubtotal *
+              Math.min(100, safeDiscountValue) /
+              100
+          )
+        : roundMoney(
+            Math.min(
+              grossSubtotal,
+              safeDiscountValue
+            )
+          );
+
+    discountAmount = Math.min(
+      grossSubtotal,
+      Math.max(0, discountAmount)
+    );
+
+    let remainingDiscount =
+      discountAmount;
+
+    let vatExemptSubtotal = 0;
+    let taxableBaseSubtotal = 0;
+    let vatAmount = 0;
+
+    cart.forEach((item, index) => {
+      const lineGross =
+        roundMoney(item.lineTotal);
+
+      const isLastLine =
+        index === cart.length - 1;
+
+      const proportionalDiscount =
+        grossSubtotal > 0
+          ? roundMoney(
+              discountAmount *
+                lineGross /
+                grossSubtotal
+            )
+          : 0;
+
+      const lineDiscount = Math.min(
+        lineGross,
+        remainingDiscount,
+        isLastLine
+          ? remainingDiscount
+          : proportionalDiscount
       );
 
-    const vatExemptSubtotal =
-      cart
-        .filter(
-          (item) =>
-            !item.isVatApplicable
+      remainingDiscount = roundMoney(
+        Math.max(
+          0,
+          remainingDiscount - lineDiscount
         )
-        .reduce(
-          (total, item) =>
-            total +
-            item.lineTotal,
-          0
+      );
+
+      const lineNet = roundMoney(
+        lineGross - lineDiscount
+      );
+
+      if (item.isVatApplicable) {
+        const lineTaxBase =
+          roundMoney(lineNet / 1.13);
+
+        const lineVat = roundMoney(
+          lineNet - lineTaxBase
         );
 
-    const taxableGross =
-      cart
-        .filter(
-          (item) =>
-            item.isVatApplicable
-        )
-        .reduce(
-          (total, item) =>
-            total +
-            item.lineTotal,
-          0
-        );
+        taxableBaseSubtotal +=
+          lineTaxBase;
 
-    const taxableBaseSubtotal =
-      taxableGross > 0
-        ? taxableGross / 1.13
-        : 0;
+        vatAmount +=
+          lineVat;
+      } else {
+        vatExemptSubtotal +=
+          lineNet;
+      }
+    });
 
-    const vatAmount =
-      taxableGross > 0
-        ? taxableGross -
-          taxableBaseSubtotal
-        : 0;
+    vatExemptSubtotal =
+      roundMoney(vatExemptSubtotal);
 
-    let discountAmount = 0;
+    taxableBaseSubtotal =
+      roundMoney(taxableBaseSubtotal);
 
-    if (
-      discountType ===
-      'percent'
-    ) {
-      discountAmount =
-        (grossSubtotal *
-          (discountValue || 0)) /
-        100;
-    } else {
-      discountAmount =
-        discountValue || 0;
-    }
+    vatAmount =
+      roundMoney(vatAmount);
 
-    if (
-      discountAmount >
-      grossSubtotal
-    ) {
-      discountAmount =
-        grossSubtotal;
-    }
+    const grandTotal = roundMoney(
+      grossSubtotal - discountAmount
+    );
 
-    const grandTotal =
+    const changeGiven = roundMoney(
       Math.max(
         0,
-        grossSubtotal -
-          discountAmount
-      );
-
-    const changeGiven =
-      Math.max(
-        0,
-        (cashTendered || 0) -
-          grandTotal
-      );
+        (cashTendered || 0) - grandTotal
+      )
+    );
 
     return {
       grossSubtotal,
@@ -552,7 +592,11 @@ export const PosView: React.FC = () => {
   // COMPLETE SALE
   // ============================================================
 
-  const handleCompleteSale = () => {
+  const handleCompleteSale = async () => {
+    if (isCompletingSale) {
+      return;
+    }
+
     if (cart.length === 0) {
       alert(
         'Cart is empty. Add medicines before billing.'
@@ -570,8 +614,11 @@ export const PosView: React.FC = () => {
       return;
     }
 
-    const saleRecord =
-      completeSale({
+    try {
+      setIsCompletingSale(true);
+
+      const saleRecord =
+        await completeSale({
         date: new Date()
           .toISOString()
           .split('T')[0],
@@ -665,9 +712,23 @@ export const PosView: React.FC = () => {
     setDiscountValue(0);
     setCashTendered(0);
 
-    setActiveInvoiceToPrint(
-      saleRecord
-    );
+      setActiveInvoiceToPrint(
+        saleRecord
+      );
+    } catch (error) {
+      console.error(
+        'Sale could not be completed:',
+        error
+      );
+
+      alert(
+        error instanceof Error
+          ? error.message
+          : 'Sale could not be completed. Please try again.'
+      );
+    } finally {
+      setIsCompletingSale(false);
+    }
   };
 
   // ============================================================
@@ -822,15 +883,15 @@ export const PosView: React.FC = () => {
                       <p className="mt-1 truncate text-[11px] text-slate-500">
                         {medicine.genericName}
                         <span className="mx-1.5 text-slate-300">
-                          •
+                          â€¢
                         </span>
                         Batch {medicine.batchNumber}
                         <span className="mx-1.5 text-slate-300">
-                          •
+                          â€¢
                         </span>
                         Rack {medicine.rackLocation}
                         <span className="mx-1.5 text-slate-300">
-                          •
+                          â€¢
                         </span>
 
                         <span
@@ -863,9 +924,9 @@ export const PosView: React.FC = () => {
                         {' + '}
                         {medicine.stockLooseUnits} units
                         {isExpired
-                          ? ' · Expired'
+                          ? ' Â· Expired'
                           : isLowStock
-                            ? ' · Low'
+                            ? ' Â· Low'
                             : ''}
                       </p>
 
@@ -884,7 +945,7 @@ export const PosView: React.FC = () => {
                       <p className="mt-0.5 text-[10px] font-medium text-slate-500">
                         {medicine.unitsPerPack > 1 ? (
                           <>
-                            Pack · <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
+                            Pack Â· <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
                           </>
                         ) : (
                           'MRP / pack'
@@ -1344,11 +1405,19 @@ export const PosView: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setDiscountType(
                           'percent'
-                        )
-                      }
+                        );
+
+                        setDiscountValue(
+                          (previous) =>
+                            Math.min(
+                              100,
+                              previous
+                            )
+                        );
+                      }}
                       className={`px-2.5 py-1.5 text-[11px] font-bold ${
                         discountType ===
                         'percent'
@@ -1369,9 +1438,22 @@ export const PosView: React.FC = () => {
                     value={discountValue || ''}
                     placeholder="0"
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(event) =>
-                      setDiscountValue(parseIntegerInput(event.target.value, 6) ?? 0)
-                    }
+                    onChange={(event) => {
+                      const parsedValue =
+                        parseIntegerInput(
+                          event.target.value,
+                          6
+                        ) ?? 0;
+
+                      setDiscountValue(
+                        discountType === 'percent'
+                          ? Math.min(
+                              100,
+                              parsedValue
+                            )
+                          : parsedValue
+                      );
+                    }}
                     className="h-8 w-20 rounded-lg border border-slate-200 px-2 text-right font-mono text-[12px] font-bold outline-none focus:border-teal-400"
                   />
 
@@ -1488,11 +1570,18 @@ export const PosView: React.FC = () => {
             {/* COMPLETE */}
             <button
               type="button"
-              disabled={cart.length === 0}
-              onClick={handleCompleteSale}
+              disabled={
+                cart.length === 0 ||
+                isCompletingSale
+              }
+              onClick={() => {
+                void handleCompleteSale();
+              }}
               className="mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
             >
-              Complete Bill &amp; Print VAT Invoice
+              {isCompletingSale
+                ? 'Completing Sale...'
+                : 'Complete Bill & Print VAT Invoice'}
             </button>
 
           </div>

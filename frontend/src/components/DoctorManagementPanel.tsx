@@ -196,10 +196,6 @@ export const DoctorManagementPanel: React.FC = () => {
     setError('');
     setSuccess('');
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    });
   };
 
 
@@ -463,9 +459,30 @@ export const DoctorManagementPanel: React.FC = () => {
 
 
       {/* Add / Edit Doctor */}
+
+      {editingDoctor && (
+        <button
+          type="button"
+          aria-label="Close edit doctor"
+          onClick={resetForm}
+          className="fixed inset-0 z-[70] cursor-default bg-slate-950/45"
+        />
+      )}
+
       <form
         onSubmit={handleSubmit}
-        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6"
+        role={editingDoctor ? 'dialog' : undefined}
+        aria-modal={editingDoctor ? true : undefined}
+        aria-label={
+          editingDoctor
+            ? `Edit ${editingDoctor.doctorCode}`
+            : 'Add Doctor'
+        }
+        className={
+          editingDoctor
+            ? 'fixed left-1/2 top-1/2 z-[80] max-h-[90vh] w-[calc(100%_-_2rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6'
+            : 'rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
+        }
       >
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -485,7 +502,9 @@ export const DoctorManagementPanel: React.FC = () => {
               </h2>
 
               <p className="mt-1 text-xs text-slate-500">
-                Store doctor details used in OPD entry and sticker printing.
+                {editingDoctor
+                  ? 'Update doctor details. Changes will apply to future OPD entries.'
+                  : 'Store doctor details used in OPD entry and sticker printing.'}
               </p>
             </div>
           </div>
@@ -497,7 +516,7 @@ export const DoctorManagementPanel: React.FC = () => {
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
             >
               <X className="h-3.5 w-3.5" />
-              Cancel Edit
+              Close
             </button>
           )}
         </div>

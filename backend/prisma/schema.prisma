@@ -103,6 +103,7 @@ model Inventory {
   // Relations
   billItems            BillItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
+  salesReturnItems     SalesReturnItem[]
   createdAt            DateTime              @default(now()) @map("created_at")
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
@@ -169,6 +170,8 @@ model Bill {
   // Line items
   items BillItem[]
 
+  salesReturns SalesReturn[]
+
   @@index([invoiceNumber])
   @@index([transactionDate])
   @@index([cashierId])
@@ -197,6 +200,8 @@ model BillItem {
   vatitemPrice   Decimal @default(0.00) @map("vatitem_price") @db.Decimal(12, 2)
   grossItemPrice Decimal @map("gross_item_price") @db.Decimal(12, 2)
   netItemPrice   Decimal @map("net_item_price") @db.Decimal(12, 2)
+
+  salesReturnItems SalesReturnItem[]
 
   @@index([invoiceId])
   @@index([inventoryId])
@@ -344,6 +349,7 @@ model PurchaseInvoiceItem {
   expiryDate   String  @map("expiry_date")
 
   packQty      Int @map("pack_qty")
+  looseUnits   Int @default(0) @map("loose_units")
   freePacks    Int @default(0) @map("free_packs")
   unitsPerPack Int @default(10) @map("units_per_pack")
 
@@ -363,28 +369,28 @@ model PurchaseInvoiceItem {
 // 14. Pharmacy Store Settings
 // ==========================================
 model PharmacySetting {
-  id                        Int      @id @default(autoincrement())
-  storeName                 String   @default("Prakash Pharmacy") @map("store_name")
-  address                   String   @default("") @map("address")
-  phoneNumber               String   @default("") @map("phone_number")
-  emailId                   String   @default("") @map("email_id")
-  panNumber                 String   @default("") @map("pan_number")
-  ddaLicenceNumber          String   @default("") @map("dda_licence_number")
-  vatRegistered             Boolean  @default(true) @map("vat_registered")
-  storeLogo                 String?  @map("store_logo") @db.Text
-  pharmacistName            String   @default("") @map("pharmacist_name")
-  pharmacistCouncilRegNumber String  @default("") @map("pharmacist_council_reg_number")
-  ddaLicenceExpiryDate      String   @default("") @map("dda_licence_expiry_date")
-  currency                  String   @default("NPR") @map("currency")
-  fiscalYear                String   @default("2081/82") @map("fiscal_year")
-  invoicePrefix             String   @default("PP-2081/82-") @map("invoice_prefix")
-  nextInvoiceNumber         Int      @default(101) @map("next_invoice_number")
-  defaultInvoiceSize        String   @default("A5") @map("default_invoice_size")
-  invoiceDateFormat         String   @default("BS") @map("invoice_date_format")
-  receiptFooterNote         String   @default("Thank you for your visit. Medicines once sold cannot be returned without original bill.") @map("receipt_footer_note")
-  defaultLowStockThreshold  Int      @default(15) @map("default_low_stock_threshold")
-  nearExpiryThresholdMonths Int      @default(6) @map("near_expiry_threshold_months")
-  updatedAt                 DateTime @updatedAt @map("updated_at")
+  id                         Int      @id @default(autoincrement())
+  storeName                  String   @default("Prakash Pharmacy") @map("store_name")
+  address                    String   @default("") @map("address")
+  phoneNumber                String   @default("") @map("phone_number")
+  emailId                    String   @default("") @map("email_id")
+  panNumber                  String   @default("") @map("pan_number")
+  ddaLicenceNumber           String   @default("") @map("dda_licence_number")
+  vatRegistered              Boolean  @default(true) @map("vat_registered")
+  storeLogo                  String?  @map("store_logo") @db.Text
+  pharmacistName             String   @default("") @map("pharmacist_name")
+  pharmacistCouncilRegNumber String   @default("") @map("pharmacist_council_reg_number")
+  ddaLicenceExpiryDate       String   @default("") @map("dda_licence_expiry_date")
+  currency                   String   @default("NPR") @map("currency")
+  fiscalYear                 String   @default("2081/82") @map("fiscal_year")
+  invoicePrefix              String   @default("PP-2081/82-") @map("invoice_prefix")
+  nextInvoiceNumber          Int      @default(101) @map("next_invoice_number")
+  defaultInvoiceSize         String   @default("A5") @map("default_invoice_size")
+  invoiceDateFormat          String   @default("BS") @map("invoice_date_format")
+  receiptFooterNote          String   @default("Thank you for your visit. Medicines once sold cannot be returned without original bill.") @map("receipt_footer_note")
+  defaultLowStockThreshold   Int      @default(15) @map("default_low_stock_threshold")
+  nearExpiryThresholdMonths  Int      @default(6) @map("near_expiry_threshold_months")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   @@map("pharmacy_settings_tbl")
 }
@@ -473,6 +479,12 @@ model ClinicVisit {
 
   completedAt DateTime? @map("completed_at")
 
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelReason String?   @map("cancel_reason")
+
+  voidedAt   DateTime? @map("voided_at")
+  voidReason String?   @map("void_reason")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -481,4 +493,47 @@ model ClinicVisit {
   @@index([createdById])
   @@index([visitDateTime])
   @@map("clinic_visits_tbl")
+}
+
+// ==========================================
+// 18. Customer Sales Returns / Credit Notes
+// ==========================================
+model SalesReturn {
+  id               Int    @id @default(autoincrement())
+  creditNoteNumber String @unique @map("credit_note_number")
+  invoiceId        Int    @map("invoice_id")
+  invoice          Bill   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  returnDate   DateTime @default(now()) @map("return_date")
+  refundAmount Decimal  @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
+  reason       String?  @map("reason")
+  recordedBy   String?  @map("recorded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  items SalesReturnItem[]
+
+  @@index([invoiceId])
+  @@index([returnDate])
+  @@map("sales_returns_tbl")
+}
+
+model SalesReturnItem {
+  id          Int         @id @default(autoincrement())
+  returnId    Int         @map("return_id")
+  salesReturn SalesReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  billItemId Int      @map("bill_item_id")
+  billItem   BillItem @relation(fields: [billItemId], references: [id], onDelete: Restrict)
+
+  inventoryId Int       @map("inventory_id")
+  inventory   Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict)
+
+  quantityInPack Int     @default(0) @map("quantity_in_pack")
+  quantityInUnit Int     @default(0) @map("quantity_in_unit")
+  refundAmount   Decimal @default(0.00) @map("refund_amount") @db.Decimal(12, 2)
+
+  @@index([returnId])
+  @@index([billItemId])
+  @@index([inventoryId])
+  @@map("sales_return_items_tbl")
 }

@@ -52,6 +52,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
       setError('');
 
       const returnedItems: Array<{
+        billItemId?: number;
         inventoryId: number;
         quantityPacks: number;
         quantityLoose: number;
@@ -60,9 +61,10 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
       invoice.items.forEach((item, index) => {
         const entry = returnQtys[`${item.medicineId}-${index}`];
         if (entry && (entry.packs > 0 || entry.loose > 0)) {
-          const invId = parseInt(String(item.medicineId).replace(/\D/g, ''), 10) || 0;
+          const invId = item.inventoryId || parseInt(String(item.medicineId).replace(/\D/g, ''), 10) || 0;
           returnedItems.push({
             inventoryId: invId,
+            billItemId: item.billItemId || (typeof item.id === 'number' ? item.id : undefined),
             quantityPacks: entry.packs,
             quantityLoose: entry.loose,
           });
@@ -141,15 +143,36 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
                 {invoice.items.map((item, idx) => {
                   const key = `${item.medicineId}-${idx}`;
                   const entry = returnQtys[key] || { packs: 0, loose: 0 };
-                  const maxUnits = item.isLooseUnit ? item.quantity : 0;
-                  const maxPacks = item.isLooseUnit ? 0 : item.quantity;
+                  const alreadyReturned = item.alreadyReturnedQuantity || 0;
+                  const returnable = item.returnableQuantity !== undefined
+                    ? item.returnableQuantity
+                    : Math.max(0, item.quantity - alreadyReturned);
+                  const isFullyReturned = returnable <= 0;
+                  const maxUnits = item.isLooseUnit ? returnable : 0;
+                  const maxPacks = item.isLooseUnit ? 0 : returnable;
 
                   return (
-                    <div key={key} className="flex flex-wrap items-center justify-between gap-3 p-3.5">
+                    <div
+                      key={key}
+                      className={`flex flex-wrap items-center justify-between gap-3 p-3.5 transition ${
+                        isFullyReturned ? 'bg-slate-100/70 opacity-60' : ''
+                      }`}
+                    >
                       <div className="min-w-[180px] flex-1">
-                        <div className="font-bold text-slate-800 text-xs">{item.medicineName}</div>
-                        <div className="text-[11px] text-slate-500">
-                          Sold: <span className="font-bold text-slate-700">{item.quantity} {item.isLooseUnit ? 'Loose' : 'Pack(s)'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800 text-xs">{item.medicineName}</span>
+                          {isFullyReturned && (
+                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                              Fully Returned
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500">
+                          Sold: <span className="font-semibold text-slate-700">{item.quantity} {item.isLooseUnit ? 'Loose' : 'Pack(s)'}</span>
+                          {alreadyReturned > 0 && (
+                            <span className="font-semibold text-amber-700"> • Returned: {alreadyReturned}</span>
+                          )}
+                          <span className="font-semibold text-teal-700"> • Available to Return: {returnable}</span>
                           {item.batchNumber && <span> • Batch: {item.batchNumber}</span>}
                         </div>
                       </div>
@@ -162,6 +185,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
                               type="number"
                               min={0}
                               max={maxPacks}
+                              disabled={isFullyReturned}
                               value={entry.packs || ''}
                               onChange={(e) => {
                                 const val = Math.min(maxPacks, Math.max(0, parseInt(e.target.value || '0', 10)));
@@ -170,7 +194,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
                                   [key]: { ...prev[key], packs: val },
                                 }));
                               }}
-                              className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center font-mono text-xs font-bold focus:border-teal-500 focus:outline-none"
+                              className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center font-mono text-xs font-bold focus:border-teal-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
                             />
                           </div>
                         )}
@@ -182,6 +206,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
                               type="number"
                               min={0}
                               max={maxUnits}
+                              disabled={isFullyReturned}
                               value={entry.loose || ''}
                               onChange={(e) => {
                                 const val = Math.min(maxUnits, Math.max(0, parseInt(e.target.value || '0', 10)));
@@ -190,7 +215,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
                                   [key]: { ...prev[key], loose: val },
                                 }));
                               }}
-                              className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center font-mono text-xs font-bold focus:border-teal-500 focus:outline-none"
+                              className="w-16 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center font-mono text-xs font-bold focus:border-teal-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
                             />
                           </div>
                         )}

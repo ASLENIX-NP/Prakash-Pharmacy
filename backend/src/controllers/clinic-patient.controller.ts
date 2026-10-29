@@ -43,6 +43,194 @@ const formatClinicNumber = (
   `CL-${String(id).padStart(6, "0")}`;
 
 
+const formatDoctorCode = (
+  id: number
+): string =>
+  `DOC-${String(id).padStart(3, "0")}`;
+
+
+const formatOpdNumber = (
+  id: number
+): string =>
+  `OPD-${String(id).padStart(6, "0")}`;
+
+
+const formatPatientHistoryVisit = (
+  visit: any
+) => {
+  const totalCharge =
+    Number(
+      visit.totalCharge || 0
+    );
+
+  const additionalCharge =
+    Number(
+      visit.additionalCharge || 0
+    );
+
+  let consultationFee =
+    Number(
+      visit.consultationFee || 0
+    );
+
+
+  /*
+   * Compatibility for historical OPDs created before
+   * consultationFee/additionalCharge were introduced.
+   */
+  if (
+    consultationFee === 0 &&
+    additionalCharge === 0 &&
+    totalCharge > 0 &&
+    String(
+      visit.status || ""
+    ).toLowerCase() ===
+      "completed"
+  ) {
+    consultationFee =
+      totalCharge;
+  }
+
+
+  const additionalChargeNote =
+    visit.additionalChargeNote ??
+    visit.chargeNote ??
+    null;
+
+
+  return {
+    id:
+      formatOpdNumber(
+        visit.id
+      ),
+
+    opdNumber:
+      formatOpdNumber(
+        visit.id
+      ),
+
+    doctor: {
+      id:
+        formatDoctorCode(
+          visit.doctor.id
+        ),
+
+      doctorCode:
+        formatDoctorCode(
+          visit.doctor.id
+        ),
+
+      name:
+        visit.doctor.name,
+
+      speciality:
+        visit.doctor.speciality ??
+        null,
+
+      qualification:
+        visit.doctor.qualification ??
+        null,
+
+      nmcNumber:
+        visit.doctor.nmcNumber ??
+        null,
+    },
+
+    visitDateTime:
+      new Date(
+        visit.visitDateTime
+      ).toISOString(),
+
+    ageAtVisit:
+      visit.ageAtVisit,
+
+    consultationFee,
+
+    additionalCharge,
+
+    additionalChargeNote,
+
+    totalCharge,
+
+    /*
+     * Compatibility alias used by older frontend code.
+     */
+    chargeNote:
+      additionalChargeNote,
+
+    status:
+      String(
+        visit.status ||
+          "completed"
+      ).toLowerCase(),
+
+    completedAt:
+      visit.completedAt
+        ? new Date(
+            visit.completedAt
+          ).toISOString()
+        : null,
+
+    cancelledAt:
+      visit.cancelledAt
+        ? new Date(
+            visit.cancelledAt
+          ).toISOString()
+        : null,
+
+    cancelReason:
+      visit.cancelReason ??
+      null,
+
+    voidedAt:
+      visit.voidedAt
+        ? new Date(
+            visit.voidedAt
+          ).toISOString()
+        : null,
+
+    voidReason:
+      visit.voidReason ??
+      null,
+
+    createdBy:
+      visit.createdBy
+        ? {
+            id:
+              visit.createdBy.id,
+
+            username:
+              visit.createdBy.username,
+
+            name:
+              [
+                visit.createdBy.firstName,
+                visit.createdBy.lastName,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .trim() ||
+              visit.createdBy.username,
+          }
+        : null,
+
+    createdAt:
+      visit.createdAt
+        ? new Date(
+            visit.createdAt
+          ).toISOString()
+        : undefined,
+
+    updatedAt:
+      visit.updatedAt
+        ? new Date(
+            visit.updatedAt
+          ).toISOString()
+        : undefined,
+  };
+};
+
+
 const normalizeOptionalString = (
   value: unknown
 ): string | null => {
@@ -238,70 +426,9 @@ export const getClinicPatientById = async (
 
     const formattedVisits =
       patient.visits.map(
-        (visit) => ({
-          id:
-            `OPD-${String(
-              visit.id
-            ).padStart(6, "0")}`,
-
-          opdNumber:
-            `OPD-${String(
-              visit.id
-            ).padStart(6, "0")}`,
-
-          doctor: {
-            id:
-              `DOC-${String(
-                visit.doctor.id
-              ).padStart(3, "0")}`,
-
-            doctorCode:
-              `DOC-${String(
-                visit.doctor.id
-              ).padStart(3, "0")}`,
-
-            name:
-              visit.doctor.name,
-
-            speciality:
-              visit.doctor.speciality ?? "",
-
-            qualification:
-              visit.doctor.qualification ?? "",
-
-            nmcNumber:
-              visit.doctor.nmcNumber ?? "",
-          },
-
-          visitDateTime:
-            visit.visitDateTime.toISOString(),
-
-          ageAtVisit:
-            visit.ageAtVisit,
-
-          totalCharge:
-            Number(
-              visit.totalCharge
-            ),
-
-          chargeNote:
-            visit.chargeNote ?? "",
-
-          createdBy:
-            visit.createdBy
-              ? {
-                  id:
-                    visit.createdBy.id,
-
-                  username:
-                    visit.createdBy.username,
-
-                  name:
-                    `${visit.createdBy.firstName} ${visit.createdBy.lastName}`.trim(),
-                }
-              : null,
-        })
+        formatPatientHistoryVisit
       );
+
 
     res.status(200).json({
       success: true,

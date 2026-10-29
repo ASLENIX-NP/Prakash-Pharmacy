@@ -1,4 +1,14 @@
-const BASE_URL = '/api';
+const configuredBaseUrl =
+  import.meta.env.VITE_API_URL?.trim();
+
+const BASE_URL =
+  (
+    configuredBaseUrl ||
+    '/api'
+  ).replace(
+    /\/+$/,
+    ''
+  );
 
 export class ApiError extends Error {
   status: number;

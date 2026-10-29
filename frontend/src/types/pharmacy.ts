@@ -1,17 +1,17 @@
-export type MedicineCategory = 
-  | 'Tablet' 
-  | 'Capsule' 
-  | 'Syrup' 
-  | 'Suspension' 
-  | 'Injection' 
-  | 'Ointment' 
-  | 'Cream' 
-  | 'Drops' 
-  | 'Inhaler' 
-  | 'Antiseptic Solution' 
-  | 'Medicated Gel' 
-  | 'Device / Surgical' 
-  | 'OTC Cosmetic' 
+export type MedicineCategory =
+  | 'Tablet'
+  | 'Capsule'
+  | 'Syrup'
+  | 'Suspension'
+  | 'Injection'
+  | 'Ointment'
+  | 'Cream'
+  | 'Drops'
+  | 'Inhaler'
+  | 'Antiseptic Solution'
+  | 'Medicated Gel'
+  | 'Device / Surgical'
+  | 'OTC Cosmetic'
   | 'Other';
 
 export interface Medicine {
@@ -38,7 +38,7 @@ export interface Medicine {
 
 export type AuditAdjustmentType = 'reconcile' | 'add' | 'deduce';
 
-export type AuditReason = 
+export type AuditReason =
   | 'Physical Count Audit'
   | 'Damaged / Broken Strip'
   | 'Expired Medicine Disposal'
@@ -142,7 +142,7 @@ export interface StockistLedgerEntry {
   ledgerId?: number;
 }
 
-export type StockistReturnReason = 
+export type StockistReturnReason =
   | 'Expired Medicine'
   | 'Damaged / Broken Strip'
   | 'Breakage in Transit'
@@ -177,6 +177,9 @@ export interface StockistReturnVoucher {
 
 export interface SaleItem {
   medicineId: string;
+  id?: string;
+  billItemId?: number;
+  inventoryId?: number;
   medicineName: string;
   genericName: string;
   category: MedicineCategory;
@@ -184,6 +187,8 @@ export interface SaleItem {
   expiryDate: string;
   isLooseUnit: boolean; // false = full packs, true = per tablet/capsule
   quantity: number; // packs or loose tablets count
+  alreadyReturnedQuantity?: number;
+  returnableQuantity?: number;
   unitsPerPack: number;
   unitPrice: number; // Price per item (pack price or loose tablet price)
   costPrice: number; // Cost price per item
@@ -192,6 +197,50 @@ export interface SaleItem {
   lineTotal: number;
   taxBase: number; // Taxable base portion if 13% VAT
   vatAmount: number; // 13% VAT portion if applicable
+}
+
+export interface CustomerSalesReturn {
+  id: number;
+  creditNoteNumber: string;
+
+  invoiceId: number;
+  invoiceNumber: string;
+
+  customerName: string;
+  customerPhone?: string;
+
+  originalInvoiceTotal: number;
+
+  returnDate: string;
+  refundAmount: number;
+
+  reason?: string;
+  recordedBy?: string;
+
+  invoice?: {
+    id: number;
+    invoiceNumber: string;
+    customerName?: string;
+    customerPhone?: string;
+    totalAmount?: number;
+  };
+
+  items: Array<{
+    id: number;
+
+    medicineName: string;
+    batchNumber: string;
+
+    quantityInPack: number;
+    quantityInUnit: number;
+
+    refundAmount: number;
+
+    inventory?: {
+      brandName?: string;
+      batchNumber?: string;
+    };
+  }>;
 }
 
 export interface SaleInvoice {
@@ -207,6 +256,14 @@ export interface SaleInvoice {
   patientAge?: string;
   patientGender?: string;
   items: SaleItem[];
+  salesReturns?: Array<{
+    id: number;
+    creditNoteNumber: string;
+    returnDate: string;
+    refundAmount: number;
+    reason: string;
+    recordedBy: string;
+  }>;
   grossSubtotal: number; // Total sum of lines before bill discount
   vatExemptSubtotal: number; // 0% VAT items total
   taxableBaseSubtotal: number; // Base of 13% VAT items
@@ -223,7 +280,7 @@ export interface SaleInvoice {
   createdAt: string;
 }
 
-export type UserRole = 
+export type UserRole =
   | 'Admin'
   | 'Staff';
 
