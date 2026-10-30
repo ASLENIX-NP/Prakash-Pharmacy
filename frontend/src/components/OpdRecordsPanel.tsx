@@ -7,6 +7,8 @@ import React, {
 import {
   Calendar,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Eye,
   History,
@@ -218,6 +220,9 @@ export const OpdRecordsPanel: React.FC = () => {
   ] =
     useState<ClinicVisit[]>([]);
   const [cancelingVisitId, setCancelingVisitId] = useState<string | null>(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
 
   const [
@@ -689,6 +694,27 @@ export const OpdRecordsPanel: React.FC = () => {
       [visits]
     );
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, visits.length]);
+
+  const totalPages =
+    pageSize === -1
+      ? 1
+      : Math.max(1, Math.ceil(visits.length / pageSize));
+
+  const paginatedVisits = useMemo(() => {
+    if (pageSize === -1) return visits;
+    const start = (currentPage - 1) * pageSize;
+    return visits.slice(start, start + pageSize);
+  }, [visits, currentPage, pageSize]);
+
+  const startIndex = pageSize === -1 ? 0 : (currentPage - 1) * pageSize;
+  const endIndex =
+    pageSize === -1
+      ? visits.length
+      : Math.min(startIndex + pageSize, visits.length);
+
 
   const completionFinalTotal =
     useMemo(
@@ -1012,7 +1038,7 @@ export const OpdRecordsPanel: React.FC = () => {
 
 
       {/* Operational Summary */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${isAdmin ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <span className="text-xs font-bold text-slate-500">
@@ -1046,18 +1072,19 @@ export const OpdRecordsPanel: React.FC = () => {
           </strong>
         </div>
 
+        {isAdmin && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+            <span className="text-xs font-bold text-emerald-700">
+              Finalized Revenue
+            </span>
 
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
-          <span className="text-xs font-bold text-emerald-700">
-            Finalized Revenue
-          </span>
-
-          <strong className="mt-2 block font-mono text-2xl font-extrabold text-emerald-800">
-            {money(
-              finalizedRevenue
-            )}
-          </strong>
-        </div>
+            <strong className="mt-2 block font-mono text-2xl font-extrabold text-emerald-800">
+              {money(
+                finalizedRevenue
+              )}
+            </strong>
+          </div>
+        )}
 
       </div>
 
@@ -1950,24 +1977,35 @@ export const OpdRecordsPanel: React.FC = () => {
       {/* Records Table */}
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
 
-        <div className="border-b border-slate-200 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900">
+              OPD Records
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {visits.length === 0
+                ? 'No records'
+                : `Showing ${startIndex + 1}–${endIndex} of ${visits.length} record${visits.length === 1 ? '' : 's'}`}
+            </p>
+          </div>
 
-          <h2 className="text-base font-extrabold text-slate-900">
-            OPD Records
-          </h2>
-
-          <p className="mt-1 text-xs text-slate-500">
-            {
-              visits.length
-            }{' '}
-            record
-            {visits.length ===
-            1
-              ? ''
-              : 's'}{' '}
-            shown
-          </p>
-
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">Rows per page:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition focus:border-teal-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/10"
+            >
+              <option value={10}>10 per page</option>
+              <option value={25}>25 per page</option>
+              <option value={50}>50 per page</option>
+              <option value={100}>100 per page</option>
+              <option value={-1}>All records</option>
+            </select>
+          </div>
         </div>
 
 
@@ -2037,7 +2075,7 @@ export const OpdRecordsPanel: React.FC = () => {
 
               <tbody className="divide-y divide-slate-100">
 
-                {visits.map(
+                {paginatedVisits.map(
                   (visit) => (
                     <tr
                       key={
@@ -2243,6 +2281,65 @@ export const OpdRecordsPanel: React.FC = () => {
               </tbody>
 
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+                <div className="text-xs font-medium text-slate-600">
+                  Showing <span className="font-bold text-slate-900">{startIndex + 1}</span> to{' '}
+                  <span className="font-bold text-slate-900">{endIndex}</span> of{' '}
+                  <span className="font-bold text-slate-900">{visits.length}</span> records
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Previous
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                      .map((p, idx, arr) => {
+                        const prev = arr[idx - 1];
+                        return (
+                          <React.Fragment key={p}>
+                            {prev && p - prev > 1 && (
+                              <span className="px-1 text-xs text-slate-400">...</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCurrentPage(p)}
+                              className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-bold transition ${
+                                currentPage === p
+                                  ? 'bg-teal-700 text-white shadow-2xs'
+                                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
