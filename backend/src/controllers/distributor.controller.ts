@@ -170,7 +170,7 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
         email: cleanEmail || null,
         address: address ? String(address).trim() : null,
         contactPerson: contactPerson ? String(contactPerson).trim() : null,
-        creditLimit: parseFloat(String(creditLimit)) || 0,
+        creditLimit: Math.max(0, parseFloat(String(creditLimit)) || 0),
         currentBalance: 0,
         notes: notes ? String(notes).trim() : null,
         status: "active",
@@ -246,7 +246,7 @@ export const updateDistributor = async (req: Request, res: Response): Promise<vo
     }
     if (address !== undefined) data.address = String(address).trim() || null;
     if (contactPerson !== undefined) data.contactPerson = String(contactPerson).trim() || null;
-    if (creditLimit !== undefined) data.creditLimit = parseFloat(String(creditLimit)) || 0;
+    if (creditLimit !== undefined) data.creditLimit = Math.max(0, parseFloat(String(creditLimit)) || 0);
     if (notes !== undefined) data.notes = String(notes).trim() || null;
     if (status !== undefined) data.status = String(status).trim();
 

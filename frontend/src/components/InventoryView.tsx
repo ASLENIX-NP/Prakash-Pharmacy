@@ -103,6 +103,9 @@ export const InventoryView: React.FC = () => {
   const [newDistributorName, setNewDistributorName] = useState('');
   const [newDistributorPhone, setNewDistributorPhone] = useState('');
   const [newDistributorPan, setNewDistributorPan] = useState('');
+  const [newDistributorCreditLimit, setNewDistributorCreditLimit] = useState<number | string>(200000);
+  const [newDistributorAddress, setNewDistributorAddress] = useState('Hetauda, Makwanpur');
+  const [newDistributorContactPerson, setNewDistributorContactPerson] = useState('');
   const [billInvoiceNumber, setBillInvoiceNumber] = useState('');
   const [billDate, setBillDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [billPaymentMode, setBillPaymentMode] = useState<'credit' | 'cash'>('credit');
@@ -115,6 +118,8 @@ export const InventoryView: React.FC = () => {
   const [manualNewDistributorName, setManualNewDistributorName] = useState('');
   const [manualNewDistributorPhone, setManualNewDistributorPhone] = useState('');
   const [manualNewDistributorPan, setManualNewDistributorPan] = useState('');
+  const [manualNewDistributorCreditLimit, setManualNewDistributorCreditLimit] = useState<number | string>(200000);
+  const [manualNewDistributorAddress, setManualNewDistributorAddress] = useState('Hetauda, Makwanpur');
   const [formData, setFormData] = useState<Partial<Medicine>>({
     name: '',
     genericName: '',
@@ -344,13 +349,15 @@ export const InventoryView: React.FC = () => {
 
     if (manualDistributorMode === 'new' && manualNewDistributorName.trim()) {
       try {
+        const parsedCreditLimit = Number(manualNewDistributorCreditLimit);
+        const finalCreditLimit = !isNaN(parsedCreditLimit) && parsedCreditLimit >= 0 ? parsedCreditLimit : 200000;
         const createdDist = await addStockist({
           name: manualNewDistributorName.trim(),
           phone: manualNewDistributorPhone.trim() || '9800000000',
           panNumber: manualNewDistributorPan.trim() || '',
-          address: 'Makwanpur, Nepal',
+          address: manualNewDistributorAddress.trim() || 'Hetauda, Makwanpur',
           contactPerson: '',
-          creditLimit: 500000,
+          creditLimit: finalCreditLimit,
           email: ''
         });
         supplierId = createdDist.id;
@@ -416,6 +423,10 @@ export const InventoryView: React.FC = () => {
           } else {
             setBillDistributorMode('new');
             setNewDistributorName(detectedSupplier);
+            const detectedCredit = res.success.find(it => it.supplierCreditLimit && it.supplierCreditLimit > 0)?.supplierCreditLimit;
+            if (detectedCredit) {
+              setNewDistributorCreditLimit(detectedCredit);
+            }
           }
         } else if (!selectedDistributorId && stockists.length > 0) {
           setSelectedDistributorId(stockists[0].id);
@@ -446,13 +457,16 @@ export const InventoryView: React.FC = () => {
             setIsSubmittingImport(false);
             return;
           }
+          const parsedCreditLimit = Number(newDistributorCreditLimit);
+          const finalCreditLimit = !isNaN(parsedCreditLimit) && parsedCreditLimit >= 0 ? parsedCreditLimit : 200000;
+
           const created = await addStockist({
             name: newDistributorName.trim(),
             phone: newDistributorPhone.trim() || '9800000000',
             panNumber: newDistributorPan.trim() || '',
-            address: 'Makwanpur, Nepal',
-            contactPerson: '',
-            creditLimit: 500000,
+            address: newDistributorAddress.trim() || 'Hetauda, Makwanpur',
+            contactPerson: newDistributorContactPerson.trim() || '',
+            creditLimit: finalCreditLimit,
             email: ''
           });
           finalStockistId = created.id;
@@ -957,50 +971,140 @@ export const InventoryView: React.FC = () => {
                     </div>
 
                     {billDistributorMode === 'existing' ? (
-                      <select
-                        value={selectedDistributorId}
-                        onChange={(e) => setSelectedDistributorId(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
-                      >
-                        {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
-                        {stockists.map(s => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="space-y-2">
+                        <select
+                          value={selectedDistributorId}
+                          onChange={(e) => setSelectedDistributorId(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
+                        >
+                          {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
+                          {stockists.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
+                            </option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const selectedStockist = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
+                          if (!selectedStockist) return null;
+                          const availableCredit = Math.max(0, selectedStockist.creditLimit - selectedStockist.currentBalance);
+                          const isOverCredit = billPaymentMode === 'credit' && parsedImportItems.length > 0 && selectedStockist.creditLimit > 0 && billCalculations.grandTotal > availableCredit;
+                          return (
+                            <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-teal-50/70 border border-teal-200 text-xs">
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Credit Limit</span>
+                                  <span className="font-bold font-mono text-slate-800">Rs. {selectedStockist.creditLimit.toLocaleString()}</span>
+                                </div>
+                                <div className="h-6 w-px bg-teal-200" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Current Liability</span>
+                                  <span className={`font-bold font-mono ${selectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                                    Rs. {selectedStockist.currentBalance.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="h-6 w-px bg-teal-200" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Available Credit</span>
+                                  <span className="font-bold font-mono text-teal-800">
+                                    Rs. {availableCredit.toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                              {isOverCredit && (
+                                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                                  ⚠️ Bill exceeds available credit!
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2 bg-white p-3 rounded-lg border border-slate-200">
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Distributor Name: *</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. ABC Pharma Distributors"
-                            value={newDistributorName}
-                            onChange={(e) => setNewDistributorName(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
-                          />
+                      <div className="space-y-2.5 bg-white p-3 rounded-lg border border-slate-200">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Distributor Name: *</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. ABC Pharma Distributors"
+                              value={newDistributorName}
+                              onChange={(e) => setNewDistributorName(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Phone Number:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 9845012345"
+                              value={newDistributorPhone}
+                              onChange={(e) => setNewDistributorPhone(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">PAN Number:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 601234567"
+                              value={newDistributorPan}
+                              onChange={(e) => setNewDistributorPan(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Phone Number:</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 9845012345"
-                            value={newDistributorPhone}
-                            onChange={(e) => setNewDistributorPhone(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
+
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                          <div>
+                            <label className="block text-[10px] font-bold text-teal-800 mb-1 flex items-center justify-between">
+                              <span>Credit Limit (NPR): *</span>
+                              <span className="text-[9px] text-teal-600 font-normal">Udharo Limit</span>
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              placeholder="e.g. 200000"
+                              value={newDistributorCreditLimit}
+                              onChange={(e) => setNewDistributorCreditLimit(e.target.value)}
+                              className="w-full border border-teal-300 bg-teal-50/40 rounded px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-teal-600 focus:outline-hidden"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Depot Address / Location:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Hetauda-5, Makwanpur"
+                              value={newDistributorAddress}
+                              onChange={(e) => setNewDistributorAddress(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Contact Person / Rep:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Ram Shrestha"
+                              value={newDistributorContactPerson}
+                              onChange={(e) => setNewDistributorContactPerson(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">PAN Number:</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 601234567"
-                            value={newDistributorPan}
-                            onChange={(e) => setNewDistributorPan(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
-                        </div>
+
+                        {billPaymentMode === 'credit' && (
+                          <div className="flex flex-wrap items-center justify-between gap-1 p-2 rounded bg-teal-50/80 border border-teal-200 text-[11px] text-teal-900">
+                            <span>
+                              Distributor will be registered with a credit limit of <strong>Rs. {Number(newDistributorCreditLimit || 0).toLocaleString()}</strong>.
+                            </span>
+                            {parsedImportItems.length > 0 && billCalculations.grandTotal > Number(newDistributorCreditLimit || 0) && (
+                              <span className="text-rose-700 font-bold">
+                                ⚠️ Bill (Rs. {billCalculations.grandTotal.toLocaleString()}) exceeds initial limit!
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1345,36 +1449,62 @@ export const InventoryView: React.FC = () => {
                       ))}
                     </select>
                   ) : (
-                    <div className="grid grid-cols-3 gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Distributor Name: *</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Nepal Drug House"
-                          value={manualNewDistributorName}
-                          onChange={(e) => setManualNewDistributorName(e.target.value)}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
-                        />
+                    <div className="space-y-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Distributor Name: *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Nepal Drug House"
+                            value={manualNewDistributorName}
+                            onChange={(e) => setManualNewDistributorName(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Phone:</label>
+                          <input
+                            type="text"
+                            placeholder="98xxxxxxxx"
+                            value={manualNewDistributorPhone}
+                            onChange={(e) => setManualNewDistributorPhone(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">PAN:</label>
+                          <input
+                            type="text"
+                            placeholder="PAN Number"
+                            value={manualNewDistributorPan}
+                            onChange={(e) => setManualNewDistributorPan(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Phone:</label>
-                        <input
-                          type="text"
-                          placeholder="98xxxxxxxx"
-                          value={manualNewDistributorPhone}
-                          onChange={(e) => setManualNewDistributorPhone(e.target.value)}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">PAN:</label>
-                        <input
-                          type="text"
-                          placeholder="PAN Number"
-                          value={manualNewDistributorPan}
-                          onChange={(e) => setManualNewDistributorPan(e.target.value)}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                        />
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                        <div>
+                          <label className="block text-[10px] font-bold text-teal-800 mb-0.5">Credit Limit (NPR):</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1000"
+                            placeholder="e.g. 200000"
+                            value={manualNewDistributorCreditLimit}
+                            onChange={(e) => setManualNewDistributorCreditLimit(e.target.value)}
+                            className="w-full border border-teal-300 bg-teal-50/40 rounded px-2 py-1 text-xs font-mono font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Depot Address:</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Hetauda-5, Makwanpur"
+                            value={manualNewDistributorAddress}
+                            onChange={(e) => setManualNewDistributorAddress(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}

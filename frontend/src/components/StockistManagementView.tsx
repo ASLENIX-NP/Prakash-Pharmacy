@@ -22,7 +22,8 @@ import {
   CheckCircle2,
   Layers,
   ArrowRight,
-  Eye
+  Eye,
+  Edit3
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -51,6 +52,7 @@ export const StockistManagementView: React.FC = () => {
     isStockistDemoDataActive,
     clearStockistDemoData,
     addStockist, 
+    updateStockist,
     medicines, 
     purchaseInvoices, 
     addPurchaseInvoice, 
@@ -85,6 +87,84 @@ export const StockistManagementView: React.FC = () => {
     creditLimit: 200000,
     notes: ''
   });
+
+  // Edit Stockist Modal
+  const [showEditStockistModal, setShowEditStockistModal] = useState(false);
+  const [editStockistFormError, setEditStockistFormError] = useState('');
+  const [isSavingEditStockist, setIsSavingEditStockist] = useState(false);
+  const [editStockistData, setEditStockistData] = useState({
+    id: '',
+    name: '',
+    panNumber: '',
+    phone: '',
+    email: '',
+    address: '',
+    contactPerson: '',
+    creditLimit: 200000,
+    notes: '',
+    status: 'active'
+  });
+
+  const handleOpenEditStockist = (stk: Stockist) => {
+    setEditStockistData({
+      id: stk.id,
+      name: stk.name,
+      panNumber: stk.panNumber || '',
+      phone: stk.phone || '',
+      email: stk.email || '',
+      address: stk.address || '',
+      contactPerson: stk.contactPerson || '',
+      creditLimit: stk.creditLimit ?? 200000,
+      notes: stk.notes || '',
+      status: stk.status || 'active'
+    });
+    setEditStockistFormError('');
+    setShowEditStockistModal(true);
+  };
+
+  const handleSaveEditStockist = async () => {
+    if (!editStockistData.name.trim()) {
+      setEditStockistFormError('Stockist name is required.');
+      return;
+    }
+    const cleanPan = editStockistData.panNumber.trim();
+    if (cleanPan && !/^\d{9}$/.test(cleanPan)) {
+      setEditStockistFormError('PAN must contain exactly 9 digits.');
+      return;
+    }
+    const cleanPhone = editStockistData.phone.trim();
+    if (!cleanPhone || !/^\d{7,10}$/.test(cleanPhone)) {
+      setEditStockistFormError('Phone number must contain between 7 and 10 digits.');
+      return;
+    }
+    if (editStockistData.email && !isValidEmail(editStockistData.email)) {
+      setEditStockistFormError('Enter a valid email address.');
+      return;
+    }
+
+    try {
+      setIsSavingEditStockist(true);
+      await updateStockist(editStockistData.id, {
+        name: editStockistData.name.trim(),
+        panNumber: cleanPan,
+        phone: cleanPhone,
+        address: editStockistData.address.trim(),
+        contactPerson: editStockistData.contactPerson.trim(),
+        creditLimit: Math.max(0, Number(editStockistData.creditLimit) || 0),
+        email: editStockistData.email.trim(),
+        notes: editStockistData.notes.trim(),
+        status: editStockistData.status
+      });
+
+      showToast(`Stockist "${editStockistData.name.trim()}" updated successfully!`, 'success', 'Stockist Updated');
+      setShowEditStockistModal(false);
+      setEditStockistFormError('');
+    } catch (err: any) {
+      setEditStockistFormError(err.message || 'Failed to update stockist');
+    } finally {
+      setIsSavingEditStockist(false);
+    }
+  };
 
   // Record Payment Modal
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -998,7 +1078,18 @@ export const StockistManagementView: React.FC = () => {
                     {initials || 'ST'}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h4 className="break-words text-[15px] font-bold leading-snug text-slate-900">{stk.name}</h4>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="break-words text-[15px] font-bold leading-snug text-slate-900">{stk.name}</h4>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditStockist(stk)}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-1.5 py-0.5 rounded"
+                        title="Edit distributor details & credit limit"
+                      >
+                        <Edit3 className="w-3 h-3 text-teal-600" />
+                        <span>Edit</span>
+                      </button>
+                    </div>
                     <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || '—'}</span>
                   </div>
                   <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
@@ -1061,11 +1152,20 @@ export const StockistManagementView: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
+                    onClick={() => handleOpenEditStockist(stk)}
+                    className="flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 transition hover:border-teal-600 hover:bg-teal-50"
+                    title="Edit distributor details & credit limit"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Edit</span>
+                  </button>
+                  <button
                     onClick={() => {
                       setSelectedStockistId(stk.id);
                       setActiveTab('ledger');
                     }}
-                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-800 transition hover:border-teal-600 hover:bg-teal-50"
+                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-800 transition hover:border-teal-600 hover:bg-teal-50 text-center"
                   >
                     View Ledger
                   </button>
@@ -1075,7 +1175,7 @@ export const StockistManagementView: React.FC = () => {
                       setShowPaymentModal(true);
                     }}
                     disabled={stk.currentBalance <= 0}
-                    className="flex-1 rounded-xl border border-teal-700 bg-teal-50 py-2 text-xs font-bold text-teal-800 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex-1 rounded-xl border border-teal-700 bg-teal-50 py-2 text-xs font-bold text-teal-800 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-40 text-center"
                   >
                     Pay Balance
                   </button>
@@ -1455,6 +1555,17 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
               </button>
               {currentSelectedStockist && (
                 <button
+                  type="button"
+                  onClick={() => handleOpenEditStockist(currentSelectedStockist)}
+                  className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-400"
+                  title="Edit stockist details, credit limit, and terms"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Edit Stockist &amp; Credit</span>
+                </button>
+              )}
+              {currentSelectedStockist && (
+                <button
                   onClick={() => exportStockistLedgerToExcel(
                     currentSelectedStockist.name,
                     currentSelectedStockist.panNumber,
@@ -1475,11 +1586,19 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 { label: 'Total purchases', value: currency(ledgerSummary.totalPurchases), color: 'text-slate-900' },
                 { label: 'Total paid / returned', value: currency(ledgerSummary.totalPaidOrReturned), color: 'text-emerald-700' },
                 { label: 'Outstanding', value: currency(currentSelectedStockist.currentBalance), color: currentSelectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-900' },
-                { label: 'Credit available', value: currency(Math.max(0, currentSelectedStockist.creditLimit - currentSelectedStockist.currentBalance)), color: 'text-teal-800' },
+                { 
+                  label: 'Credit available', 
+                  value: currency(Math.max(0, currentSelectedStockist.creditLimit - currentSelectedStockist.currentBalance)), 
+                  subtext: `Limit: ${currency(currentSelectedStockist.creditLimit)}`,
+                  color: 'text-teal-800' 
+                },
               ].map(item => (
                 <div key={item.label} className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
                   <span className="text-xs font-medium text-slate-500">{item.label}</span>
                   <strong className={`mt-1 block font-mono text-lg font-extrabold ${item.color}`}>{item.value}</strong>
+                  {'subtext' in item && item.subtext && (
+                    <span className="block text-[11px] font-mono text-slate-500 mt-0.5">{item.subtext}</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -1489,11 +1608,23 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
             <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4">
                 <div>
-                  <h4 className="text-lg font-extrabold text-slate-900">{currentSelectedStockist.name}</h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-lg font-extrabold text-slate-900">{currentSelectedStockist.name}</h4>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditStockist(currentSelectedStockist)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-lg"
+                      title="Edit stockist credentials & credit limit"
+                    >
+                      <Edit3 className="w-3 h-3 text-teal-700" />
+                      <span>Edit Details</span>
+                    </button>
+                  </div>
                   <p className="mt-1 text-xs text-slate-500">
                     PAN: {currentSelectedStockist.panNumber || '—'} <span className="px-1">·</span>
                     Phone: {currentSelectedStockist.phone || '—'} <span className="px-1">·</span>
                     {currentSelectedStockist.address || 'Address not provided'}
+                    {currentSelectedStockist.notes ? ` · Note: ${currentSelectedStockist.notes}` : ''}
                   </p>
                 </div>
                 <div className="min-w-44 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:text-right">
@@ -2071,6 +2202,206 @@ onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: parseInte
                 className="px-4 py-1.5 bg-teal-700 text-white rounded-lg text-xs font-bold"
               >
                 Save Stockist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Stockist Modal */}
+      {showEditStockistModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150">
+            <div className="bg-slate-900 text-white px-5 py-3.5 flex justify-between items-center">
+              <div>
+                <h4 className="font-bold text-sm flex items-center gap-2">
+                  <Edit3 className="w-4 h-4 text-teal-400" />
+                  <span>Edit Stockist / Wholesaler Details</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Update credit limit, contact info, PAN, and payment terms
+                </p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowEditStockistModal(false)} 
+                className="text-slate-400 hover:text-white text-base"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-3.5 text-xs max-h-[80vh] overflow-y-auto">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Stockist / Company Name: *</label>
+                <input
+                  type="text"
+                  required
+                  value={editStockistData.name}
+                  onChange={(e) => {
+                    setEditStockistData({ ...editStockistData, name: e.target.value });
+                    setEditStockistFormError('');
+                  }}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-slate-900 font-medium"
+                  placeholder="e.g. Kathmandu Pharma Distributors"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">PAN / VAT Number:</label>
+                  <input
+                    type="text"
+                    maxLength={9}
+                    placeholder="9 digits"
+                    value={editStockistData.panNumber}
+                    onChange={(e) => {
+                      setEditStockistData({ ...editStockistData, panNumber: digitsOnlyUpTo(e.target.value, 9) });
+                      setEditStockistFormError('');
+                    }}
+                    className="w-full border border-slate-300 rounded-lg p-2 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Phone Number: *</label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="7 to 10 digits"
+                    value={editStockistData.phone}
+                    onChange={(e) => {
+                      setEditStockistData({ ...editStockistData, phone: normalizePhoneNumber(e.target.value) });
+                      setEditStockistFormError('');
+                    }}
+                    className="w-full border border-slate-300 rounded-lg p-2 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Credit Limit & Terms - Highlighted Section */}
+              <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-teal-950 flex items-center gap-1.5">
+                    <DollarSign className="w-3.5 h-3.5 text-teal-700" />
+                    <span>Credit Limit (NPR): *</span>
+                  </label>
+                  <span className="text-[10px] text-teal-700 font-medium">Udharo / Credit Ceiling</span>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  required
+                  value={editStockistData.creditLimit}
+                  onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                  onChange={(e) => {
+                    const parsed = parseIntegerInput(e.target.value, 10) ?? 0;
+                    setEditStockistData({ ...editStockistData, creditLimit: parsed });
+                  }}
+                  className="w-full border border-teal-300 bg-white rounded-lg p-2 font-mono font-bold text-teal-950 text-sm focus:ring-2 focus:ring-teal-200"
+                  placeholder="e.g. 200000"
+                />
+                <div className="flex items-center justify-between text-[10px] text-teal-900 pt-1 border-t border-teal-100">
+                  <span>Current Outstanding Liability:</span>
+                  <strong className="font-mono text-xs text-rose-700">
+                    {currency(stockists.find(s => s.id === editStockistData.id)?.currentBalance || 0)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Address / Depot Location:</label>
+                  <input
+                    type="text"
+                    value={editStockistData.address}
+                    onChange={(e) => setEditStockistData({ ...editStockistData, address: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2"
+                    placeholder="e.g. Hetauda-5, Makwanpur"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Contact Person / Rep:</label>
+                  <input
+                    type="text"
+                    value={editStockistData.contactPerson}
+                    onChange={(e) => setEditStockistData({ ...editStockistData, contactPerson: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2"
+                    placeholder="e.g. Sales Officer Name"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Email Address:</label>
+                  <input
+                    type="email"
+                    maxLength={254}
+                    value={editStockistData.email}
+                    onChange={(e) => {
+                      setEditStockistData({ ...editStockistData, email: e.target.value });
+                      setEditStockistFormError('');
+                    }}
+                    className="w-full border border-slate-300 rounded-lg p-2"
+                    placeholder="wholesaler@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Account Status:</label>
+                  <select
+                    value={editStockistData.status}
+                    onChange={(e) => setEditStockistData({ ...editStockistData, status: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 bg-white"
+                  >
+                    <option value="active">Active (Permits Purchases &amp; Billing)</option>
+                    <option value="inactive">Inactive / Suspended</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Payment &amp; Credit Terms / Notes:</label>
+                <textarea
+                  rows={2}
+                  value={editStockistData.notes}
+                  onChange={(e) => setEditStockistData({ ...editStockistData, notes: e.target.value })}
+                  className="w-full border border-slate-300 rounded-lg p-2 resize-none"
+                  placeholder="e.g. 15-day payment cycle, 2% cash discount on 7 days settlement"
+                />
+              </div>
+
+              {editStockistFormError && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-700 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                  <span>{editStockistFormError}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEditStockistModal(false)}
+                disabled={isSavingEditStockist}
+                className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditStockist}
+                disabled={isSavingEditStockist}
+                className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isSavingEditStockist ? (
+                  <span>Saving Changes...</span>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Stockist &amp; Credit</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

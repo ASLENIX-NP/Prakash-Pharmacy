@@ -94,8 +94,8 @@ export const SalesHistoryView: React.FC = () => {
     return (customerSalesReturns || []).filter(ret => {
       const q = searchQuery.toLowerCase();
       const returnDateStr = ret.returnDate ? ret.returnDate.split('T')[0] : '';
-      const invoiceNumber = ret.invoice?.invoiceNumber || '';
-      const customerName = ret.invoice?.customerName || '';
+      const invoiceNumber = ret.invoice?.invoiceNumber || ret.invoiceNumber || '';
+      const customerName = ret.invoice?.customerName || ret.customerName || '';
 
       const matchesSearch = !q ||
         ret.creditNoteNumber.toLowerCase().includes(q) ||

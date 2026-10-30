@@ -489,10 +489,7 @@ export const OpdRecordsPanel: React.FC = () => {
           null
         );
       }
-
-      await fetchVisits(
-        filters
-      );
+      await fetchVisits(filters);
     } catch (err) {
       showToast(
         err instanceof Error
