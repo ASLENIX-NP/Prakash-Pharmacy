@@ -406,3 +406,89 @@ export async function getVatReportSummary(
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Full Data Backup
+// ---------------------------------------------------------------------------
+async function safeQuery<T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[Backup] Warning: Failed to query table "${name}":`, err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
+export async function getFullBackup(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const [
+      inventory,
+      distributors,
+      purchaseInvoices,
+      bills,
+      salesReturns,
+      racks,
+      categories,
+      generics,
+      settings,
+      staff,
+      doctors,
+      clinicPatients,
+      clinicVisits,
+      stockAdjustmentLogs,
+    ] = await Promise.all([
+      safeQuery("inventory", () => prisma.inventory.findMany(), []),
+      safeQuery("distributor", () => prisma.distributor.findMany(), []),
+      safeQuery("purchaseInvoice", () => prisma.purchaseInvoice.findMany({ include: { items: true } }), []),
+      safeQuery("bill", () => prisma.bill.findMany({ include: { items: true } }), []),
+      safeQuery("salesReturn", () => prisma.salesReturn.findMany({ include: { items: true } }), []),
+      safeQuery("rack", () => prisma.rack.findMany(), []),
+      safeQuery("category", () => prisma.category.findMany(), []),
+      safeQuery("generic", () => prisma.generic.findMany(), []),
+      safeQuery("pharmacySetting", () => prisma.pharmacySetting.findFirst(), null),
+      safeQuery("user", () => prisma.user.findMany({ select: { id: true, firstName: true, lastName: true, role: true, status: true, createdAt: true } }), []),
+      safeQuery("doctor", () => prisma.doctor.findMany(), []),
+      safeQuery("clinicPatient", () => prisma.clinicPatient.findMany(), []),
+      safeQuery("clinicVisit", () => prisma.clinicVisit.findMany(), []),
+      safeQuery("stockAdjustmentLog", () => prisma.stockAdjustmentLog.findMany(), []),
+    ]);
+
+    const backupData = {
+      exportedAt: new Date().toISOString(),
+      version: "1.0",
+      source: "Prakash Pharmacy ERP",
+      tables: {
+        inventory,
+        distributors,
+        purchaseInvoices,
+        bills,
+        salesReturns,
+        racks,
+        categories,
+        generics,
+        settings,
+        staff,
+        doctors,
+        clinicPatients,
+        clinicVisits,
+        stockAdjustmentLogs,
+      },
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="prakash-pharmacy-backup-${new Date().toISOString().split("T")[0]}.json"`
+    );
+    res.status(200).json(backupData);
+  } catch (error) {
+    console.error("Backup error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate database backup.",
+    });
+  }
+}

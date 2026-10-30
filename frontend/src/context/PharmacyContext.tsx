@@ -2278,6 +2278,23 @@ const response =
     if (updates.email !== undefined)
       payload.email = updates.email;
 
+    if (updates.notes !== undefined)
+      payload.notes = updates.notes;
+
+    if (updates.status !== undefined)
+      payload.status = updates.status;
+
+    // Handle client-side demo data
+    if (id.startsWith('demo-')) {
+      setStockists(prev =>
+        prev.map(stockist =>
+          stockist.id === id
+            ? { ...stockist, ...updates }
+            : stockist
+        )
+      );
+      return;
+    }
 
     // Some old frontend-only workflows still update only the
     // displayed balance. Do not send an empty PUT to PostgreSQL.

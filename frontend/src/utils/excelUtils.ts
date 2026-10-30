@@ -131,6 +131,11 @@ const FIELD_ALIASES = {
   barcode: [
     'barcode', 'barcodenumber', 'qrcode', 'upc', 'ean', 'code'
   ],
+  creditLimit: [
+    'creditlimit', 'distributorcreditlimit', 'distributorcredit', 'suppliercreditlimit',
+    'suppliercredit', 'stockistcreditlimit', 'stockistcredit', 'credit', 'creditlimitnpr',
+    'maxcredit', 'udharo'
+  ],
   notes: [
     'notes', 'remarks', 'comment', 'comments', 'note'
   ]
@@ -301,6 +306,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
           const rackResult = findRowValue(rowMap, FIELD_ALIASES.rackLocation);
           const vatResult = findRowValue(rowMap, FIELD_ALIASES.isVatApplicable);
           const barcodeResult = findRowValue(rowMap, FIELD_ALIASES.barcode);
+          const creditLimitResult = findRowValue(rowMap, FIELD_ALIASES.creditLimit);
           const notesResult = findRowValue(rowMap, FIELD_ALIASES.notes);
 
           const rawName = nameResult.found ? String(nameResult.value).trim() : '';
@@ -388,6 +394,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
             isVatApplicable: parseVat(vatResult.value).value,
             barcode: barcodeResult.found ? String(barcodeResult.value).trim() : undefined,
             notes: notesResult.found ? String(notesResult.value).trim() : undefined,
+            supplierCreditLimit: creditLimitResult.found ? parseCleanNumber(creditLimitResult.value).value : undefined,
             providedFields,
           };
 

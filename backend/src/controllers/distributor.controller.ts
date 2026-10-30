@@ -291,7 +291,10 @@ export const updateDistributor = async (req: Request, res: Response): Promise<vo
     if (creditLimit !== undefined) {
       const parsedCreditLimit = Number(creditLimit);
       if (!Number.isFinite(parsedCreditLimit) || parsedCreditLimit < 0) {
-        res.status(400).json({ success: false, message: "Credit limit must be zero or a positive number." });
+        res.status(400).json({
+          success: false,
+          message: "Credit limit must be zero or a positive number.",
+        });
         return;
       }
       data.creditLimit = parsedCreditLimit;

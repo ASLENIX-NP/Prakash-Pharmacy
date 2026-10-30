@@ -1,8 +1,9 @@
-﻿import React, { useState } from 'react';
-import { Check, Plus, Save, Search, Settings, Trash2, Warehouse } from 'lucide-react';
+import React, { useState } from 'react';
+import { Check, Download, Plus, Save, Search, Settings, Trash2, Warehouse } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
+import { apiRequest } from '../services/api';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, racks, addRack, deduceRack } = usePharmacy();
@@ -19,6 +20,9 @@ export const SettingsView: React.FC = () => {
   const [rackError, setRackError] = useState('');
   const [rackSearch, setRackSearch] = useState('');
   const [rackFilter, setRackFilter] = useState<'all' | 'custom' | 'general'>('all');
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupError, setBackupError] = useState('');
+  const [backupSuccess, setBackupSuccess] = useState(false);
 
   const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(settings);
 
@@ -99,6 +103,30 @@ export const SettingsView: React.FC = () => {
     }
 
     setRackError(result.message);
+  };
+
+  const handleDownloadBackup = async () => {
+    setBackupLoading(true);
+    setBackupError('');
+    setBackupSuccess(false);
+    try {
+      const data = await apiRequest<object>('/reports/backup');
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `prakash-pharmacy-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setBackupSuccess(true);
+      window.setTimeout(() => setBackupSuccess(false), 4000);
+    } catch (err: unknown) {
+      setBackupError(err instanceof Error ? err.message : 'Backup failed. Please try again.');
+    } finally {
+      setBackupLoading(false);
+    }
   };
 
   return (
@@ -339,6 +367,52 @@ export const SettingsView: React.FC = () => {
           </div>
         </section>
       </form>
+
+      {/* Data Backup */}
+      <section className={sectionCardClass}>
+        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+          <Settings className="h-4 w-4 text-teal-700" />
+          <div>
+            <h2 className="text-[14px] font-extrabold text-slate-900">Data Backup</h2>
+            <p className="mt-0.5 text-[11px] text-slate-500">
+              Download a full JSON backup of all pharmacy data (inventory, sales, purchases, distributors, etc.)
+            </p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5">
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={handleDownloadBackup}
+              disabled={backupLoading}
+              className="inline-flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {backupLoading ? 'Preparing Backup…' : 'Download Backup (JSON)'}
+            </button>
+
+            {backupSuccess && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
+                <Check className="h-3 w-3" />
+                Backup downloaded successfully
+              </span>
+            )}
+
+            {backupError && (
+              <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700 ring-1 ring-rose-200">
+                {backupError}
+              </span>
+            )}
+          </div>
+
+          <p className="mt-3 text-[11px] text-slate-400">
+            The backup includes: inventory, distributors, purchase invoices, sales bills, sales returns, racks, categories, generics, doctors, clinic patients &amp; visits, and stock adjustment logs.
+            Store this file in a safe place (Google Drive, USB drive, etc.).
+          </p>
+        </div>
+      </section>
+
       {hasUnsavedChanges && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.08)] backdrop-blur">
           <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
