@@ -116,6 +116,17 @@ interface NewPatientForm {
 }
 
 
+const sanitizePatientName = (value: string): string =>
+  value
+    .replace(/[^A-Za-z\s.'-]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^(\s)+/, '');
+
+
+const normalizePatientPhone = (value: string): string =>
+  value.replace(/\D/g, '').slice(0, 10);
+
+
 const EMPTY_PATIENT_FORM: NewPatientForm = {
   name: '',
   phone: '',
@@ -349,6 +360,32 @@ export const NewOpdPanel: React.FC = () => {
       return;
     }
 
+    if (
+      !/^[A-Za-z][A-Za-z\s.'-]*$/.test(
+        patientName
+      )
+    ) {
+      setError(
+        'Patient name can contain only letters, spaces, apostrophes, dots, and hyphens.'
+      );
+      return;
+    }
+
+    const cleanPhone =
+      normalizePatientPhone(
+        newPatient.phone
+      );
+
+    if (
+      cleanPhone.length > 0 &&
+      cleanPhone.length !== 10
+    ) {
+      setError(
+        'Phone number must contain exactly 10 digits when entered.'
+      );
+      return;
+    }
+
 
     let parsedAge:
       | number
@@ -395,7 +432,7 @@ export const NewOpdPanel: React.FC = () => {
                 patientName,
 
               phone:
-                newPatient.phone.trim(),
+                cleanPhone,
 
               ageYears:
                 parsedAge,
@@ -1056,9 +1093,11 @@ export const NewOpdPanel: React.FC = () => {
                           ) => ({
                             ...previous,
                             name:
-                              event
-                                .target
-                                .value,
+                              sanitizePatientName(
+                                event
+                                  .target
+                                  .value
+                              ),
                           })
                         )
                       }
@@ -1073,6 +1112,9 @@ export const NewOpdPanel: React.FC = () => {
                     </label>
 
                     <input
+                      type="tel"
+                      inputMode="numeric"
+                      maxLength={10}
                       value={
                         newPatient.phone
                       }
@@ -1085,9 +1127,11 @@ export const NewOpdPanel: React.FC = () => {
                           ) => ({
                             ...previous,
                             phone:
-                              event
-                                .target
-                                .value,
+                              normalizePatientPhone(
+                                event
+                                  .target
+                                  .value
+                              ),
                           })
                         )
                       }
