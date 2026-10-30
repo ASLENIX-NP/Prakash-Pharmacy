@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db.js";
 
 const toNumber = (value: unknown): number => {
@@ -342,6 +342,83 @@ export async function getVatReportSummary(
       success: false,
       message:
         "Failed to calculate VAT report from database.",
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Full Data Backup
+// ---------------------------------------------------------------------------
+export async function getFullBackup(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const [
+      inventory,
+      distributors,
+      purchaseInvoices,
+      bills,
+      salesReturns,
+      racks,
+      categories,
+      generics,
+      settings,
+      staff,
+      doctors,
+      clinicPatients,
+      clinicVisits,
+      stockAdjustmentLogs,
+    ] = await Promise.all([
+      prisma.inventory.findMany(),
+      prisma.distributor.findMany(),
+      prisma.purchaseInvoice.findMany({ include: { items: true } }),
+      prisma.bill.findMany({ include: { items: true } }),
+      prisma.salesReturn.findMany({ include: { items: true } }),
+      prisma.rack.findMany(),
+      prisma.category.findMany(),
+      prisma.generic.findMany(),
+      prisma.pharmacySetting.findFirst(),
+      prisma.user.findMany({ select: { id: true, firstName: true, lastName: true, role: true, status: true, createdAt: true } }),
+      prisma.doctor.findMany(),
+      prisma.clinicPatient.findMany(),
+      prisma.clinicVisit.findMany(),
+      prisma.stockAdjustmentLog.findMany(),
+    ]);
+
+    const backupData = {
+      exportedAt: new Date().toISOString(),
+      version: "1.0",
+      source: "Prakash Pharmacy ERP",
+      tables: {
+        inventory,
+        distributors,
+        purchaseInvoices,
+        bills,
+        salesReturns,
+        racks,
+        categories,
+        generics,
+        settings,
+        staff,
+        doctors,
+        clinicPatients,
+        clinicVisits,
+        stockAdjustmentLogs,
+      },
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="prakash-pharmacy-backup-${new Date().toISOString().split("T")[0]}.json"`
+    );
+    res.status(200).json(backupData);
+  } catch (error) {
+    console.error("Backup error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate database backup.",
     });
   }
 }
