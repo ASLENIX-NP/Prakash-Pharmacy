@@ -14,6 +14,8 @@ export type MedicineCategory =
   | 'OTC Cosmetic'
   | 'Other';
 
+export type MedicineSaleStatus = 'SELLABLE' | 'QUARANTINED' | 'RECALLED';
+
 export interface Medicine {
   id: string;
   name: string; // Brand Name e.g. "Augmentin 625 Duo"
@@ -33,6 +35,13 @@ export interface Medicine {
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
   barcode?: string;
   notes?: string;
+  saleStatus?: MedicineSaleStatus;
+  safetyStatus?: MedicineSaleStatus;
+  isRecalled?: boolean;
+  isQuarantined?: boolean;
+  safetyReason?: string;
+  safetyChangedAt?: string | null;
+  safetyChangedBy?: string;
   supplierCreditLimit?: number;
   providedFields?: Record<string, boolean>;
 }

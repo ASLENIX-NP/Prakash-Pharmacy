@@ -439,6 +439,10 @@ export async function getFullBackup(
       clinicPatients,
       clinicVisits,
       stockAdjustmentLogs,
+      ledger,
+      distributorReturns,
+      inventorySafetyStatusLogs,
+      purchaseCancellationLogs,
     ] = await Promise.all([
       safeQuery("inventory", () => prisma.inventory.findMany(), []),
       safeQuery("distributor", () => prisma.distributor.findMany(), []),
@@ -454,11 +458,15 @@ export async function getFullBackup(
       safeQuery("clinicPatient", () => prisma.clinicPatient.findMany(), []),
       safeQuery("clinicVisit", () => prisma.clinicVisit.findMany(), []),
       safeQuery("stockAdjustmentLog", () => prisma.stockAdjustmentLog.findMany(), []),
+      safeQuery("ledger", () => prisma.ledger.findMany(), []),
+      safeQuery("distributorReturn", () => prisma.distributorReturn.findMany(), []),
+      safeQuery("inventorySafetyStatusLog", () => prisma.inventorySafetyStatusLog.findMany(), []),
+      safeQuery("purchaseCancellationLog", () => prisma.purchaseCancellationLog.findMany(), []),
     ]);
 
     const backupData = {
       exportedAt: new Date().toISOString(),
-      version: "1.0",
+      version: "1.1",
       source: "Prakash Pharmacy ERP",
       tables: {
         inventory,
@@ -475,6 +483,10 @@ export async function getFullBackup(
         clinicPatients,
         clinicVisits,
         stockAdjustmentLogs,
+        ledger,
+        distributorReturns,
+        inventorySafetyStatusLogs,
+        purchaseCancellationLogs,
       },
     };
 

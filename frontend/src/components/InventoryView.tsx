@@ -138,7 +138,9 @@ export const InventoryView: React.FC = () => {
     rackLocation: 'Rack A-1',
     isVatApplicable: false,
     barcode: '',
-    notes: ''
+    notes: '',
+    saleStatus: 'SELLABLE',
+    safetyReason: ''
   });
 
   // Calculate bill totals dynamically (factoring in both full packs and loose tabs)
@@ -265,7 +267,9 @@ export const InventoryView: React.FC = () => {
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
       barcode: '',
-      notes: ''
+      notes: '',
+      saleStatus: 'SELLABLE',
+      safetyReason: ''
     });
     setShowEditModal(true);
   };
@@ -1691,6 +1695,33 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
 
+                {editingMedicine && (
+                  <div className="col-span-2 p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Batch Sale Safety Status:</span>
+                      <span className="text-[11px] text-slate-500">Quarantined and recalled batches remain in physical stock but are blocked from POS sale.</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={formData.saleStatus || formData.safetyStatus || 'SELLABLE'}
+                        onChange={(e) => setFormData({ ...formData, saleStatus: e.target.value as Medicine['saleStatus'] })}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-hidden"
+                      >
+                        <option value="SELLABLE">Sellable</option>
+                        <option value="QUARANTINED">Quarantined</option>
+                        <option value="RECALLED">Recalled</option>
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Reason / reference for status change"
+                        value={formData.safetyReason || ''}
+                        onChange={(e) => setFormData({ ...formData, safetyReason: e.target.value })}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Statutory VAT Classification Toggle */}
                 <div className="col-span-2 p-3 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-between">
                   <div>
@@ -1795,8 +1826,11 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
             const isLowStock = m.stockPacks <= m.reorderLevel;
             const expTime = new Date(m.expiryDate).getTime();
             const nowTime = new Date().getTime();
-            const isNearExpiry = (expTime - nowTime) / (1000 * 60 * 60 * 24 * 30.4) <= 6;
-            const isExpired = expTime < nowTime;
+            const todayStart = new Date().setHours(0, 0, 0, 0);
+            const isNearExpiry = expTime > todayStart && (expTime - nowTime) / (1000 * 60 * 60 * 24 * 30.4) <= 6;
+            const isExpired = expTime <= todayStart;
+            const saleStatus = (m.saleStatus || m.safetyStatus || 'SELLABLE').toUpperCase();
+            const isSafetyBlocked = saleStatus !== 'SELLABLE' || m.isRecalled || m.isQuarantined;
             const loosePrice = m.unitsPerPack > 1 ? (m.mrpPrice / m.unitsPerPack).toFixed(2) : m.mrpPrice.toFixed(2);
 
             return (
@@ -1812,6 +1846,15 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
                     <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded inline-block">
                       {m.category} • {m.unitsPerPack} u/pack
                     </span>
+                    {isSafetyBlocked && (
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded inline-block font-bold border ${
+                        saleStatus === 'RECALLED'
+                          ? 'text-rose-700 bg-rose-50 border-rose-200'
+                          : 'text-amber-800 bg-amber-50 border-amber-200'
+                      }`} title={m.safetyReason || `Batch is ${saleStatus.toLowerCase()}`}>
+                        {saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}
+                      </span>
+                    )}
                     {m.supplierName && (
                       <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5 font-medium" title={`Distributor: ${m.supplierName}`}>
                         🏢 {m.supplierName}

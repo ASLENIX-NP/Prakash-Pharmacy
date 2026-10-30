@@ -134,8 +134,13 @@ export const createRack = async (req: Request, res: Response): Promise<void> => 
     const trimmedName = name.trim();
 
     // Check unique name
-    const existing = await prisma.rack.findUnique({
-      where: { name: trimmedName },
+    const existing = await prisma.rack.findFirst({
+      where: {
+        name: {
+          equals: trimmedName,
+          mode: "insensitive",
+        },
+      },
     });
 
     if (existing) {
@@ -218,7 +223,10 @@ export const updateRack = async (req: Request, res: Response): Promise<void> => 
       // Check if another rack already uses this name
       const duplicate = await prisma.rack.findFirst({
         where: {
-          name: trimmedName,
+          name: {
+            equals: trimmedName,
+            mode: "insensitive",
+          },
           NOT: { id: rackId },
         },
       });

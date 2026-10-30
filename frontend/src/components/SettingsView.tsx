@@ -407,7 +407,7 @@ export const SettingsView: React.FC = () => {
           </div>
 
           <p className="mt-3 text-[11px] text-slate-400">
-            The backup includes: inventory, distributors, purchase invoices, sales bills, sales returns, racks, categories, generics, doctors, clinic patients &amp; visits, and stock adjustment logs.
+            The backup includes: inventory, distributors, purchase invoices, sales bills, sales returns, supplier ledger/returns, racks, categories, generics, doctors, clinic patients &amp; visits, stock adjustments, inventory safety-status history, and purchase-cancellation audit logs.
             Store this file in a safe place (Google Drive, USB drive, etc.).
           </p>
         </div>

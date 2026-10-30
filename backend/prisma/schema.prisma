@@ -57,6 +57,7 @@ model DistributorReturn {
   items           Json
   totalAmount     Decimal     @map("total_amount") @db.Decimal(12, 2)
   notes           String?     @map("notes")
+  recordedBy      String?     @map("recorded_by")
   createdAt       DateTime    @default(now()) @map("created_at")
 
   @@index([distributorId])
@@ -100,6 +101,13 @@ model Inventory {
   barcode String? @map("barcode")
   notes   String? @map("notes")
 
+  // Medicine-safety state. Physical stock may remain present while a batch is
+  // prevented from sale (for example during recall or quarantine).
+  saleStatus          String    @default("SELLABLE") @map("inventory_status")
+  safetyReason        String?   @map("safety_reason")
+  safetyChangedAt     DateTime? @map("safety_changed_at")
+  safetyChangedBy     String?   @map("safety_changed_by")
+
   // Relations
   billItems            BillItem[]
   purchaseInvoiceItems PurchaseInvoiceItem[]
@@ -108,6 +116,7 @@ model Inventory {
   updatedAt            DateTime              @updatedAt @map("updated_at")
 
   stockAdjustmentLogs StockAdjustmentLog[]
+  safetyStatusLogs    InventorySafetyStatusLog[]
 
   @@unique([medicineBrand, batchNumber], map: "inventory_medicine_batch_unique")
   @@index([medicineBrand])
@@ -286,6 +295,7 @@ model Ledger {
   description    String?  @map("description")
   ledgerType     String   @map("ledger_type") // e.g. "purchase", "payment", "return"
   referenceNo    String?  @map("reference_no")
+  recordedBy     String?  @map("recorded_by")
 
   debitAmount  Decimal @default(0.00) @map("debit_amount") @db.Decimal(12, 2)
   creditAmount Decimal @default(0.00) @map("credit_amount") @db.Decimal(12, 2)
@@ -310,11 +320,28 @@ model StockAdjustmentLog {
   recordedBy         String
   createdAt          DateTime @default(now())
 
-  medicine Inventory @relation(fields: [medicineId], references: [id], onDelete: Restrict)
+  medicine Inventory? @relation(fields: [medicineId], references: [id], onDelete: SetNull)
 
   @@index([medicineId])
   @@index([createdAt])
   @@map("stock_adjustment_logs_tbl")
+}
+
+
+model InventorySafetyStatusLog {
+  id             Int       @id @default(autoincrement())
+  medicineId     Int?      @map("medicine_id")
+  previousStatus String    @map("previous_status")
+  newStatus      String    @map("new_status")
+  reason         String
+  recordedBy     String    @map("recorded_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  medicine Inventory? @relation(fields: [medicineId], references: [id], onDelete: SetNull)
+
+  @@index([medicineId])
+  @@index([createdAt])
+  @@map("inventory_safety_status_logs_tbl")
 }
 
 // ==========================================
@@ -336,6 +363,7 @@ model PurchaseInvoice {
   vatAmount      Decimal  @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
   grandTotal     Decimal  @map("grand_total") @db.Decimal(12, 2)
   notes          String?  @map("notes")
+  createdBy      String?  @map("created_by")
   createdAt      DateTime @default(now()) @map("created_at")
 
   items PurchaseInvoiceItem[]
@@ -345,6 +373,24 @@ model PurchaseInvoice {
   @@index([distributorId])
   @@index([purchaseDate])
   @@map("purchase_invoice_tbl")
+}
+
+model PurchaseCancellationLog {
+  id               Int      @id @default(autoincrement())
+  purchaseId       Int      @map("purchase_id")
+  invoiceNumber    String   @map("invoice_number")
+  distributorId    Int      @map("distributor_id")
+  paymentMode      String   @map("payment_mode")
+  grandTotal       Decimal  @map("grand_total") @db.Decimal(12, 2)
+  reason           String?  @map("reason")
+  cancelledBy      String   @map("cancelled_by")
+  cancelledAt      DateTime @default(now()) @map("cancelled_at")
+  purchaseSnapshot Json     @map("purchase_snapshot")
+
+  @@index([purchaseId])
+  @@index([invoiceNumber])
+  @@index([cancelledAt])
+  @@map("purchase_cancellation_logs_tbl")
 }
 
 // ==========================================
@@ -554,3 +600,5 @@ model SalesReturnItem {
   @@index([inventoryId])
   @@map("sales_return_items_tbl")
 }
+
+

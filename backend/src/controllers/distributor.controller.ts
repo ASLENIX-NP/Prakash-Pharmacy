@@ -474,6 +474,8 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
     const cleanRef = String(refNumber || `PAY-${Date.now().toString().slice(-6)}`).trim();
     const cleanMode = String(paymentMode || "Bank Transfer").trim();
     const description = `Payment made via ${cleanMode.toUpperCase()}${notes ? ` (${notes})` : ""}`;
+    const authUser = (req as any).user ?? {};
+    const recordedBy = String(authUser.username ?? authUser.id ?? "unknown");
 
     const result = await prisma.$transaction(async (tx) => {
       // Serialize every posting for this supplier so ledger running-balance
@@ -498,6 +500,7 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
           ledgerType: "payment",
           referenceNo: cleanRef,
           description,
+          recordedBy,
           debitAmount: parsedAmount,
           creditAmount: 0,
           balance: newBal,
@@ -552,6 +555,7 @@ export const getDistributorReturns = async (_req: Request, res: Response): Promi
         items: Array.isArray(entry.items) ? entry.items : [],
         totalAmount: Number(entry.totalAmount),
         notes: entry.notes || "",
+        recordedBy: entry.recordedBy || null,
         createdAt: entry.createdAt.toISOString(),
       })),
     });
@@ -811,6 +815,7 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           ledgerType: "return",
           referenceNo: cleanDebitNote,
           description,
+          recordedBy,
           debitAmount: authoritativeTotal,
           creditAmount: 0,
           balance: newBalance,
@@ -826,6 +831,7 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           items: processedItems,
           totalAmount: authoritativeTotal,
           notes: notes ? String(notes).trim() : null,
+          recordedBy,
         },
       });
 
@@ -868,6 +874,7 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
             : [],
           totalAmount: Number(result.returnVoucher.totalAmount),
           notes: result.returnVoucher.notes || "",
+          recordedBy: result.returnVoucher.recordedBy || null,
           createdAt: result.returnVoucher.createdAt.toISOString(),
         },
       },
