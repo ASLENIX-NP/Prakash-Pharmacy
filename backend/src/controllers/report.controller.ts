@@ -349,6 +349,15 @@ export async function getVatReportSummary(
 // ---------------------------------------------------------------------------
 // Full Data Backup
 // ---------------------------------------------------------------------------
+async function safeQuery<T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[Backup] Warning: Failed to query table "${name}":`, err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
 export async function getFullBackup(
   _req: Request,
   res: Response
@@ -370,20 +379,20 @@ export async function getFullBackup(
       clinicVisits,
       stockAdjustmentLogs,
     ] = await Promise.all([
-      prisma.inventory.findMany(),
-      prisma.distributor.findMany(),
-      prisma.purchaseInvoice.findMany({ include: { items: true } }),
-      prisma.bill.findMany({ include: { items: true } }),
-      prisma.salesReturn.findMany({ include: { items: true } }),
-      prisma.rack.findMany(),
-      prisma.category.findMany(),
-      prisma.generic.findMany(),
-      prisma.pharmacySetting.findFirst(),
-      prisma.user.findMany({ select: { id: true, firstName: true, lastName: true, role: true, status: true, createdAt: true } }),
-      prisma.doctor.findMany(),
-      prisma.clinicPatient.findMany(),
-      prisma.clinicVisit.findMany(),
-      prisma.stockAdjustmentLog.findMany(),
+      safeQuery("inventory", () => prisma.inventory.findMany(), []),
+      safeQuery("distributor", () => prisma.distributor.findMany(), []),
+      safeQuery("purchaseInvoice", () => prisma.purchaseInvoice.findMany({ include: { items: true } }), []),
+      safeQuery("bill", () => prisma.bill.findMany({ include: { items: true } }), []),
+      safeQuery("salesReturn", () => prisma.salesReturn.findMany({ include: { items: true } }), []),
+      safeQuery("rack", () => prisma.rack.findMany(), []),
+      safeQuery("category", () => prisma.category.findMany(), []),
+      safeQuery("generic", () => prisma.generic.findMany(), []),
+      safeQuery("pharmacySetting", () => prisma.pharmacySetting.findFirst(), null),
+      safeQuery("user", () => prisma.user.findMany({ select: { id: true, firstName: true, lastName: true, role: true, status: true, createdAt: true } }), []),
+      safeQuery("doctor", () => prisma.doctor.findMany(), []),
+      safeQuery("clinicPatient", () => prisma.clinicPatient.findMany(), []),
+      safeQuery("clinicVisit", () => prisma.clinicVisit.findMany(), []),
+      safeQuery("stockAdjustmentLog", () => prisma.stockAdjustmentLog.findMany(), []),
     ]);
 
     const backupData = {
