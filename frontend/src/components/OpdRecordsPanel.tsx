@@ -27,6 +27,7 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { apiRequest } from '../services/api';
 import { printOpdSticker } from '../utils/opdSticker';
+import { displayAge } from './NewOpdPanel';
 
 
 interface ClinicPatient {
@@ -36,6 +37,8 @@ interface ClinicPatient {
   phone: string | null;
   gender: string | null;
   ageYears: number | null;
+  ageMonths?: number | null;
+  ageUnit?: string | null;
   address: string | null;
 }
 
@@ -68,6 +71,8 @@ interface ClinicVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
 
   consultationFee: number;
   additionalCharge: number;
@@ -109,6 +114,8 @@ interface PatientHistoryVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
 
   consultationFee: number;
   additionalCharge: number;
@@ -1473,8 +1480,11 @@ export const OpdRecordsPanel: React.FC = () => {
 
               <span className="mt-1 block text-xs text-slate-500">
                 Age:{' '}
-                {selectedVisit.ageAtVisit ??
-                  '—'}
+                {displayAge(
+                  selectedVisit.ageAtVisit,
+                  selectedVisit.ageMonthsAtVisit,
+                  selectedVisit.ageUnitAtVisit
+                )}
                 {selectedVisit.patient.gender
                   ? ` / ${selectedVisit.patient.gender}`
                   : ''}
@@ -2120,10 +2130,14 @@ export const OpdRecordsPanel: React.FC = () => {
                         </div>
 
                         <div className="mt-0.5 text-[10px] text-slate-400">
-                          {
-                            visit.patient.phone ||
-                            ''
-                          }
+                          {visit.patient.phone || ''}
+                          {(visit.ageAtVisit !== null || visit.ageMonthsAtVisit !== undefined) && (
+                            <span>
+                              {visit.patient.phone ? ' · ' : ''}
+                              {displayAge(visit.ageAtVisit, visit.ageMonthsAtVisit, visit.ageUnitAtVisit)}
+                              {visit.patient.gender ? ` (${visit.patient.gender})` : ''}
+                            </span>
+                          )}
                         </div>
 
                       </td>

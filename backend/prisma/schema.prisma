@@ -442,6 +442,8 @@ model ClinicPatient {
   phone     String?  @map("phone")
   gender    String?  @map("gender")
   ageYears  Int?     @map("age_years")
+  ageMonths Int?     @map("age_months")
+  ageUnit   String?  @default("years") @map("age_unit")
   address   String?  @map("address")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -471,7 +473,9 @@ model ClinicVisit {
   visitDateTime DateTime @default(now()) @map("visit_date_time")
 
   // Snapshot of age when this particular OPD visit occurred.
-  ageAtVisit Int? @map("age_at_visit")
+  ageAtVisit       Int?    @map("age_at_visit")
+  ageMonthsAtVisit Int?    @map("age_months_at_visit")
+  ageUnitAtVisit   String? @default("years") @map("age_unit_at_visit")
 
   // Consultation amount recorded when the patient arrives.
   consultationFee Decimal @default(0.00) @map("consultation_fee") @db.Decimal(12, 2)

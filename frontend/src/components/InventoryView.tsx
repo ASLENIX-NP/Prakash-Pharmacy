@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Layers, 
   Search, 
@@ -22,7 +22,9 @@ import {
   X,
   Building,
   FileText,
-  CheckCircle2
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -1774,24 +1776,67 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
   onOpenVatInfo
 }) => {
   const { confirmDialog } = useDialog();
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [medicines.length]);
+
+  const totalPages = Math.max(1, Math.ceil(medicines.length / PAGE_SIZE));
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, medicines.length);
+
+  const paginatedMedicines = useMemo(() => {
+    return medicines.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [medicines, startIndex]);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs">
-        <thead className="bg-slate-50/70 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
-          <tr>
-            <th className="py-2.5 px-4">Brand &amp; Molecule</th>
-            <th className="py-2.5 px-3">Batch &amp; Expiry</th>
-            <th className="py-2.5 px-3">Rack</th>
-            <th className="py-2.5 px-3">Stock Available</th>
-            <th className="py-2.5 px-3 text-right">Cost (NPR)</th>
-            <th className="py-2.5 px-3 text-right">MRP (NPR)</th>
-            <th className="py-2.5 px-3 text-center">VAT Classification</th>
-            <th className="py-2.5 px-4 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {medicines.map(m => {
+    <div>
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-5 py-2.5">
+          <span className="text-xs font-semibold text-slate-500">
+            Showing {startIndex + 1}–{endIndex} of {medicines.length} medicines
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 mr-1">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50/70 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+            <tr>
+              <th className="py-2.5 px-4">Brand &amp; Molecule</th>
+              <th className="py-2.5 px-3">Batch &amp; Expiry</th>
+              <th className="py-2.5 px-3">Rack</th>
+              <th className="py-2.5 px-3">Stock Available</th>
+              <th className="py-2.5 px-3 text-right">Cost (NPR)</th>
+              <th className="py-2.5 px-3 text-right">MRP (NPR)</th>
+              <th className="py-2.5 px-3 text-center">VAT Classification</th>
+              <th className="py-2.5 px-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {paginatedMedicines.map(m => {
             const isLowStock = m.stockPacks <= m.reorderLevel;
             const expTime = new Date(m.expiryDate).getTime();
             const nowTime = new Date().getTime();
@@ -1931,6 +1976,41 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
           })}
         </tbody>
       </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+          <div className="text-xs font-medium text-slate-600">
+            Showing <span className="font-bold text-slate-900">{startIndex + 1}</span> to{' '}
+            <span className="font-bold text-slate-900">{endIndex}</span> of{' '}
+            <span className="font-bold text-slate-900">{medicines.length}</span> medicines
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Previous
+            </button>
+            <span className="px-2 text-xs font-bold text-slate-700">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -240,6 +240,12 @@ const formatVisit = (
     ageAtVisit:
       visit.ageAtVisit,
 
+    ageMonthsAtVisit:
+      visit.ageMonthsAtVisit ?? null,
+
+    ageUnitAtVisit:
+      visit.ageUnitAtVisit ?? "years",
+
     consultationFee,
 
     additionalCharge,
@@ -1201,6 +1207,8 @@ export const createClinicVisit = async (
       visitDateTime,
 
       ageAtVisit,
+      ageMonthsAtVisit,
+      ageUnitAtVisit,
 
       consultationFee,
 
@@ -1442,6 +1450,14 @@ export const createClinicVisit = async (
 
           ageAtVisit:
             parsedAge,
+
+          ageMonthsAtVisit:
+            ageMonthsAtVisit !== undefined && ageMonthsAtVisit !== null
+              ? Number(ageMonthsAtVisit)
+              : patient.ageMonths,
+
+          ageUnitAtVisit:
+            ageUnitAtVisit ?? patient.ageUnit ?? "years",
 
           consultationFee:
             parsedConsultationFee,
