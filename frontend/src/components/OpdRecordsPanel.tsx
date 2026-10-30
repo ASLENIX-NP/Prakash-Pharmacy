@@ -222,7 +222,6 @@ export const OpdRecordsPanel: React.FC = () => {
   const [cancelingVisitId, setCancelingVisitId] = useState<string | null>(null);
 
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
 
 
   const [
@@ -698,22 +697,16 @@ export const OpdRecordsPanel: React.FC = () => {
     setCurrentPage(1);
   }, [filters, visits.length]);
 
-  const totalPages =
-    pageSize === -1
-      ? 1
-      : Math.max(1, Math.ceil(visits.length / pageSize));
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(visits.length / PAGE_SIZE));
 
   const paginatedVisits = useMemo(() => {
-    if (pageSize === -1) return visits;
-    const start = (currentPage - 1) * pageSize;
-    return visits.slice(start, start + pageSize);
-  }, [visits, currentPage, pageSize]);
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return visits.slice(start, start + PAGE_SIZE);
+  }, [visits, currentPage]);
 
-  const startIndex = pageSize === -1 ? 0 : (currentPage - 1) * pageSize;
-  const endIndex =
-    pageSize === -1
-      ? visits.length
-      : Math.min(startIndex + pageSize, visits.length);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, visits.length);
 
 
   const completionFinalTotal =
@@ -1989,23 +1982,33 @@ export const OpdRecordsPanel: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">Rows per page:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-700 transition focus:border-teal-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/10"
-            >
-              <option value={10}>10 per page</option>
-              <option value={25}>25 per page</option>
-              <option value={50}>50 per page</option>
-              <option value={100}>100 per page</option>
-              <option value={-1}>All records</option>
-            </select>
-          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  title="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
 
