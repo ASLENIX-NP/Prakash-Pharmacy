@@ -23,6 +23,39 @@ const normalizeInventoryDuplicateKey = (
 };
 
 
+const isValidInventoryExpiryDate = (value: unknown): boolean => {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return false;
+  }
+
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === text
+  );
+};
+
+const isInventoryUniqueConstraintError = (error: unknown): boolean =>
+  Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
+
+
+const parseInventoryBoolean = (value: unknown): boolean | null => {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null || value === "") return false;
+
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "vat", "13%"].includes(normalized)) return true;
+  if (["false", "0", "no", "vat free", "0%"].includes(normalized)) return false;
+  return null;
+};
+
+
 const findDuplicateMedicineBatchSafe = async (
   medicineBrand: string,
   batchNumber: string,
@@ -522,6 +555,14 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       return;
     }
 
+    if (!isValidInventoryExpiryDate(expiry)) {
+      res.status(400).json({
+        success: false,
+        message: "Expiry date must be a valid calendar date in YYYY-MM-DD format.",
+      });
+      return;
+    }
+
 
     // ========================================================
     // DUPLICATE MEDICINE + BATCH PROTECTION
@@ -655,47 +696,98 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       finalRackId = rackRecord.id;
     }
 
-    // 4. Numerical and Pricing defaults
-    const finalUnitPerPack = parseInt(String(unitPerPack ?? unitsPerPack ?? 10), 10) || 10;
-    const finalPackInStock = parseInt(String(packInStock ?? stockPacks ?? 0), 10) || 0;
-    const finalUnitInStock = parseInt(String(unitInStock ?? stockLooseUnits ?? 0), 10) || 0;
-    const finalAlertLevel = parseInt(String(packAlertLevel ?? reorderLevel ?? 15), 10) || 15;
-    const finalCostPrice = parseFloat(String(costPrice ?? 0)) || 0;
-    const finalSellingPrice = parseFloat(String(sellingPrice ?? mrpPrice ?? 0)) || 0;
-    const finalHasVat = Boolean(hasvat ?? isVatApplicable ?? false);
+    // 4. Numerical and pricing validation. Never silently clamp or truncate
+    // invalid physical stock / monetary values.
+    const finalUnitPerPack = Number(unitPerPack ?? unitsPerPack ?? 10);
+    const finalPackInStock = Number(packInStock ?? stockPacks ?? 0);
+    const finalUnitInStock = Number(unitInStock ?? stockLooseUnits ?? 0);
+    const finalAlertLevel = Number(packAlertLevel ?? reorderLevel ?? 15);
+    const finalCostPrice = Number(costPrice ?? 0);
+    const finalSellingPrice = Number(sellingPrice ?? mrpPrice ?? 0);
+    const finalHasVat = parseInventoryBoolean(
+      hasvat ?? isVatApplicable ?? false
+    );
 
-    const created = await prisma.inventory.create({
-      data: {
-        medicineBrand: brand,
-        batchNumber: batch,
-        expiryDate: expiry,
-        genericId: finalGenericId,
-        categoryId: finalCategoryId,
-        rackId: finalRackId,
+    if (!Number.isInteger(finalUnitPerPack) || finalUnitPerPack <= 0) {
+      res.status(400).json({ success: false, message: "Units per pack must be a positive whole number." });
+      return;
+    }
+    if (!Number.isInteger(finalPackInStock) || finalPackInStock < 0) {
+      res.status(400).json({ success: false, message: "Pack stock must be a non-negative whole number." });
+      return;
+    }
+    if (!Number.isInteger(finalUnitInStock) || finalUnitInStock < 0) {
+      res.status(400).json({ success: false, message: "Loose-unit stock must be a non-negative whole number." });
+      return;
+    }
+    if (finalUnitInStock >= finalUnitPerPack) {
+      res.status(400).json({
+        success: false,
+        message: `Loose-unit stock must be less than units per pack (${finalUnitPerPack}). Convert full units into packs.`,
+      });
+      return;
+    }
+    if (!Number.isInteger(finalAlertLevel) || finalAlertLevel < 0) {
+      res.status(400).json({ success: false, message: "Reorder level must be a non-negative whole number." });
+      return;
+    }
+    if (!Number.isFinite(finalCostPrice) || finalCostPrice < 0) {
+      res.status(400).json({ success: false, message: "Cost price must be zero or a positive number." });
+      return;
+    }
+    if (!Number.isFinite(finalSellingPrice) || finalSellingPrice < 0) {
+      res.status(400).json({ success: false, message: "Selling price must be zero or a positive number." });
+      return;
+    }
+    if (finalHasVat === null) {
+      res.status(400).json({ success: false, message: "VAT applicability must be true or false." });
+      return;
+    }
 
-        distributorId:
-          finalDistributorId,
+    const created = await prisma.$transaction(async (tx) => {
+      const batchLockKey =
+        `inventory-batch:${brand.toLowerCase()}|${batch.toLowerCase()}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${batchLockKey}))
+      `;
 
-        barcode:
-          normalizedBarcode,
+      const duplicate = await tx.inventory.findFirst({
+        where: {
+          medicineBrand: { equals: brand, mode: "insensitive" },
+          batchNumber: { equals: batch, mode: "insensitive" },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new Error("DUPLICATE_INVENTORY_BATCH");
+      }
 
-        notes:
-          normalizedNotes,
-
-        unitPerPack: Math.max(1, finalUnitPerPack),
-        packInStock: Math.max(0, finalPackInStock),
-        unitInStock: Math.max(0, finalUnitInStock),
-        packAlertLevel: Math.max(0, finalAlertLevel),
-        costPrice: finalCostPrice,
-        sellingPrice: finalSellingPrice,
-        hasvat: finalHasVat,
-      },
-      include: {
-        generic: true,
-        category: true,
-        rack: true,
-
-        distributor: true,},
+      return tx.inventory.create({
+        data: {
+          medicineBrand: brand,
+          batchNumber: batch,
+          expiryDate: expiry,
+          genericId: finalGenericId,
+          categoryId: finalCategoryId,
+          rackId: finalRackId,
+          distributorId: finalDistributorId,
+          barcode: normalizedBarcode,
+          notes: normalizedNotes,
+          unitPerPack: finalUnitPerPack,
+          packInStock: finalPackInStock,
+          unitInStock: finalUnitInStock,
+          packAlertLevel: finalAlertLevel,
+          costPrice: finalCostPrice,
+          sellingPrice: finalSellingPrice,
+          hasvat: finalHasVat,
+        },
+        include: {
+          generic: true,
+          category: true,
+          rack: true,
+          distributor: true,
+        },
+      });
     });
 
     res.status(201).json({
@@ -705,6 +797,16 @@ export const createInventory = async (req: Request, res: Response): Promise<void
     });
   } catch (error) {
     console.error("Error creating inventory item:", error);
+    if (
+      (error instanceof Error && error.message === "DUPLICATE_INVENTORY_BATCH") ||
+      isInventoryUniqueConstraintError(error)
+    ) {
+      res.status(409).json({
+        success: false,
+        message: "That medicine brand and batch already exists in inventory.",
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       message: "Failed to add medicine to inventory",
@@ -774,16 +876,39 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
     if (batchNumber !== undefined) {
-      updateData.batchNumber = String(batchNumber).trim();
+      const normalizedBatch = String(batchNumber).trim();
+      if (!normalizedBatch) {
+        res.status(400).json({ success: false, message: "Batch number cannot be empty." });
+        return;
+      }
+      updateData.batchNumber = normalizedBatch;
     }
 
     if (expiryDate !== undefined) {
-      updateData.expiryDate = String(expiryDate).trim();
+      const normalizedExpiry = String(expiryDate).trim();
+      if (!isValidInventoryExpiryDate(normalizedExpiry)) {
+        res.status(400).json({
+          success: false,
+          message: "Expiry date must be a valid calendar date in YYYY-MM-DD format.",
+        });
+        return;
+      }
+      updateData.expiryDate = normalizedExpiry;
     }
 
     // Resolve Generic if provided
-    if (genericId !== undefined && !isNaN(parseInt(genericId, 10))) {
-      updateData.genericId = parseInt(genericId, 10);
+    if (genericId !== undefined) {
+      const parsedGenericId = Number(genericId);
+      if (!Number.isInteger(parsedGenericId) || parsedGenericId <= 0) {
+        res.status(400).json({ success: false, message: "Generic ID must be a positive whole number." });
+        return;
+      }
+      const genericExists = await prisma.generic.findUnique({ where: { id: parsedGenericId } });
+      if (!genericExists) {
+        res.status(400).json({ success: false, message: `Generic with ID ${parsedGenericId} not found.` });
+        return;
+      }
+      updateData.genericId = parsedGenericId;
     } else if (genericName !== undefined) {
       const cleanGen = String(genericName).trim();
       if (!cleanGen || cleanGen.toLowerCase() === "unassigned") {
@@ -805,8 +930,18 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
 
     // Resolve Category if provided
     const catInput = categoryName || category;
-    if (categoryId !== undefined && !isNaN(parseInt(categoryId, 10))) {
-      updateData.categoryId = parseInt(categoryId, 10);
+    if (categoryId !== undefined) {
+      const parsedCategoryId = Number(categoryId);
+      if (!Number.isInteger(parsedCategoryId) || parsedCategoryId <= 0) {
+        res.status(400).json({ success: false, message: "Category ID must be a positive whole number." });
+        return;
+      }
+      const categoryExists = await prisma.category.findUnique({ where: { id: parsedCategoryId } });
+      if (!categoryExists) {
+        res.status(400).json({ success: false, message: `Category with ID ${parsedCategoryId} not found.` });
+        return;
+      }
+      updateData.categoryId = parsedCategoryId;
     } else if (catInput && String(catInput).trim()) {
       const cRecord = await prisma.category.upsert({
         where: { name: String(catInput).trim() },
@@ -822,8 +957,17 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       if (rackId === null || rackId === "null" || rackId === "unassigned") {
         updateData.rackId = null;
       } else {
-        const parsed = parseInt(String(rackId), 10);
-        if (!isNaN(parsed)) updateData.rackId = parsed;
+        const parsed = Number(rackId);
+        if (!Number.isInteger(parsed) || parsed <= 0) {
+          res.status(400).json({ success: false, message: "Rack ID must be a positive whole number." });
+          return;
+        }
+        const rackExists = await prisma.rack.findUnique({ where: { id: parsed } });
+        if (!rackExists) {
+          res.status(400).json({ success: false, message: `Rack with ID ${parsed} not found.` });
+          return;
+        }
+        updateData.rackId = parsed;
       }
     } else if (rInput !== undefined) {
       if (rInput === null || String(rInput).toLowerCase() === "unassigned") {
@@ -840,8 +984,36 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
 
     // Stock & Pricing fields
     if (unitPerPack !== undefined || unitsPerPack !== undefined) {
-      const val = parseInt(String(unitPerPack ?? unitsPerPack), 10);
-      if (!isNaN(val) && val > 0) updateData.unitPerPack = val;
+      const val = Number(unitPerPack ?? unitsPerPack);
+      if (!Number.isInteger(val) || val <= 0) {
+        res.status(400).json({ success: false, message: "Units per pack must be a positive whole number." });
+        return;
+      }
+      if (existing.unitInStock >= val) {
+        res.status(409).json({
+          success: false,
+          message: `Units per pack cannot be changed to ${val} while ${existing.unitInStock} loose units are stored. Normalize physical stock first.`,
+        });
+        return;
+      }
+
+      if (val !== existing.unitPerPack) {
+        const [historicalSales, historicalPurchases] = await Promise.all([
+          prisma.billItem.count({ where: { inventoryId: id } }),
+          prisma.purchaseInvoiceItem.count({ where: { inventoryId: id } }),
+        ]);
+
+        if (historicalSales > 0 || historicalPurchases > 0) {
+          res.status(409).json({
+            success: false,
+            message:
+              "Units per pack cannot be changed after this batch has sales or purchase history because returns/cancellations depend on that physical pack size.",
+          });
+          return;
+        }
+      }
+
+      updateData.unitPerPack = val;
     }
 
     /*
@@ -939,22 +1111,42 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
     if (packAlertLevel !== undefined || reorderLevel !== undefined) {
-      const val = parseInt(String(packAlertLevel ?? reorderLevel), 10);
-      if (!isNaN(val)) updateData.packAlertLevel = Math.max(0, val);
+      const val = Number(packAlertLevel ?? reorderLevel);
+      if (!Number.isInteger(val) || val < 0) {
+        res.status(400).json({
+          success: false,
+          message: "Reorder level must be a non-negative whole number.",
+        });
+        return;
+      }
+      updateData.packAlertLevel = val;
     }
 
     if (costPrice !== undefined) {
-      const val = parseFloat(String(costPrice));
-      if (!isNaN(val)) updateData.costPrice = val;
+      const val = Number(costPrice);
+      if (!Number.isFinite(val) || val < 0) {
+        res.status(400).json({ success: false, message: "Cost price must be zero or a positive number." });
+        return;
+      }
+      updateData.costPrice = val;
     }
 
     if (sellingPrice !== undefined || mrpPrice !== undefined) {
-      const val = parseFloat(String(sellingPrice ?? mrpPrice));
-      if (!isNaN(val)) updateData.sellingPrice = val;
+      const val = Number(sellingPrice ?? mrpPrice);
+      if (!Number.isFinite(val) || val < 0) {
+        res.status(400).json({ success: false, message: "Selling price must be zero or a positive number." });
+        return;
+      }
+      updateData.sellingPrice = val;
     }
 
     if (hasvat !== undefined || isVatApplicable !== undefined) {
-      updateData.hasvat = Boolean(hasvat ?? isVatApplicable);
+      const parsedVat = parseInventoryBoolean(hasvat ?? isVatApplicable);
+      if (parsedVat === null) {
+        res.status(400).json({ success: false, message: "VAT applicability must be true or false." });
+        return;
+      }
+      updateData.hasvat = parsedVat;
     }
 
 
@@ -1040,15 +1232,35 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
 
-    const updated = await prisma.inventory.update({
-      where: { id },
-      data: updateData,
-      include: {
-        generic: true,
-        category: true,
-        rack: true,
+    const updated = await prisma.$transaction(async (tx) => {
+      const batchLockKey =
+        `inventory-batch:${candidateBrandForDuplicateCheck.toLowerCase()}|${candidateBatchForDuplicateCheck.toLowerCase()}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${batchLockKey}))
+      `;
 
-        distributor: true,},
+      const duplicate = await tx.inventory.findFirst({
+        where: {
+          id: { not: id },
+          medicineBrand: { equals: candidateBrandForDuplicateCheck, mode: "insensitive" },
+          batchNumber: { equals: candidateBatchForDuplicateCheck, mode: "insensitive" },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new Error("DUPLICATE_INVENTORY_BATCH");
+      }
+
+      return tx.inventory.update({
+        where: { id },
+        data: updateData,
+        include: {
+          generic: true,
+          category: true,
+          rack: true,
+          distributor: true,
+        },
+      });
     });
 
     res.status(200).json({
@@ -1058,6 +1270,16 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     });
   } catch (error) {
     console.error("Error updating inventory item:", error);
+    if (
+      (error instanceof Error && error.message === "DUPLICATE_INVENTORY_BATCH") ||
+      isInventoryUniqueConstraintError(error)
+    ) {
+      res.status(409).json({
+        success: false,
+        message: "Another inventory row already uses that medicine brand and batch.",
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       message: "Failed to update inventory item",
@@ -1083,7 +1305,12 @@ export const deleteInventory = async (req: Request, res: Response): Promise<void
       where: { id },
       include: {
         _count: {
-          select: { billItems: true },
+          select: {
+            billItems: true,
+            purchaseInvoiceItems: true,
+            salesReturnItems: true,
+            stockAdjustmentLogs: true,
+          },
         },
       },
     });
@@ -1096,10 +1323,24 @@ export const deleteInventory = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    if (existing._count.billItems > 0) {
-      res.status(400).json({
+    if (existing.packInStock > 0 || existing.unitInStock > 0) {
+      res.status(409).json({
         success: false,
-        message: `Cannot delete '${existing.medicineBrand}' because it is linked to ${existing._count.billItems} historical sales bill(s). Consider setting stock to 0 instead.`,
+        message: `Cannot delete '${existing.medicineBrand}' while physical stock remains. Adjust stock to zero through the audited Physical Stock Adjustment workflow first.`,
+      });
+      return;
+    }
+
+    const historicalLinks =
+      existing._count.billItems +
+      existing._count.purchaseInvoiceItems +
+      existing._count.salesReturnItems +
+      existing._count.stockAdjustmentLogs;
+
+    if (historicalLinks > 0) {
+      res.status(409).json({
+        success: false,
+        message: `Cannot delete '${existing.medicineBrand}' because it has historical sales, purchase, return, or stock-audit records. Keep the zero-stock record for audit integrity.`,
       });
       return;
     }
@@ -1182,81 +1423,6 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
         item.unitPerPack > 0
           ? loose / item.unitPerPack
           : 0;
-
-const isValidInventoryDate = (
-  value: string
-): boolean => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
-
-  const parsed = new Date(
-    value + 'T00:00:00'
-  );
-
-  if (Number.isNaN(parsed.getTime())) {
-    return false;
-  }
-
-  return (
-    parsed.toISOString().slice(0, 10) === value
-  );
-}
-
-const normalizeInventoryKey = (
-  value: unknown
-): string =>
-  String(value ?? "")
-    .trim()
-    .toLowerCase();
-
-
-const findDuplicateMedicineBatch = async (
-  medicineBrand: string,
-  batchNumber: string,
-  excludeId?: number
-) => {
-  const targetBrand =
-    normalizeInventoryKey(
-      medicineBrand
-    );
-
-  const targetBatch =
-    normalizeInventoryKey(
-      batchNumber
-    );
-
-  const records =
-    await prisma.inventory.findMany({
-      select: {
-        id: true,
-        medicineBrand: true,
-        batchNumber: true,
-      },
-    });
-
-  return (
-    records.find((item) => {
-      if (
-        excludeId !== undefined &&
-        item.id === excludeId
-      ) {
-        return false;
-      }
-
-      return (
-        normalizeInventoryKey(
-          item.medicineBrand
-        ) === targetBrand &&
-        normalizeInventoryKey(
-          item.batchNumber
-        ) === targetBatch
-      );
-    }) ?? null
-  );
-};
-;
-
 
       const effectivePacks =
         packs + loosePackEquivalent;

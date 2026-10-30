@@ -43,6 +43,7 @@ import {
   parseMedicinesFromExcel
 } from '../utils/excelUtils';
 import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
+import { localDateString } from '../utils/date';
 
 export const StockistManagementView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
@@ -97,7 +98,7 @@ export const StockistManagementView: React.FC = () => {
   const [invoiceHeader, setInvoiceHeader] = useState({
     invoiceNumber: '',
     stockistId: stockists[0]?.id || '',
-    date: new Date().toISOString().split('T')[0],
+    date: localDateString(),
     paymentMode: 'credit' as 'credit' | 'cash',
     dueDate: '',
     notes: ''
@@ -110,7 +111,7 @@ export const StockistManagementView: React.FC = () => {
       genericName: '',
       category: 'Tablet',
       batchNumber: '',
-      expiryDate: '2027-12-31',
+      expiryDate: '',
       packQty: 10,
       freePacks: 0,
       unitsPerPack: 10,
@@ -248,7 +249,7 @@ export const StockistManagementView: React.FC = () => {
           missingPurchaseEntries.push({
             id: `bill-entry-${inv.id || inv.invoiceNumber}`,
             stockistId: currentSelectedStockist.id,
-            date: inv.date || new Date().toISOString().split('T')[0],
+            date: inv.date || localDateString(),
             refType: 'purchase_invoice',
             refId: String(inv.id || inv.invoiceNumber),
             refNumber: inv.invoiceNumber,
@@ -394,8 +395,8 @@ export const StockistManagementView: React.FC = () => {
         medicineName: '',
         genericName: '',
         category: 'Tablet',
-        batchNumber: `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-        expiryDate: '2027-12-31',
+        batchNumber: '',
+        expiryDate: '',
         packQty: 10,
         freePacks: 0,
         unitsPerPack: 10,
@@ -480,8 +481,8 @@ export const StockistManagementView: React.FC = () => {
           medicineName: m.name,
           genericName: m.genericName || '',
           category: m.category || 'Tablet',
-          batchNumber: m.batchNumber || `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-          expiryDate: m.expiryDate || '2028-12-31',
+          batchNumber: m.batchNumber || '',
+          expiryDate: m.expiryDate || '',
           packQty: packQty > 0 ? packQty : (looseUnits > 0 ? 0 : 1),
           looseUnits,
           freePacks: 0,
@@ -506,12 +507,6 @@ export const StockistManagementView: React.FC = () => {
         }
       }
 
-      if (!invoiceHeader.invoiceNumber) {
-        setInvoiceHeader(prev => ({
-          ...prev,
-          invoiceNumber: `BILL-${Math.floor(1000 + Math.random() * 9000)}`
-        }));
-      }
 
       showToast(`Successfully loaded ${importedRows.length} invoice items from Excel file!`, 'success', 'Excel Imported');
     } catch (err: any) {
@@ -567,6 +562,26 @@ export const StockistManagementView: React.FC = () => {
       showToast('Please fill Medicine Name for all rows.', 'warning', 'Validation');
       return;
     }
+    if (invoiceItems.some(it => !it.batchNumber.trim())) {
+      showToast('A real Batch Number is required for every purchase row. It will not be auto-generated.', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.some(it => !/^\d{4}-\d{2}-\d{2}$/.test(it.expiryDate || ''))) {
+      showToast('A real Expiry Date in YYYY-MM-DD format is required for every purchase row.', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.some(it => !Number.isInteger(it.unitsPerPack) || it.unitsPerPack < 1)) {
+      showToast('Units per pack must be a positive whole number for every purchase row.', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.some(it => !Number.isInteger(it.packQty) || it.packQty < 0 || !Number.isInteger(it.looseUnits || 0) || (it.looseUnits || 0) < 0 || (it.looseUnits || 0) >= it.unitsPerPack)) {
+      showToast('Purchase quantities must be whole numbers, non-negative, and loose units must be less than one full pack.', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.some(it => (it.packQty + (it.freePacks || 0)) <= 0 && (it.looseUnits || 0) <= 0)) {
+      showToast('Every purchase row must receive at least one pack or loose unit.', 'warning', 'Validation');
+      return;
+    }
 
     const stockist = stockists.find(s => s.id === invoiceHeader.stockistId);
     if (!stockist) return;
@@ -594,7 +609,7 @@ export const StockistManagementView: React.FC = () => {
     setInvoiceHeader({
       invoiceNumber: '',
       stockistId: stockists[0]?.id || '',
-      date: new Date().toISOString().split('T')[0],
+      date: localDateString(),
       paymentMode: 'credit',
       dueDate: '',
       notes: ''
@@ -606,7 +621,7 @@ export const StockistManagementView: React.FC = () => {
         genericName: '',
         category: 'Tablet',
         batchNumber: '',
-        expiryDate: '2027-12-31',
+        expiryDate: '',
         packQty: 10,
         freePacks: 0,
         unitsPerPack: 10,

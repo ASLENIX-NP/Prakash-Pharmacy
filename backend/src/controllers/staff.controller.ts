@@ -5,10 +5,17 @@ import {
   formatUserResponse,
   resolveNameFields,
   resolveFlexibleFields,
-  generateStaffCode,
   hashPassword,
   MIN_PASSWORD_LENGTH,
 } from "../utils/user.helpers.js";
+
+const isUniqueConstraintError = (error: unknown): boolean =>
+  Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2002"
+  );
 
 // ==========================================
 // 1. Register New Staff / User (Admin Only)
@@ -18,6 +25,14 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
     const { username, password, initials, email } = req.body;
     const { firstName, lastName } = resolveNameFields(req.body);
     const { phone, shift, status, role } = resolveFlexibleFields(req.body);
+
+    if (status !== undefined && !["active", "inactive"].includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: "Staff status must be either 'active' or 'inactive'.",
+      });
+      return;
+    }
 
     // Validation
     if (!username || !password || !firstName) {
@@ -55,39 +70,70 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
     }
 
     const cleanUsername = String(username).trim();
-
-    // Check duplicate username
-    const existing = await prisma.user.findUnique({
-      where: { username: cleanUsername },
-    });
-    if (existing) {
-      res.status(409).json({
-        success: false,
-        message: `User ID / Username '${cleanUsername}' is already taken.`,
-      });
-      return;
-    }
-
-    // Resolve staff code & role
     const targetRole = role || "staff";
-    const finalId =
-      req.body.id || req.body.staffId || req.body.staffCode ||
-      (await generateStaffCode(targetRole));
+    const requestedId = req.body.id || req.body.staffId || req.body.staffCode;
+    const passwordHash = await hashPassword(cleanPassword);
 
-    const newUser = await prisma.user.create({
-      data: {
-        id: String(finalId).trim(),
-        username: cleanUsername,
-        password: await hashPassword(cleanPassword),
-        firstName: String(firstName).trim(),
-        lastName: String(lastName || firstName).trim(),
-        initials: initials ? String(initials).trim() : null,
-        email: cleanEmail || null,
-        phoneNumber: cleanPhone || null,
-        role: targetRole,
-        shift: shift ? String(shift).trim() : null,
-        status: status || "active",
-      },
+    const newUser = await prisma.$transaction(async (tx) => {
+      // Serialize staff-code allocation and case-insensitive identity checks.
+      // The primary key/username uniqueness constraints remain the final guard.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9042025)`;
+
+      const existingUsername = await tx.user.findFirst({
+        where: { username: { equals: cleanUsername, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (existingUsername) {
+        throw new Error("DUPLICATE_USERNAME");
+      }
+
+      let cleanId: string;
+      if (requestedId) {
+        cleanId = String(requestedId).trim();
+      } else {
+        const prefix = targetRole === "admin" ? "ADM" : "STF";
+        const existingIds = await tx.user.findMany({
+          where: { id: { startsWith: `${prefix}-` } },
+          select: { id: true },
+        });
+        let maxNum = 0;
+        for (const row of existingIds) {
+          const match = row.id.match(new RegExp(`^${prefix}-(\\d+)$`, "i"));
+          if (match?.[1]) {
+            const numeric = Number(match[1]);
+            if (Number.isInteger(numeric) && numeric > maxNum) maxNum = numeric;
+          }
+        }
+        cleanId = `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
+      }
+
+      if (!cleanId) {
+        throw new Error("INVALID_STAFF_ID");
+      }
+
+      const duplicateId = await tx.user.findFirst({
+        where: { id: { equals: cleanId, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (duplicateId) {
+        throw new Error("DUPLICATE_STAFF_ID");
+      }
+
+      return tx.user.create({
+        data: {
+          id: cleanId,
+          username: cleanUsername,
+          password: passwordHash,
+          firstName: String(firstName).trim(),
+          lastName: String(lastName || firstName).trim(),
+          initials: initials ? String(initials).trim() : null,
+          email: cleanEmail || null,
+          phoneNumber: cleanPhone || null,
+          role: targetRole,
+          shift: shift ? String(shift).trim() : null,
+          status: status || "active",
+        },
+      });
     });
 
     res.status(201).json({
@@ -97,6 +143,25 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
     });
   } catch (error) {
     console.error("Registration error:", error);
+    if (error instanceof Error && error.message === "DUPLICATE_USERNAME") {
+      res.status(409).json({ success: false, message: "User ID / Username is already taken." });
+      return;
+    }
+    if (error instanceof Error && error.message === "DUPLICATE_STAFF_ID") {
+      res.status(409).json({ success: false, message: "Staff ID is already in use." });
+      return;
+    }
+    if (error instanceof Error && error.message === "INVALID_STAFF_ID") {
+      res.status(400).json({ success: false, message: "Staff ID cannot be empty." });
+      return;
+    }
+    if (isUniqueConstraintError(error)) {
+      res.status(409).json({
+        success: false,
+        message: "Staff ID or username already exists.",
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       message: "Internal server error during staff registration.",
@@ -198,6 +263,13 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
 
     // Flexible alias fields
     const { phone, shift, status, role } = resolveFlexibleFields(req.body);
+    if (status !== undefined && !["active", "inactive"].includes(status)) {
+      res.status(400).json({
+        success: false,
+        message: "Staff status must be either 'active' or 'inactive'.",
+      });
+      return;
+    }
     if (phone !== undefined) {
       const cleanPhone = phone ? String(phone).trim() : "";
       if (cleanPhone && !/^\d{10}$/.test(cleanPhone)) {
@@ -231,9 +303,36 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
         await hashPassword(cleanPassword);
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: updateData,
+    const nextRole = String(updateData.role ?? existing.role).toLowerCase();
+    const nextStatus = String(updateData.status ?? existing.status).toLowerCase();
+    const existingIsActiveAdmin =
+      existing.role.toLowerCase() === "admin" &&
+      existing.status.toLowerCase() === "active";
+    const remainsActiveAdmin =
+      nextRole === "admin" && nextStatus === "active";
+
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      // Serialize operations that could remove the final active Admin.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9042026)`;
+
+      if (existingIsActiveAdmin && !remainsActiveAdmin) {
+        const otherActiveAdmins = await tx.user.count({
+          where: {
+            id: { not: userId },
+            role: { equals: "admin", mode: "insensitive" },
+            status: { equals: "active", mode: "insensitive" },
+          },
+        });
+
+        if (otherActiveAdmins === 0) {
+          throw new Error("LAST_ACTIVE_ADMIN");
+        }
+      }
+
+      return tx.user.update({
+        where: { id: userId },
+        data: updateData,
+      });
     });
 
     res.status(200).json({
@@ -243,6 +342,17 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
     });
   } catch (error) {
     console.error("UpdateUser error:", error);
+    if (error instanceof Error && error.message === "LAST_ACTIVE_ADMIN") {
+      res.status(409).json({
+        success: false,
+        message: "At least one active Admin account must remain.",
+      });
+      return;
+    }
+    if (isUniqueConstraintError(error)) {
+      res.status(409).json({ success: false, message: "Username already exists." });
+      return;
+    }
     res.status(500).json({
       success: false,
       message: "Internal server error updating staff details.",
@@ -275,14 +385,62 @@ export async function deleteUser(req: AuthenticatedRequest, res: Response): Prom
       return;
     }
 
-    await prisma.user.delete({ where: { id: userId } });
+    const outcome = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(9042026)`;
+
+      if (
+        existing.role.toLowerCase() === "admin" &&
+        existing.status.toLowerCase() === "active"
+      ) {
+        const otherActiveAdmins = await tx.user.count({
+          where: {
+            id: { not: userId },
+            role: { equals: "admin", mode: "insensitive" },
+            status: { equals: "active", mode: "insensitive" },
+          },
+        });
+        if (otherActiveAdmins === 0) {
+          throw new Error("LAST_ACTIVE_ADMIN");
+        }
+      }
+
+      const history = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          _count: {
+            select: { bills: true, clinicVisits: true },
+          },
+        },
+      });
+
+      if (history && (history._count.bills > 0 || history._count.clinicVisits > 0)) {
+        const deactivated = await tx.user.update({
+          where: { id: userId },
+          data: { status: "inactive" },
+        });
+        return { mode: "deactivated" as const, user: deactivated };
+      }
+
+      const deleted = await tx.user.delete({ where: { id: userId } });
+      return { mode: "deleted" as const, user: deleted };
+    });
 
     res.status(200).json({
       success: true,
-      message: `Staff user '${existing.username}' (ID: ${userId}) has been deleted successfully.`,
+      message:
+        outcome.mode === "deactivated"
+          ? `Staff user '${existing.username}' has historical transactions and was deactivated instead of deleted.`
+          : `Staff user '${existing.username}' (ID: ${userId}) has been deleted successfully.`,
     });
   } catch (error) {
     console.error("DeleteUser error:", error);
+    if (error instanceof Error && error.message === "LAST_ACTIVE_ADMIN") {
+      res.status(409).json({
+        success: false,
+        message: "At least one active Admin account must remain.",
+      });
+      return;
+    }
     res.status(500).json({
       success: false,
       message: "Internal server error deleting user.",

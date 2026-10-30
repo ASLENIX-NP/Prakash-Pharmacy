@@ -109,6 +109,7 @@ model Inventory {
 
   stockAdjustmentLogs StockAdjustmentLog[]
 
+  @@unique([medicineBrand, batchNumber], map: "inventory_medicine_batch_unique")
   @@index([medicineBrand])
   @@index([genericId])
   @@index([categoryId])
@@ -147,6 +148,7 @@ model User {
 model Bill {
   id                Int      @id @default(autoincrement())
   invoiceNumber     String   @unique @map("invoice_number")
+  clientRequestId   String?  @unique(map: "bill_tbl_client_request_id_key") @map("client_request_id")
   transactionDate   DateTime @default(now()) @map("transaction_date")
   customerName      String?  @map("customer_name")
   customerPhone     String?  @map("customer_phone")
@@ -200,6 +202,19 @@ model BillItem {
   vatitemPrice   Decimal @default(0.00) @map("vatitem_price") @db.Decimal(12, 2)
   grossItemPrice Decimal @map("gross_item_price") @db.Decimal(12, 2)
   netItemPrice   Decimal @map("net_item_price") @db.Decimal(12, 2)
+
+  // Immutable sale-time snapshots. These protect historical invoices and
+  // credit notes from later edits to the live Inventory row. Existing rows
+  // remain nullable and fall back to the legacy relation when necessary.
+  medicineNameSnapshot String?  @map("medicine_name_snapshot")
+  genericNameSnapshot  String?  @map("generic_name_snapshot")
+  categoryNameSnapshot String?  @map("category_name_snapshot")
+  batchNumberSnapshot  String?  @map("batch_number_snapshot")
+  expiryDateSnapshot   String?  @map("expiry_date_snapshot")
+  unitsPerPackSnapshot Int?     @map("units_per_pack_snapshot")
+  costPriceSnapshot    Decimal? @map("cost_price_snapshot") @db.Decimal(10, 2)
+  hasVatSnapshot       Boolean? @map("has_vat_snapshot")
+  rackLocationSnapshot String?  @map("rack_location_snapshot")
 
   salesReturnItems SalesReturnItem[]
 
@@ -295,7 +310,7 @@ model StockAdjustmentLog {
   recordedBy         String
   createdAt          DateTime @default(now())
 
-  medicine Inventory @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  medicine Inventory @relation(fields: [medicineId], references: [id], onDelete: Restrict)
 
   @@index([medicineId])
   @@index([createdAt])
@@ -325,6 +340,7 @@ model PurchaseInvoice {
 
   items PurchaseInvoiceItem[]
 
+  @@unique([distributorId, invoiceNumber], map: "purchase_invoice_supplier_invoice_unique")
   @@index([invoiceNumber])
   @@index([distributorId])
   @@index([purchaseDate])
@@ -385,6 +401,7 @@ model PharmacySetting {
   fiscalYear                 String   @default("2081/82") @map("fiscal_year")
   invoicePrefix              String   @default("PP-2081/82-") @map("invoice_prefix")
   nextInvoiceNumber          Int      @default(101) @map("next_invoice_number")
+  nextCreditNoteNumber       Int      @default(1) @map("next_credit_note_number")
   defaultInvoiceSize         String   @default("A5") @map("default_invoice_size")
   invoiceDateFormat          String   @default("BS") @map("invoice_date_format")
   receiptFooterNote          String   @default("Thank you for your visit. Medicines once sold cannot be returned without original bill.") @map("receipt_footer_note")

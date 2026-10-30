@@ -2484,52 +2484,56 @@ const response =
       'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'
     >
   ): Promise<SaleInvoice> => {
-    const invoicePrefix =
-      settings.invoicePrefix ||
-      'PP-2081/82-';
+    /*
+     * The backend owns invoice numbering. The browser sends only a durable
+     * checkout request ID so retries can return the already-committed bill
+     * without deducting stock twice.
+     */
+    const checkoutFingerprint = JSON.stringify({
+      customerName: saleData.customerName || '',
+      customerPhone: saleData.customerPhone || '',
+      customerPan: saleData.customerPan || '',
+      doctorName: saleData.doctorName || '',
+      paymentMode: saleData.paymentMode,
+      discountType: saleData.discountType,
+      discountValue: saleData.discountValue,
+      cashTendered: saleData.cashTendered,
+      items: saleData.items.map(item => ({
+        inventoryId: item.inventoryId || item.medicineId,
+        quantity: item.quantity,
+        isLooseUnit: item.isLooseUnit,
+      })),
+    });
 
-    const lastUsedInvoiceNumber =
-      salesInvoices.reduce(
-        (highest, sale) => {
-          if (
-            !sale.invoiceNumber.startsWith(
-              invoicePrefix
-            )
-          ) {
-            return highest;
-          }
+    const pendingFingerprintKey =
+      'prakash_pending_checkout_fingerprint';
+    const pendingRequestIdKey =
+      'prakash_pending_checkout_request_id';
 
-          const suffix = Number(
-            sale.invoiceNumber.slice(
-              invoicePrefix.length
-            )
-          );
+    const previousFingerprint =
+      sessionStorage.getItem(pendingFingerprintKey);
+    const previousRequestId =
+      sessionStorage.getItem(pendingRequestIdKey);
 
-          return Number.isInteger(suffix)
-            ? Math.max(
-                highest,
-                suffix
-              )
-            : highest;
-        },
-        0
+    let clientRequestId =
+      previousFingerprint === checkoutFingerprint && previousRequestId
+        ? previousRequestId
+        : '';
+
+    if (!clientRequestId) {
+      clientRequestId =
+        globalThis.crypto?.randomUUID?.() ||
+        `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      sessionStorage.setItem(
+        pendingFingerprintKey,
+        checkoutFingerprint
       );
-
-    const invoiceSequence =
-      Math.max(
-        settings.nextInvoiceNumber ||
-          101,
-        lastUsedInvoiceNumber + 1
+      sessionStorage.setItem(
+        pendingRequestIdKey,
+        clientRequestId
       );
-
-    const invoiceSeq =
-      invoiceSequence
-        .toString()
-        .padStart(5, '0');
-
-    const invoiceNumber =
-      `${invoicePrefix}${invoiceSeq}`;
-
+    }
 
     const reloadInventoryAfterSale =
       async () => {
@@ -2569,14 +2573,13 @@ const response =
         await apiRequest<{
           success: boolean;
           data: SaleInvoice;
+          replayed?: boolean;
         }>('/bills', {
           method: 'POST',
 
           body: JSON.stringify({
             ...saleData,
-
-            invoiceNumber,
-
+            clientRequestId,
             cashierId:
               saleData.cashierId ||
               currentUser?.id,
@@ -2599,6 +2602,13 @@ const response =
        * PostgreSQL has now committed the bill.
        * Only now may the frontend treat the sale as completed.
        */
+      sessionStorage.removeItem(
+        pendingFingerprintKey
+      );
+      sessionStorage.removeItem(
+        pendingRequestIdKey
+      );
+
       localStorage.setItem(
         SALES_DEMO_STATUS_KEY,
         'dismissed'
@@ -2625,19 +2635,32 @@ const response =
 
 
       /*
-       * Advance the local invoice sequence only after
-       * PostgreSQL successfully created the invoice.
+       * Keep the local display of the next invoice sequence aligned with the
+       * database-issued invoice, but never use it to issue the invoice itself.
        */
-      setSettings(previous => ({
-        ...previous,
+      const configuredPrefix =
+        settings.invoicePrefix || '';
 
-        nextInvoiceNumber:
-          Math.max(
-            previous.nextInvoiceNumber ||
-              101,
-            invoiceSequence + 1
-          ),
-      }));
+      if (
+        configuredPrefix &&
+        savedInvoice.invoiceNumber.startsWith(configuredPrefix)
+      ) {
+        const issuedNumber = Number(
+          savedInvoice.invoiceNumber.slice(
+            configuredPrefix.length
+          )
+        );
+
+        if (Number.isInteger(issuedNumber)) {
+          setSettings(previous => ({
+            ...previous,
+            nextInvoiceNumber: Math.max(
+              previous.nextInvoiceNumber || 1,
+              issuedNumber + 1
+            ),
+          }));
+        }
+      }
 
 
       /*
@@ -2660,7 +2683,9 @@ const response =
        * Nothing was optimistically inserted into salesInvoices,
        * so there is no fake invoice to remove.
        *
-       * Reload live stock in case the browser was stale.
+       * Keep the pending checkout request ID. If PostgreSQL committed but the
+       * response was lost, retrying the unchanged cart will reuse this ID and
+       * the backend will return the existing bill instead of selling twice.
        */
       try {
         await reloadInventoryAfterSale();
@@ -2768,8 +2793,6 @@ const response =
   };
 
   const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
-    setSettings(prev => ({ ...prev, ...updates }));
-
     try {
       const res = await apiRequest<{ success: boolean; data: PharmacySettings }>('/settings', {
         method: 'PUT',

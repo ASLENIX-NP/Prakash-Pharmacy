@@ -145,12 +145,32 @@ export const getPurchaseById = async (req: Request, res: Response): Promise<void
 };
 
 class PurchaseValidationError extends Error {
-  constructor(message: string) {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
     super(message);
     this.name = "PurchaseValidationError";
+    this.statusCode = statusCode;
   }
 }
 
+const roundPurchaseMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+
+const isValidPurchaseDateOnly = (value: unknown): boolean => {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+};
+
+const parsePurchaseBoolean = (value: unknown, fieldName: string): boolean => {
+  if (value === true || value === false) return value;
+  if (value === "true") return true;
+  if (value === "false" || value === undefined || value === null || value === "") return false;
+  throw new PurchaseValidationError(`${fieldName} must be a boolean.`);
+};
 
 export const createPurchase = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -162,54 +182,227 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       purchaseDate,
       paymentMode = "credit",
       dueDate,
-      subtotal,
-      discountAmount = 0,
-      taxableAmount = 0,
-      vatAmount = 0,
-      grandTotal,
       notes,
       items,
     } = req.body;
 
     const cleanInvoiceNumber = String(invoiceNumber || "").trim();
     if (!cleanInvoiceNumber) {
-      res.status(400).json({ success: false, message: "Wholesaler Invoice / Bill Number is required." });
-      return;
+      throw new PurchaseValidationError(
+        "Wholesaler Invoice / Bill Number is required."
+      );
     }
 
     const targetDistributorId = parseIdParam(stockistId || distributorId);
     if (!targetDistributorId) {
-      res.status(400).json({ success: false, message: "Valid distributor / stockist ID is required." });
-      return;
+      throw new PurchaseValidationError(
+        "Valid distributor / stockist ID is required."
+      );
     }
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      res.status(400).json({ success: false, message: "Purchase invoice must have at least one medicine item." });
-      return;
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new PurchaseValidationError(
+        "Purchase invoice must have at least one medicine item."
+      );
     }
 
-    // Verify distributor exists
-    const distributor = await prisma.distributor.findUnique({
-      where: { id: targetDistributorId },
-    });
-    if (!distributor) {
-      res.status(404).json({ success: false, message: "Selected distributor does not exist." });
-      return;
+    const finalPaymentMode = String(paymentMode || "credit")
+      .trim()
+      .toLowerCase();
+    if (finalPaymentMode !== "cash" && finalPaymentMode !== "credit") {
+      throw new PurchaseValidationError(
+        "Payment mode must be either cash or credit."
+      );
     }
 
-    const finalPaymentMode = String(paymentMode).toLowerCase() === "cash" ? "cash" : "credit";
-    const parsedPurchaseDate = date ? new Date(date) : purchaseDate ? new Date(purchaseDate) : new Date();
+    const parsedPurchaseDate = date
+      ? new Date(date)
+      : purchaseDate
+        ? new Date(purchaseDate)
+        : new Date();
+    if (Number.isNaN(parsedPurchaseDate.getTime())) {
+      throw new PurchaseValidationError("Purchase date is invalid.");
+    }
+
     const parsedDueDate = dueDate ? new Date(dueDate) : null;
+    if (parsedDueDate && Number.isNaN(parsedDueDate.getTime())) {
+      throw new PurchaseValidationError("Due date is invalid.");
+    }
 
-    const calcSubtotal = parseFloat(String(subtotal ?? 0)) || 0;
-    const calcDiscount = parseFloat(String(discountAmount ?? 0)) || 0;
-    const calcTaxable = parseFloat(String(taxableAmount ?? 0)) || 0;
-    const calcVat = parseFloat(String(vatAmount ?? 0)) || 0;
-    const calcGrandTotal = parseFloat(String(grandTotal ?? (calcSubtotal - calcDiscount + calcVat))) || 0;
+    const normalizedItems = items.map((item: any, index: number) => {
+      const row = index + 1;
+      const medicineName = String(item.medicineName || item.name || "").trim();
+      const batchNumber = String(item.batchNumber || "").trim();
+      const expiryDate = String(item.expiryDate || "").trim();
 
-    // Execute atomic purchase transaction
+      if (!medicineName) {
+        throw new PurchaseValidationError(
+          `Medicine brand name is required on purchase row ${row}.`
+        );
+      }
+      if (!batchNumber) {
+        throw new PurchaseValidationError(
+          `Batch number is required for '${medicineName}'.`
+        );
+      }
+      if (!expiryDate || !isValidPurchaseDateOnly(expiryDate)) {
+        throw new PurchaseValidationError(
+          `Expiry date for '${medicineName}' must be a valid calendar date in YYYY-MM-DD format.`
+        );
+      }
+
+      const packQty = Number(item.packQty ?? 0);
+      const looseUnits = Number(
+        item.looseUnits ?? item.stockLooseUnits ?? item.unitInStock ?? 0
+      );
+      const freePacks = Number(item.freePacks ?? 0);
+      const unitsPerPack = Number(item.unitsPerPack ?? 10);
+      const costPrice = Number(item.costPrice ?? 0);
+      const mrpPrice = Number(item.mrpPrice ?? costPrice * 1.3);
+      const discountPercent = Number(item.discountPercent ?? 0);
+      const isVatApplicable = parsePurchaseBoolean(
+        item.isVatApplicable,
+        "isVatApplicable"
+      );
+
+      if (
+        !Number.isInteger(packQty) || packQty < 0 ||
+        !Number.isInteger(looseUnits) || looseUnits < 0 ||
+        !Number.isInteger(freePacks) || freePacks < 0
+      ) {
+        throw new PurchaseValidationError(
+          `Purchase quantities for '${medicineName}' must be whole, non-negative numbers.`
+        );
+      }
+      if (!Number.isInteger(unitsPerPack) || unitsPerPack <= 0) {
+        throw new PurchaseValidationError(
+          `Units per pack for '${medicineName}' must be a positive whole number.`
+        );
+      }
+      if (looseUnits >= unitsPerPack) {
+        throw new PurchaseValidationError(
+          `Loose units for '${medicineName}' must be less than units per pack; convert complete loose packs into pack quantity.`
+        );
+      }
+      if (packQty + freePacks === 0 && looseUnits === 0) {
+        throw new PurchaseValidationError(
+          `Purchase row for '${medicineName}' must receive at least one pack or loose unit.`
+        );
+      }
+      if (!Number.isFinite(costPrice) || costPrice < 0) {
+        throw new PurchaseValidationError(
+          `Cost price for '${medicineName}' must be zero or positive.`
+        );
+      }
+      if (!Number.isFinite(mrpPrice) || mrpPrice < 0) {
+        throw new PurchaseValidationError(
+          `MRP / selling price for '${medicineName}' must be zero or positive.`
+        );
+      }
+      if (
+        !Number.isFinite(discountPercent) ||
+        discountPercent < 0 ||
+        discountPercent > 100
+      ) {
+        throw new PurchaseValidationError(
+          `Discount percent for '${medicineName}' must be between 0 and 100.`
+        );
+      }
+
+      const looseCost = costPrice / unitsPerPack;
+      const grossLine = roundPurchaseMoney(
+        packQty * costPrice + looseUnits * looseCost
+      );
+      const lineDiscount = roundPurchaseMoney(
+        grossLine * discountPercent / 100
+      );
+      const lineTotal = roundPurchaseMoney(grossLine - lineDiscount);
+      const lineVat = isVatApplicable
+        ? roundPurchaseMoney(lineTotal * 0.13)
+        : 0;
+
+      return {
+        medicineName,
+        batchNumber,
+        expiryDate,
+        packQty,
+        looseUnits,
+        freePacks,
+        unitsPerPack,
+        costPrice: roundPurchaseMoney(costPrice),
+        mrpPrice: roundPurchaseMoney(mrpPrice),
+        discountPercent,
+        isVatApplicable,
+        grossLine,
+        lineDiscount,
+        lineTotal,
+        lineVat,
+        genericName: String(item.genericName || medicineName).trim(),
+        categoryName: String(item.category || item.categoryName || "Tablet").trim(),
+        rackLocation: String(item.rackLocation || "General Shelf").trim(),
+      };
+    });
+
+    const calcSubtotal = roundPurchaseMoney(
+      normalizedItems.reduce((sum, item) => sum + item.grossLine, 0)
+    );
+    const calcDiscount = roundPurchaseMoney(
+      normalizedItems.reduce((sum, item) => sum + item.lineDiscount, 0)
+    );
+    const calcTaxable = roundPurchaseMoney(
+      normalizedItems.reduce(
+        (sum, item) => sum + (item.isVatApplicable ? item.lineTotal : 0),
+        0
+      )
+    );
+    const calcVat = roundPurchaseMoney(
+      normalizedItems.reduce((sum, item) => sum + item.lineVat, 0)
+    );
+    const calcGrandTotal = roundPurchaseMoney(
+      normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0) + calcVat
+    );
+
     const createdPurchase = await prisma.$transaction(async (tx) => {
-      // 1. Create Purchase Invoice record
+      // Serialize duplicate checks for this supplier invoice number without
+      // relying on a new database uniqueness rule that could break legacy DBs.
+      const invoiceLockKey =
+        `purchase:${targetDistributorId}:${cleanInvoiceNumber.toLowerCase()}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${invoiceLockKey}))
+      `;
+
+      const supplierAccountLockKey = `supplier-account:${targetDistributorId}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${supplierAccountLockKey}))
+      `;
+
+      const distributor = await tx.distributor.findUnique({
+        where: { id: targetDistributorId },
+      });
+      if (!distributor) {
+        throw new PurchaseValidationError(
+          "Selected distributor does not exist.",
+          404
+        );
+      }
+
+      const duplicate = await tx.purchaseInvoice.findFirst({
+        where: {
+          distributorId: targetDistributorId,
+          invoiceNumber: {
+            equals: cleanInvoiceNumber,
+            mode: "insensitive",
+          },
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new PurchaseValidationError(
+          `Purchase invoice '${cleanInvoiceNumber}' already exists for this distributor.`,
+          409
+        );
+      }
+
       const invoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber: cleanInvoiceNumber,
@@ -226,142 +419,120 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         },
       });
 
-      // 2. Process each item: update or create inventory stock
-      for (const item of items) {
-        const medicineName = String(item.medicineName || item.name || "").trim();
-        if (!medicineName) {
-          throw new Error("Medicine brand name is required for all line items.");
-        }
-
-        const batchNumber = String(item.batchNumber || `BAT-${Date.now().toString().slice(-5)}`).trim();
-        const expiryDate = String(item.expiryDate || "2028-12-31").trim();
-        const packQty = Math.max(0, parseInt(String(item.packQty ?? 0), 10) || 0);
-        const looseUnits = Math.max(0, parseInt(String(item.looseUnits ?? item.stockLooseUnits ?? item.unitInStock ?? 0), 10) || 0);
-        const freePacks = Math.max(0, parseInt(String(item.freePacks ?? 0), 10) || 0);
+      for (const item of normalizedItems) {
+        const {
+          medicineName,
+          batchNumber,
+          expiryDate,
+          packQty,
+          looseUnits,
+          freePacks,
+          unitsPerPack,
+          costPrice,
+          mrpPrice,
+          discountPercent,
+          isVatApplicable,
+          lineTotal,
+          genericName,
+          categoryName,
+          rackLocation,
+        } = item;
         const totalPacksReceived = packQty + freePacks;
-        const unitsPerPack = Math.max(1, parseInt(String(item.unitsPerPack ?? 10), 10) || 10);
-        const costPrice = parseFloat(String(item.costPrice ?? 0)) || 0;
-        const mrpPrice = parseFloat(String(item.mrpPrice ?? (costPrice * 1.3))) || (costPrice * 1.3);
-        const discountPercent = parseFloat(String(item.discountPercent ?? 0)) || 0;
-        const isVatApplicable = Boolean(item.isVatApplicable);
 
-        const looseCost = unitsPerPack > 1 ? (costPrice / unitsPerPack) : costPrice;
-        const grossLine = (packQty * costPrice) + (looseUnits * looseCost);
-        const calculatedLine = Math.round(grossLine * (1 - discountPercent / 100) * 100) / 100;
-        const lineTotal = parseFloat(String(item.lineTotal ?? calculatedLine)) || calculatedLine;
-
-        // Resolve Generic
-        const genericName = String(item.genericName || medicineName).trim();
         let generic = await tx.generic.findFirst({
           where: { name: { equals: genericName, mode: "insensitive" } },
         });
         if (!generic) {
-          generic = await tx.generic.create({
-            data: { name: genericName },
-          });
+          generic = await tx.generic.create({ data: { name: genericName } });
         }
 
-        // Resolve Category
-        const categoryName = String(item.category || item.categoryName || "Tablet").trim();
         let category = await tx.category.findFirst({
           where: { name: { equals: categoryName, mode: "insensitive" } },
         });
         if (!category) {
-          category = await tx.category.create({
-            data: { name: categoryName },
-          });
+          category = await tx.category.create({ data: { name: categoryName } });
         }
 
-        // Resolve Rack
-        const rackLocation = String(item.rackLocation || "General Shelf").trim();
         let rack = await tx.rack.findFirst({
           where: { name: { equals: rackLocation, mode: "insensitive" } },
         });
         if (!rack) {
           rack = await tx.rack.create({
-            data: {
-              name: rackLocation,
-              description: "Storage rack location",
-            },
+            data: { name: rackLocation, description: "Storage rack location" },
           });
         }
 
-        // Check if an inventory batch with same brand, batch number, AND expiry date already exists for this distributor
+        // Brand + batch identifies one physical manufacturer batch in this
+        // schema. Lock that identity without including expiry/distributor so
+        // case variants or conflicting metadata cannot race into two rows.
+        const batchLockKey =
+          `inventory-batch:${medicineName.trim().toLowerCase()}|${batchNumber.trim().toLowerCase()}`;
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(hashtext(${batchLockKey}))
+        `;
+
         const existingInventory = await tx.inventory.findFirst({
           where: {
             medicineBrand: { equals: medicineName, mode: "insensitive" },
             batchNumber: { equals: batchNumber, mode: "insensitive" },
-            ...(expiryDate ? { expiryDate: { equals: expiryDate, mode: "insensitive" } } : {}),
-            OR: [
-              { distributorId: targetDistributorId },
-              { distributorId: null },
-            ],
           },
         });
 
         let linkedInventoryId: number;
 
         if (existingInventory) {
-          /*
-           * EXISTING-BATCH SAFETY
-           *
-           * A later purchase may add quantity to an existing
-           * batch, but must not overwrite that batch's metadata.
-           *
-           * Otherwise cancellation could subtract stock but
-           * could not reliably restore the previous metadata.
-           */
-          const existingUnitsPerPack =
-            Math.max(
-              1,
-              Number(
-                existingInventory.unitPerPack ||
-                1
-              )
-            );
+          const existingUnitsPerPack = Math.max(
+            1,
+            Number(existingInventory.unitPerPack || 1)
+          );
 
-          if (
-            unitsPerPack !==
-            existingUnitsPerPack
-          ) {
+          if (String(existingInventory.expiryDate).trim() !== expiryDate) {
             throw new PurchaseValidationError(
-              `Cannot add purchase item '${medicineName}' batch '${batchNumber}' to the existing inventory batch because units per pack differ. Existing batch: ${existingUnitsPerPack}; purchase: ${unitsPerPack}. Use a separate batch/inventory record instead.`
+              `Medicine '${medicineName}' batch '${batchNumber}' already exists with expiry '${existingInventory.expiryDate}', not '${expiryDate}'. Reconcile the batch metadata before receiving stock.`,
+              409
             );
           }
 
-          /*
-           * QUANTITY ONLY.
-           *
-           * Preserve the existing batch's:
-           * cost price, selling price, VAT flag, expiry,
-           * distributor, rack, pack size, generic/category,
-           * barcode and notes.
-           */
-          const updated =
-            await tx.inventory.update({
-              where: {
-                id:
-                  existingInventory.id,
-              },
+          if (
+            existingInventory.distributorId !== null &&
+            existingInventory.distributorId !== targetDistributorId
+          ) {
+            throw new PurchaseValidationError(
+              `Medicine '${medicineName}' batch '${batchNumber}' is already attributed to another distributor. Do not commingle supplier provenance in one inventory row.`,
+              409
+            );
+          }
 
-              data: {
-                packInStock:
-                  existingInventory.packInStock +
-                  totalPacksReceived,
+          if (unitsPerPack !== existingUnitsPerPack) {
+            throw new PurchaseValidationError(
+              `Cannot add purchase item '${medicineName}' batch '${batchNumber}' to the existing inventory batch because units per pack differ. Existing batch: ${existingUnitsPerPack}; purchase: ${unitsPerPack}.`,
+              409
+            );
+          }
 
-                unitInStock:
-                  (
-                    existingInventory.unitInStock ||
-                    0
-                  ) +
-                  looseUnits,
-              },
-            });
+          const incomingUnits =
+            totalPacksReceived * existingUnitsPerPack + looseUnits;
 
-          linkedInventoryId =
-            updated.id;
+          const rows = await tx.$queryRaw<Array<{ id: number }>>`
+            UPDATE inventory_tbl
+               SET pack_in_stock =
+                     ((pack_in_stock * unit_per_pack + unit_in_stock + ${incomingUnits}) / unit_per_pack),
+                   unit_in_stock =
+                     MOD(pack_in_stock * unit_per_pack + unit_in_stock + ${incomingUnits}, unit_per_pack),
+                   distributor_id = COALESCE(distributor_id, ${targetDistributorId})
+             WHERE id = ${existingInventory.id}
+            RETURNING id
+          `;
+
+          if (!rows[0]) {
+            throw new PurchaseValidationError(
+              `Inventory batch '${batchNumber}' changed while receiving the purchase. Retry the operation.`,
+              409
+            );
+          }
+
+          linkedInventoryId = Number(rows[0].id);
         } else {
-          // Create new batch inventory record (with packs and loose tabs)
           const created = await tx.inventory.create({
             data: {
               medicineBrand: medicineName,
@@ -384,7 +555,6 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           linkedInventoryId = created.id;
         }
 
-        // Create Purchase Invoice Item
         await tx.purchaseInvoiceItem.create({
           data: {
             invoiceId: invoice.id,
@@ -408,16 +578,16 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         });
       }
 
-      // 3. Post to Distributor Ledger & Update Balance
-      const currentBalance = Number(distributor.currentBalance || 0);
-      const isCredit = finalPaymentMode === "credit";
-      const newBalance = currentBalance + (isCredit ? calcGrandTotal : 0);
+      let ledgerBalance = Number(distributor.currentBalance || 0);
 
-      if (isCredit) {
-        await tx.distributor.update({
+      if (finalPaymentMode === "credit") {
+        const updatedDistributor = await tx.distributor.update({
           where: { id: targetDistributorId },
-          data: { currentBalance: newBalance },
+          data: {
+            currentBalance: { increment: calcGrandTotal },
+          },
         });
+        ledgerBalance = Number(updatedDistributor.currentBalance || 0);
 
         await tx.ledger.create({
           data: {
@@ -425,14 +595,19 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
             invoiceId: invoice.id,
             ledgerType: "purchase",
             referenceNo: cleanInvoiceNumber,
-            description: `Purchase Bill #${cleanInvoiceNumber} (${items.length} items, Mode: CREDIT)`,
+            description: `Purchase Bill #${cleanInvoiceNumber} (${normalizedItems.length} items, Mode: CREDIT)`,
             debitAmount: 0,
             creditAmount: calcGrandTotal,
-            balance: newBalance,
+            balance: ledgerBalance,
           },
         });
       } else {
-        // Cash payment invoice - record both credit & debit or settled
+        const freshDistributor = await tx.distributor.findUnique({
+          where: { id: targetDistributorId },
+          select: { currentBalance: true },
+        });
+        ledgerBalance = Number(freshDistributor?.currentBalance || 0);
+
         await tx.ledger.create({
           data: {
             distributorId: targetDistributorId,
@@ -442,12 +617,11 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
             description: `Purchase Bill #${cleanInvoiceNumber} (Mode: CASH - Fully Settled)`,
             debitAmount: calcGrandTotal,
             creditAmount: calcGrandTotal,
-            balance: currentBalance,
+            balance: ledgerBalance,
           },
         });
       }
 
-      // Return created invoice with full relations
       return tx.purchaseInvoice.findUnique({
         where: { id: invoice.id },
         include: {
@@ -463,19 +637,15 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       data: formatPurchaseResponse(createdPurchase),
     });
   } catch (error) {
-    console.error(
-      "Error creating purchase invoice:",
-      error
-    );
+    console.error("Error creating purchase invoice:", error);
 
     const statusCode =
       error instanceof PurchaseValidationError
-        ? 409
+        ? error.statusCode
         : 500;
 
     res.status(statusCode).json({
       success: false,
-
       message:
         error instanceof Error
           ? error.message
@@ -543,6 +713,38 @@ export const deletePurchase = async (
 
     await prisma.$transaction(
       async (tx) => {
+        // Serialize cancellation/replay of the same purchase invoice. A second
+        // concurrent cancellation observes that the row is gone and aborts
+        // before touching stock or supplier accounting.
+        const lockedPurchaseRows = await tx.$queryRaw<Array<{ id: number }>>`
+          SELECT id
+            FROM purchase_invoice_tbl
+           WHERE id = ${id}
+           FOR UPDATE
+        `;
+
+        if (!lockedPurchaseRows[0]) {
+          throw new PurchaseCancellationConflictError(
+            "Purchase invoice is already cancelled or no longer exists."
+          );
+        }
+
+        const purchase = await tx.purchaseInvoice.findUnique({
+          where: { id },
+          include: { distributor: true, items: true },
+        });
+
+        if (!purchase) {
+          throw new PurchaseCancellationConflictError(
+            "Purchase invoice is already cancelled or no longer exists."
+          );
+        }
+
+        const supplierAccountLockKey = `supplier-account:${purchase.distributorId}`;
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(hashtext(${supplierAccountLockKey}))
+        `;
+
         /*
          * CREDIT PURCHASE ACCOUNTING GUARD
          *
@@ -653,6 +855,13 @@ export const deletePurchase = async (
           }
 
 
+          await tx.$queryRaw`
+            SELECT id
+              FROM inventory_tbl
+             WHERE id = ${item.inventoryId}
+             FOR UPDATE
+          `;
+
           const inventory =
             await tx.inventory.findUnique({
               where: {
@@ -732,26 +941,31 @@ export const deletePurchase = async (
           }
 
 
-          if (
-            inventory.packInStock <
-              purchasedPacks ||
-            inventory.unitInStock <
-              purchasedLoose
-          ) {
+          const inventoryUnitsPerPack = Math.max(
+            1,
+            Number(inventory.unitPerPack || 1)
+          );
+
+          if (Number(item.unitsPerPack || inventoryUnitsPerPack) !== inventoryUnitsPerPack) {
             throw new PurchaseCancellationConflictError(
-              `Cannot cancel purchase #${purchase.invoiceNumber}: insufficient remaining stock for '${item.medicineName}'. Available: ${inventory.packInStock} packs + ${inventory.unitInStock} loose; required to reverse: ${purchasedPacks} packs + ${purchasedLoose} loose.`
+              `Cannot cancel purchase #${purchase.invoiceNumber}: units-per-pack metadata for '${item.medicineName}' no longer matches the linked inventory batch.`
             );
           }
 
+          const purchasedTotalUnits =
+            purchasedPacks * inventoryUnitsPerPack + purchasedLoose;
+          const currentTotalUnits =
+            inventory.packInStock * inventoryUnitsPerPack + inventory.unitInStock;
 
-          const newPackStock =
-            inventory.packInStock -
-            purchasedPacks;
+          if (currentTotalUnits < purchasedTotalUnits) {
+            throw new PurchaseCancellationConflictError(
+              `Cannot cancel purchase #${purchase.invoiceNumber}: insufficient remaining stock for '${item.medicineName}'. Available: ${currentTotalUnits} total units; required to reverse: ${purchasedTotalUnits}.`
+            );
+          }
 
-          const newLooseStock =
-            inventory.unitInStock -
-            purchasedLoose;
-
+          const remainingTotalUnits = currentTotalUnits - purchasedTotalUnits;
+          const newPackStock = Math.floor(remainingTotalUnits / inventoryUnitsPerPack);
+          const newLooseStock = remainingTotalUnits % inventoryUnitsPerPack;
 
           /*
            * Historical BillItem records reference inventory.
@@ -813,13 +1027,6 @@ export const deletePurchase = async (
           if (
             canDeleteInventoryRow
           ) {
-            await tx.stockAdjustmentLog.deleteMany({
-              where: {
-                medicineId:
-                  inventory.id,
-              },
-            });
-
             await tx.inventory.delete({
               where: {
                 id:
@@ -877,26 +1084,14 @@ export const deletePurchase = async (
           }
 
 
-          const newBalance =
-            Number(
-              distributor.currentBalance ||
-                0
-            ) -
-            Number(
-              purchase.grandTotal ||
-                0
-            );
-
-
           await tx.distributor.update({
             where: {
-              id:
-                distributor.id,
+              id: distributor.id,
             },
-
             data: {
-              currentBalance:
-                newBalance,
+              currentBalance: {
+                decrement: Number(purchase.grandTotal || 0),
+              },
             },
           });
         }
