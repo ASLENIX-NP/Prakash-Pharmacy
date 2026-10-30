@@ -1,17 +1,17 @@
-export type MedicineCategory = 
-  | 'Tablet' 
-  | 'Capsule' 
-  | 'Syrup' 
-  | 'Suspension' 
-  | 'Injection' 
-  | 'Ointment' 
-  | 'Cream' 
-  | 'Drops' 
-  | 'Inhaler' 
-  | 'Antiseptic Solution' 
-  | 'Medicated Gel' 
-  | 'Device / Surgical' 
-  | 'OTC Cosmetic' 
+export type MedicineCategory =
+  | 'Tablet'
+  | 'Capsule'
+  | 'Syrup'
+  | 'Suspension'
+  | 'Injection'
+  | 'Ointment'
+  | 'Cream'
+  | 'Drops'
+  | 'Inhaler'
+  | 'Antiseptic Solution'
+  | 'Medicated Gel'
+  | 'Device / Surgical'
+  | 'OTC Cosmetic'
   | 'Other';
 
 export interface Medicine {
@@ -38,7 +38,7 @@ export interface Medicine {
 
 export type AuditAdjustmentType = 'reconcile' | 'add' | 'deduce';
 
-export type AuditReason = 
+export type AuditReason =
   | 'Physical Count Audit'
   | 'Damaged / Broken Strip'
   | 'Expired Medicine Disposal'
@@ -142,7 +142,7 @@ export interface StockistLedgerEntry {
   ledgerId?: number;
 }
 
-export type StockistReturnReason = 
+export type StockistReturnReason =
   | 'Expired Medicine'
   | 'Damaged / Broken Strip'
   | 'Breakage in Transit'
@@ -202,22 +202,44 @@ export interface SaleItem {
 export interface CustomerSalesReturn {
   id: number;
   creditNoteNumber: string;
+
   invoiceId: number;
   invoiceNumber: string;
+
   customerName: string;
   customerPhone?: string;
+
   originalInvoiceTotal: number;
+
   returnDate: string;
   refundAmount: number;
+
   reason?: string;
   recordedBy?: string;
+
+  invoice?: {
+    id: number;
+    invoiceNumber: string;
+    customerName?: string;
+    customerPhone?: string;
+    totalAmount?: number;
+  };
+
   items: Array<{
     id: number;
+
     medicineName: string;
     batchNumber: string;
+
     quantityInPack: number;
     quantityInUnit: number;
+
     refundAmount: number;
+
+    inventory?: {
+      brandName?: string;
+      batchNumber?: string;
+    };
   }>;
 }
 
@@ -258,7 +280,7 @@ export interface SaleInvoice {
   createdAt: string;
 }
 
-export type UserRole = 
+export type UserRole =
   | 'Admin'
   | 'Staff';
 

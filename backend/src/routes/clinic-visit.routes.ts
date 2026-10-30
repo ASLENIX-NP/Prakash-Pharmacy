@@ -3,6 +3,7 @@ import {
   completeClinicVisit,
   createClinicVisit,
   deleteClinicVisit,
+  voidClinicVisit,
   getClinicVisitById,
   getClinicVisitReport,
   getClinicVisits,
@@ -55,6 +56,14 @@ router.post(
   requireAuth,
   createClinicVisit
 );
+
+router.put(
+  "/:id/void",
+  requireAuth,
+  requireAdmin,
+  voidClinicVisit
+);
+
 
 router.delete(
   "/:id",

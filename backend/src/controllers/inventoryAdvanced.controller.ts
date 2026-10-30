@@ -408,6 +408,18 @@ export const bulkImportInventory = async (
         ? requestedMode
         : "merge";
 
+    const authUser =
+      (req as any).user ?? {};
+
+    const recordedBy =
+      String(
+        authUser.username ??
+        authUser.fullName ??
+        authUser.userId ??
+        authUser.id ??
+        "authenticated-user"
+      );
+
     if (!Array.isArray(rawItems) || rawItems.length === 0) {
       res.status(400).json({
         success: false,
@@ -674,33 +686,96 @@ export const bulkImportInventory = async (
             const notes = hasNotes ? cleanString(item.notes) || null : null;
             const distributorId = targetDistId;
 
-            const saved = await prisma.inventory.update({
-              where: { id: existing.id },
-              data: {
-                medicineBrand: brand,
-                batchNumber: finalBatch,
-                expiryDate: finalExpiry,
-                genericId,
-                categoryId,
-                rackId,
-                distributorId,
-                unitPerPack,
-                packInStock,
-                unitInStock,
-                packAlertLevel,
-                costPrice,
-                sellingPrice,
-                hasvat,
-                barcode,
-                notes,
-              },
-              include: {
-                generic: true,
-                category: true,
-                rack: true,
-                distributor: true,
-              },
-            });
+            const saved =
+              await prisma.$transaction(
+                async (tx) => {
+                  const inventory =
+                    await tx.inventory.update({
+                      where: {
+                        id:
+                          existing.id,
+                      },
+
+                      data: {
+                        medicineBrand:
+                          brand,
+
+                        batchNumber:
+                          finalBatch,
+
+                        expiryDate:
+                          finalExpiry,
+
+                        genericId,
+                        categoryId,
+                        rackId,
+                        distributorId,
+                        unitPerPack,
+
+                        packInStock,
+                        unitInStock,
+
+                        packAlertLevel,
+                        costPrice,
+                        sellingPrice,
+                        hasvat,
+                        barcode,
+                        notes,
+                      },
+
+                      include: {
+                        generic: true,
+                        category: true,
+                        rack: true,
+                        distributor: true,
+                      },
+                    });
+
+                  if (
+                    packInStock !==
+                      existing.packInStock ||
+                    unitInStock !==
+                      existing.unitInStock
+                  ) {
+                    await tx.stockAdjustmentLog.create({
+                      data: {
+                        medicineId:
+                          existing.id,
+
+                        adjustmentType:
+                          "CORRECTION",
+
+                        previousPacks:
+                          existing.packInStock,
+
+                        newPacks:
+                          packInStock,
+
+                        variancePacks:
+                          packInStock -
+                          existing.packInStock,
+
+                        previousLooseUnits:
+                          existing.unitInStock,
+
+                        newLooseUnits:
+                          unitInStock,
+
+                        varianceLooseUnits:
+                          unitInStock -
+                          existing.unitInStock,
+
+                        reason:
+                          `Bulk inventory import REPLACE mode, row ${row}.`,
+
+                        recordedBy,
+                      },
+                    });
+                  }
+
+                  return inventory;
+                }
+              );
 
             updated.push(
               formatInventoryItem(saved)
@@ -819,16 +894,80 @@ export const bulkImportInventory = async (
             updateData.distributorId = targetDistId;
           }
 
-          const saved = await prisma.inventory.update({
-            where: { id: existing.id },
-            data: updateData,
-            include: {
-              generic: true,
-              category: true,
-              rack: true,
-              distributor: true,
-            },
-          });
+          const nextPacks =
+            updateData.packInStock ??
+            existing.packInStock;
+
+          const nextLooseUnits =
+            updateData.unitInStock ??
+            existing.unitInStock;
+
+          const saved =
+            await prisma.$transaction(
+              async (tx) => {
+                const inventory =
+                  await tx.inventory.update({
+                    where: {
+                      id:
+                        existing.id,
+                    },
+
+                    data:
+                      updateData,
+
+                    include: {
+                      generic: true,
+                      category: true,
+                      rack: true,
+                      distributor: true,
+                    },
+                  });
+
+                if (
+                  nextPacks !==
+                    existing.packInStock ||
+                  nextLooseUnits !==
+                    existing.unitInStock
+                ) {
+                  await tx.stockAdjustmentLog.create({
+                    data: {
+                      medicineId:
+                        existing.id,
+
+                      adjustmentType:
+                        "CORRECTION",
+
+                      previousPacks:
+                        existing.packInStock,
+
+                      newPacks:
+                        nextPacks,
+
+                      variancePacks:
+                        nextPacks -
+                        existing.packInStock,
+
+                      previousLooseUnits:
+                        existing.unitInStock,
+
+                      newLooseUnits:
+                        nextLooseUnits,
+
+                      varianceLooseUnits:
+                        nextLooseUnits -
+                        existing.unitInStock,
+
+                      reason:
+                        `Bulk inventory import MERGE mode, row ${row}.`,
+
+                      recordedBy,
+                    },
+                  });
+                }
+
+                return inventory;
+              }
+            );
 
           updated.push(
             formatInventoryItem(saved)

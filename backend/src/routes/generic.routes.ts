@@ -20,7 +20,7 @@ router.get("/catalog", requireAuth, getGenericCatalog);
 
 // One generic with all associated medicines/brands.
 router.get("/:id/details", requireAuth, getGenericDetails);
-router.post("/", requireAuth, createGeneric);
+router.post("/", requireAuth, requireAdmin, createGeneric);
 router.put("/:id", requireAuth, requireAdmin, updateGeneric);
 router.delete("/:id", requireAuth, requireAdmin, deleteGeneric);
 

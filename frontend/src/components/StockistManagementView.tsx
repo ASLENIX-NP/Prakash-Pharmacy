@@ -250,6 +250,7 @@ export const StockistManagementView: React.FC = () => {
             stockistId: currentSelectedStockist.id,
             date: inv.date || new Date().toISOString().split('T')[0],
             refType: 'purchase_invoice',
+            refId: String(inv.id || inv.invoiceNumber),
             refNumber: inv.invoiceNumber,
             description: `Purchase Bill #${inv.invoiceNumber} (${inv.items?.length || 0} items, Mode: ${String(inv.paymentMode || 'credit').toUpperCase()})`,
             debit: inv.paymentMode === 'cash' ? Number(inv.grandTotal || 0) : 0,

@@ -268,6 +268,28 @@ const formatVisit = (
           ).toISOString()
         : null,
 
+    cancelledAt:
+      visit.cancelledAt
+        ? new Date(
+            visit.cancelledAt
+          ).toISOString()
+        : null,
+
+    cancelReason:
+      visit.cancelReason ??
+      null,
+
+    voidedAt:
+      visit.voidedAt
+        ? new Date(
+            visit.voidedAt
+          ).toISOString()
+        : null,
+
+    voidReason:
+      visit.voidReason ??
+      null,
+
     createdBy:
       visit.createdBy
         ? {
@@ -543,13 +565,22 @@ const buildVisitWhere = (
     ).toLowerCase();
 
   if (status) {
+    const allowedStatuses =
+      new Set([
+        "open",
+        "completed",
+        "cancelled",
+        "voided",
+      ]);
+
     if (
-      status !== "open" &&
-      status !== "completed"
+      !allowedStatuses.has(
+        status
+      )
     ) {
       return {
         error:
-          'Status must be "open" or "completed".',
+          'Status must be "open", "completed", "cancelled", or "voided".',
       };
     }
 
@@ -836,16 +867,42 @@ export const completeClinicVisit = async (
     }
 
 
-    if (
+    const currentStatus =
       String(
-        existingVisit.status
-      ).toLowerCase() ===
-      "completed"
+        existingVisit.status ||
+          ""
+      ).toLowerCase();
+
+    /*
+     * A visit may transition to COMPLETED only
+     * from OPEN.
+     *
+     * This prevents cancelled or voided OPDs from
+     * being resurrected into finalized revenue.
+     */
+    if (
+      currentStatus !==
+      "open"
     ) {
-      res.status(400).json({
+      const lifecycleMessage =
+        currentStatus ===
+        "completed"
+          ? "has already been completed"
+          : currentStatus ===
+            "cancelled"
+            ? "has been cancelled and cannot be completed"
+            : currentStatus ===
+              "voided"
+              ? "has been voided and cannot be completed"
+              : `has status "${currentStatus || "unknown"}" and cannot be completed`;
+
+      res.status(409).json({
         success: false,
+
         message:
-          "This OPD visit has already been completed.",
+          `${formatOpdNumber(
+            visitId
+          )} ${lifecycleMessage}.`,
       });
 
       return;
@@ -1426,45 +1483,308 @@ export const deleteClinicVisit = async (
   res: Response
 ): Promise<void> => {
   try {
-    const visitId = parseCodeId(req.params.id, "OPD-");
+    const visitId =
+      parseCodeId(
+        req.params.id,
+        "OPD-"
+      );
 
     if (!visitId) {
       res.status(400).json({
         success: false,
-        message: "Invalid OPD ticket number. Use format OPD-000001 or numeric ID.",
+        message:
+          "Invalid OPD ticket number. Use format OPD-000001 or numeric ID.",
       });
+
       return;
     }
 
-    const existingVisit = await prisma.clinicVisit.findUnique({
-      where: { id: visitId },
-      include: {
-        patient: true,
-        doctor: true,
-      },
-    });
+
+    const existingVisit =
+      await prisma.clinicVisit.findUnique({
+        where: {
+          id:
+            visitId,
+        },
+
+        include:
+          visitInclude,
+      });
+
 
     if (!existingVisit) {
       res.status(404).json({
         success: false,
-        message: "OPD visit not found.",
+        message:
+          "OPD visit not found.",
       });
+
       return;
     }
 
-    await prisma.clinicVisit.delete({
-      where: { id: visitId },
-    });
+
+    const currentStatus =
+      String(
+        existingVisit.status ||
+          ""
+      ).toLowerCase();
+
+
+    if (
+      currentStatus ===
+      "completed"
+    ) {
+      res.status(409).json({
+        success: false,
+
+        message:
+          `${formatOpdNumber(
+            visitId
+          )} is already completed. Completed OPDs cannot be cancelled or deleted. Use Void with a reason so the historical consultation is preserved.`,
+      });
+
+      return;
+    }
+
+
+    if (
+      currentStatus !==
+      "open"
+    ) {
+      res.status(409).json({
+        success: false,
+
+        message:
+          `${formatOpdNumber(
+            visitId
+          )} is already ${currentStatus || "closed"} and cannot be cancelled again.`,
+      });
+
+      return;
+    }
+
+
+    const reason =
+      String(
+        req.body?.reason ||
+          ""
+      ).trim();
+
+
+    const visit =
+      await prisma.clinicVisit.update({
+        where: {
+          id:
+            visitId,
+        },
+
+        data: {
+          status:
+            "cancelled",
+
+          cancelledAt:
+            new Date(),
+
+          cancelReason:
+            reason ||
+            "Cancelled by administrator",
+        },
+
+        include:
+          visitInclude,
+      });
+
 
     res.status(200).json({
       success: true,
-      message: `${formatOpdNumber(visitId)} for ${existingVisit.patient.name} has been cancelled successfully.`,
+
+      message:
+        `${formatOpdNumber(
+          visit.id
+        )} for ${visit.patient.name} has been cancelled. The OPD history has been preserved.`,
+
+      data:
+        formatVisit(
+          visit
+        ),
     });
   } catch (error) {
-    console.error("Error deleting OPD visit:", error);
+    console.error(
+      "Error cancelling OPD visit:",
+      error
+    );
+
     res.status(500).json({
       success: false,
-      message: "Failed to delete OPD visit.",
+      message:
+        "Failed to cancel OPD visit.",
+    });
+  }
+};
+
+
+export const voidClinicVisit = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const visitId =
+      parseCodeId(
+        req.params.id,
+        "OPD-"
+      );
+
+    if (!visitId) {
+      res.status(400).json({
+        success: false,
+        message:
+          "Invalid OPD ticket number.",
+      });
+
+      return;
+    }
+
+
+    const reason =
+      String(
+        req.body?.reason ||
+          ""
+      ).trim();
+
+
+    if (
+      reason.length < 3
+    ) {
+      res.status(400).json({
+        success: false,
+
+        message:
+          "A reason is required to void a completed OPD.",
+      });
+
+      return;
+    }
+
+
+    const existingVisit =
+      await prisma.clinicVisit.findUnique({
+        where: {
+          id:
+            visitId,
+        },
+
+        include:
+          visitInclude,
+      });
+
+
+    if (!existingVisit) {
+      res.status(404).json({
+        success: false,
+        message:
+          "OPD visit not found.",
+      });
+
+      return;
+    }
+
+
+    const currentStatus =
+      String(
+        existingVisit.status ||
+          ""
+      ).toLowerCase();
+
+
+    if (
+      currentStatus ===
+      "open"
+    ) {
+      res.status(409).json({
+        success: false,
+
+        message:
+          `${formatOpdNumber(
+            visitId
+          )} is still OPEN. Cancel the open OPD instead of voiding it.`,
+      });
+
+      return;
+    }
+
+
+    if (
+      currentStatus !==
+      "completed"
+    ) {
+      res.status(409).json({
+        success: false,
+
+        message:
+          `${formatOpdNumber(
+            visitId
+          )} is already ${currentStatus || "closed"} and cannot be voided.`,
+      });
+
+      return;
+    }
+
+
+    /*
+     * Preserve consultationFee, additionalCharge,
+     * totalCharge and completedAt.
+     *
+     * Only lifecycle status changes. Reports already
+     * count COMPLETED visits as finalized revenue, so
+     * changing status to VOIDED removes this OPD from
+     * finalized clinic revenue without deleting history.
+     */
+    const visit =
+      await prisma.clinicVisit.update({
+        where: {
+          id:
+            visitId,
+        },
+
+        data: {
+          status:
+            "voided",
+
+          voidedAt:
+            new Date(),
+
+          voidReason:
+            reason,
+        },
+
+        include:
+          visitInclude,
+      });
+
+
+    res.status(200).json({
+      success: true,
+
+      message:
+        `${formatOpdNumber(
+          visit.id
+        )} has been voided. Historical consultation and charge information were preserved.`,
+
+      data:
+        formatVisit(
+          visit
+        ),
+    });
+  } catch (error) {
+    console.error(
+      "Error voiding OPD visit:",
+      error
+    );
+
+    res.status(500).json({
+      success: false,
+      message:
+        "Failed to void OPD visit.",
     });
   }
 };

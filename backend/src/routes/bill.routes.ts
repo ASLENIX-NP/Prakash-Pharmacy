@@ -7,12 +7,12 @@ import {
   returnBillItems,
   getAllSalesReturns,
 } from "../controllers/bill.controller.js";
-import { requireAuth } from "../middleware/auth.middleware.js";
+import { requireAuth, requireAdmin } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
 // Financial metrics & daily summary
-router.get("/summary/daily", requireAuth, getBillingSummary);
+router.get("/summary/daily", requireAuth, requireAdmin, getBillingSummary);
 
 // Sales returns & credit notes list (MUST be before /:id)
 router.get("/returns/history", requireAuth, getAllSalesReturns);

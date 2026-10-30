@@ -19,7 +19,6 @@ import {
   STOCKIST_DEMO_STATUS_KEY,
 } from '../data/stockistDemoData';
 import { SALES_DEMO_STATUS_KEY } from '../data/salesDemoData';
-import { useDialog } from './DialogContext';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -109,7 +108,7 @@ interface PharmacyContextType {
   clearStockistDemoData: () => void;
   addStockist: (stockist: Omit<Stockist, 'id' | 'currentBalance'>) => Promise<Stockist>;
   updateStockist: (id: string, updates: Partial<Stockist>) => Promise<void>;
-  
+
   // Purchase Invoices
   purchaseInvoices: StockistPurchaseInvoice[];
   addPurchaseInvoice: (invoice: Omit<StockistPurchaseInvoice, 'id' | 'createdAt'>) => Promise<StockistPurchaseInvoice>;
@@ -134,7 +133,17 @@ interface PharmacyContextType {
   customerSalesReturns: CustomerSalesReturn[];
   isSalesDemoDataActive: boolean;
   clearSalesDemoData: () => void;
-  completeSale: (sale: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>) => SaleInvoice;
+
+  completeSale: (
+    sale: Omit<
+      SaleInvoice,
+      'id' |
+      'invoiceNumber' |
+      'createdAt' |
+      'fiscalYear'
+    >
+  ) => Promise<SaleInvoice>;
+
   returnSaleItems: (
     billId: string,
     payload: {
@@ -147,9 +156,18 @@ interface PharmacyContextType {
         quantityLoose: number;
       }>;
     }
-  ) => Promise<{ success: boolean; message: string; refundAmount?: number; creditNoteNumber?: string }>;
-  refreshLiveBills: () => Promise<SaleInvoice[]>;
-  refreshLiveReturns: () => Promise<CustomerSalesReturn[]>;
+  ) => Promise<{
+    success: boolean;
+    message: string;
+    refundAmount?: number;
+    creditNoteNumber?: string;
+  }>;
+
+  refreshLiveBills:
+    () => Promise<SaleInvoice[]>;
+
+  refreshLiveReturns:
+    () => Promise<CustomerSalesReturn[]>;
 
   // Settings
   settings: PharmacySettings;
@@ -346,7 +364,6 @@ function readStoredSettings(): PharmacySettings {
 }
 
 export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { showToast } = useDialog();
   const [users, setUsers] = useState<PharmacyUser[]>(() => {
     return readStoredCollection<PharmacyUser>(STORAGE_KEYS.USERS).map(user => ({
       ...user,
@@ -420,7 +437,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stockistReturns, setStockistReturns] = useState<StockistReturnVoucher[]>([]);
   // Supplier return history is authoritative in PostgreSQL.
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !isAdmin) {
       setStockistReturns([]);
       return;
     }
@@ -450,14 +467,22 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isAdmin]);
 
 
   const [salesInvoices, setSalesInvoices] = useState<SaleInvoice[]>(() =>
     readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES)
   );
-  const [customerSalesReturns, setCustomerSalesReturns] = useState<CustomerSalesReturn[]>([]);
-  const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
+
+  const [
+    customerSalesReturns,
+    setCustomerSalesReturns
+  ] =
+    useState<CustomerSalesReturn[]>(
+      []
+    );
+
+const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
     initializeSalesDemoStatus
   );
 
@@ -614,12 +639,21 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // CUSTOMER SALES RETURNS & CREDIT NOTES
       // ------------------------------------------------------
       try {
-        const returnsRes = await apiRequest<{ data: CustomerSalesReturn[] }>(
-          '/bills/returns'
-        );
+        const returnsRes =
+          await apiRequest<{
+            data:
+              CustomerSalesReturn[];
+          }>('/bills/returns');
 
-        if (!cancelled && Array.isArray(returnsRes.data)) {
-          setCustomerSalesReturns(returnsRes.data);
+        if (
+          !cancelled &&
+          Array.isArray(
+            returnsRes.data
+          )
+        ) {
+          setCustomerSalesReturns(
+            returnsRes.data
+          );
         }
       } catch (error) {
         console.error(
@@ -628,7 +662,14 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         );
       }
 
+
       // ------------------------------------------------------
+      // ADMIN-ONLY ACCOUNTING / AUDIT DATA
+      //
+      // Staff retain POS, Sales Register and Clinic/OPD.
+      // The management/accounting datasets below are loaded
+      // only for Admin accounts.
+      if (isAdmin) {
       // STOCK ADJUSTMENT HISTORY
       // ------------------------------------------------------
       try {
@@ -812,6 +853,23 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       // ------------------------------------------------------
+
+      } else if (!cancelled) {
+        setStockAdjustments([]);
+        setStockists([]);
+        setStockistLedgers([]);
+        setPurchaseInvoices([]);
+        setUsers([]);
+
+        setStockAdjustmentHistoryBackendStatus(
+          'idle'
+        );
+
+        setStockAdjustmentHistoryBackendError(
+          ''
+        );
+      }
+
       // STORE SETTINGS
       // ------------------------------------------------------
       try {
@@ -1423,19 +1481,15 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     id: string
   ): Promise<void> => {
     if (users.length <= 1) {
-      showToast(
-        'Cannot delete the only existing staff account!',
-        'warning',
-        'Action Blocked'
+      alert(
+        'Cannot delete the only existing staff account!'
       );
       return;
     }
 
     if (currentUserId === id) {
-      showToast(
-        'You cannot delete the account that is currently signed in.',
-        'warning',
-        'Action Blocked'
+      alert(
+        'You cannot delete the account that is currently signed in.'
       );
       return;
     }
@@ -1465,14 +1519,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         error
       );
 
-      showToast(
+      alert(
         error instanceof Error
           ? error.message
           : `Failed to delete ${
               deletedUser?.name || 'staff user'
-            }.`,
-        'error',
-        'Delete Error'
+            }.`
       );
     }
   };
@@ -1544,12 +1596,10 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        showToast(
+        alert(
           error instanceof Error
             ? error.message
-            : 'Failed to create medicine.',
-          'error',
-          'Create Medicine'
+            : 'Failed to create medicine.'
         );
       });
 
@@ -1628,12 +1678,10 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        showToast(
+        alert(
           error instanceof Error
             ? error.message
-            : 'Failed to update medicine.',
-          'error',
-          'Update Medicine'
+            : 'Failed to update medicine.'
         );
       });
   };
@@ -1666,12 +1714,10 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           error
         );
 
-        showToast(
+        alert(
           error instanceof Error
             ? error.message
-            : 'Failed to delete medicine.',
-          'error',
-          'Delete Medicine'
+            : 'Failed to delete medicine.'
         );
       });
   };
@@ -1760,7 +1806,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       deltaLoose = data.addedLoose || 0;
       let totalUnits = prevTotalUnits + (deltaPacks * target.unitsPerPack) + deltaLoose;
       if (totalUnits < 0) totalUnits = 0;
-      
+
       newPacks = Math.floor(totalUnits / target.unitsPerPack);
       newLoose = totalUnits % target.unitsPerPack;
       netVarianceUnits = totalUnits - prevTotalUnits;
@@ -1930,7 +1976,12 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     distributorList: Stockist[]
   ): Promise<StockistLedgerEntry[]> => {
 
-    if (distributorList.length === 0) {
+    // ADMIN GUARD: distributor ledger fetch
+    if (!isAdmin) {
+      return [];
+    }
+
+if (distributorList.length === 0) {
       return [];
     }
 
@@ -2050,7 +2101,13 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 
   const refreshLiveStockists = async (): Promise<Stockist[]> => {
-    const response =
+    // ADMIN GUARD: stockist refresh
+    if (!isAdmin) {
+      setStockists([]);
+      return [];
+    }
+
+const response =
       await apiRequest<{ data: Stockist[] }>(
         '/distributors?limit=all'
       );
@@ -2065,12 +2122,18 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return liveStockists;
   };
 
- 
+
   const refreshLiveLedgers = async (
     distributorList: Stockist[]
   ): Promise<StockistLedgerEntry[]> => {
 
-    const liveLedgers =
+    // ADMIN GUARD: ledger refresh
+    if (!isAdmin) {
+      setStockistLedgers([]);
+      return [];
+    }
+
+const liveLedgers =
       await fetchDistributorLedgers(
         distributorList
       );
@@ -2086,7 +2149,13 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const refreshLivePurchases =
     async (): Promise<StockistPurchaseInvoice[]> => {
 
-      const response =
+      // ADMIN GUARD: purchase refresh
+      if (!isAdmin) {
+        setPurchaseInvoices([]);
+        return [];
+      }
+
+const response =
         await apiRequest<{
           data: StockistPurchaseInvoice[];
         }>(
@@ -2403,165 +2472,218 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   // POS Complete Sale
-  const completeSale = (
-    saleData: Omit<SaleInvoice, 'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'>
-  ): SaleInvoice => {
-    const now = new Date();
-    const invoicePrefix = settings.invoicePrefix || 'PP-2081/82-';
-    const lastUsedInvoiceNumber = salesInvoices.reduce((highest, sale) => {
-      if (!sale.invoiceNumber.startsWith(invoicePrefix)) return highest;
-      const suffix = Number(sale.invoiceNumber.slice(invoicePrefix.length));
-      return Number.isInteger(suffix) ? Math.max(highest, suffix) : highest;
-    }, 0);
-    const invoiceSequence = Math.max(
-      settings.nextInvoiceNumber || 101,
-      lastUsedInvoiceNumber + 1
-    );
-    const invoiceSeq = invoiceSequence.toString().padStart(5, '0');
-    const invoiceNumber = `${invoicePrefix}${invoiceSeq}`;
-    setSettings(prev => ({ ...prev, nextInvoiceNumber: invoiceSequence + 1 }));
+  //
+  // IMPORTANT:
+  // Do not show/print an invoice until PostgreSQL confirms the
+  // transaction. The backend /bills transaction is the single
+  // source of truth for FEFO allocation, stock deduction and
+  // final invoice totals.
+  const completeSale = async (
+    saleData: Omit<
+      SaleInvoice,
+      'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'
+    >
+  ): Promise<SaleInvoice> => {
+    const invoicePrefix =
+      settings.invoicePrefix ||
+      'PP-2081/82-';
 
-    const newInvoice: SaleInvoice = {
-      ...saleData,
-      id: `sal-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-      invoiceNumber,
-      fiscalYear: settings.fiscalYear,
-      cashierName: saleData.cashierName || currentUser?.name || 'Cashier',
-      cashierId: saleData.cashierId || currentUser?.id,
-      createdAt: now.toISOString()
-    };
+    const lastUsedInvoiceNumber =
+      salesInvoices.reduce(
+        (highest, sale) => {
+          if (
+            !sale.invoiceNumber.startsWith(
+              invoicePrefix
+            )
+          ) {
+            return highest;
+          }
 
-    // Optimistically update local inventory stock for the sold batches
-    // so that when a customer buys e.g. 5 packs from a 40-pack batch,
-    // the UI instantly drops to 35 packs without delay.
-    if (Array.isArray(saleData.items) && saleData.items.length > 0) {
-      setMedicines(prevMedicines =>
-        prevMedicines.map(med => {
-          const soldItem = saleData.items.find(it => {
-            if (it.inventoryId && med.id) {
-              return Number(it.inventoryId) === Number(med.id);
-            }
-            if (it.medicineId && med.id && String(it.medicineId) === String(med.id)) {
-              return true;
-            }
-            return (
-              it.batchNumber === med.batchNumber &&
-              (it.medicineName || it.genericName || '').trim().toLowerCase() ===
-                (med.brandName || med.genericName || '').trim().toLowerCase()
-            );
-          });
-
-          if (!soldItem) return med;
-
-          const isLoose = Boolean(soldItem.isLooseUnit);
-          const unitsPerPack = med.unitsPerPack || med.packageDetails?.unitsPerPack || 1;
-          const currentTotalUnits =
-            (med.stockPacks || 0) * unitsPerPack + (med.stockLooseUnits || med.stockLoose || 0);
-
-          const soldQuantity = Number(soldItem.quantity) || 0;
-          const soldTotalUnits = isLoose ? soldQuantity : soldQuantity * unitsPerPack;
-          const remainingTotalUnits = Math.max(0, currentTotalUnits - soldTotalUnits);
-
-          const newStockPacks = Math.floor(remainingTotalUnits / unitsPerPack);
-          const newStockLoose = remainingTotalUnits % unitsPerPack;
-
-          return {
-            ...med,
-            stockPacks: newStockPacks,
-            stockLooseUnits: newStockLoose,
-            stockLoose: newStockLoose,
-          };
-        })
-      );
-    }
-
-    setSalesInvoices(prev => [newInvoice, ...prev]);
-
-    // Reload inventory from PostgreSQL after checkout so the UI always
-    // reflects the stock actually committed by the backend FEFO transaction.
-    const reloadInventoryAfterSale = async () => {
-      await refreshLiveInventory();
-    };
-
-    // Persist sale invoice to backend database.
-    // The backend atomically:
-    //   1. validates non-expired stock,
-    //   2. applies FEFO prioritizing the chosen batch,
-    //   3. deducts inventory for the specific batch,
-    //   4. creates bill + bill items.
-    void apiRequest<{
-      success: boolean;
-      data: SaleInvoice;
-    }>('/bills', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...saleData,
-        invoiceNumber,
-        cashierId:
-          saleData.cashierId ||
-          currentUser?.id,
-      }),
-    })
-      .then(async res => {
-        if (res.data) {
-          localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-          setIsSalesDemoDataActive(false);
-          setSalesInvoices(prev =>
-            prev.map(inv =>
-              inv.id === newInvoice.id ||
-              inv.invoiceNumber ===
-                newInvoice.invoiceNumber
-                ? res.data
-                : inv
+          const suffix = Number(
+            sale.invoiceNumber.slice(
+              invoicePrefix.length
             )
           );
-        }
 
-        try {
-          await reloadInventoryAfterSale();
-        } catch (reloadError) {
-          console.error(
-            'Sale succeeded but inventory refresh failed:',
-            reloadError
+          return Number.isInteger(suffix)
+            ? Math.max(
+                highest,
+                suffix
+              )
+            : highest;
+        },
+        0
+      );
+
+    const invoiceSequence =
+      Math.max(
+        settings.nextInvoiceNumber ||
+          101,
+        lastUsedInvoiceNumber + 1
+      );
+
+    const invoiceSeq =
+      invoiceSequence
+        .toString()
+        .padStart(5, '0');
+
+    const invoiceNumber =
+      `${invoicePrefix}${invoiceSeq}`;
+
+
+    const reloadInventoryAfterSale =
+      async () => {
+        const inventoryResponse =
+          await apiRequest<{
+            data: any[];
+          }>(
+            '/inventory?limit=all'
           );
-        }
-      })
-      .catch(async error => {
-        // The backend transaction failed, therefore remove the
-        // optimistic invoice from the local sales list.
-        setSalesInvoices(prev =>
-          prev.filter(
-            inv =>
-              inv.id !== newInvoice.id &&
-              inv.invoiceNumber !==
-                newInvoice.invoiceNumber
+
+        if (
+          Array.isArray(
+            inventoryResponse.data
           )
-        );
+        ) {
+          const liveMedicines:
+            Medicine[] =
+              inventoryResponse.data.map(
+                (item: any) => ({
+                  ...item,
+                  supplierId:
+                    item.supplierId || '',
+                  supplierName:
+                    item.supplierName || '',
+                })
+              );
 
-        // Reload real stock from PostgreSQL in case the UI was stale.
-        try {
-          await reloadInventoryAfterSale();
-        } catch (reloadError) {
-          console.error(
-            'Failed to reload inventory after rejected sale:',
-            reloadError
+          setMedicines(
+            liveMedicines
           );
         }
+      };
 
+
+    try {
+      const response =
+        await apiRequest<{
+          success: boolean;
+          data: SaleInvoice;
+        }>('/bills', {
+          method: 'POST',
+
+          body: JSON.stringify({
+            ...saleData,
+
+            invoiceNumber,
+
+            cashierId:
+              saleData.cashierId ||
+              currentUser?.id,
+          }),
+        });
+
+
+      if (!response?.data) {
+        throw new Error(
+          'Backend did not return the completed invoice.'
+        );
+      }
+
+
+      const savedInvoice =
+        response.data;
+
+
+      /*
+       * PostgreSQL has now committed the bill.
+       * Only now may the frontend treat the sale as completed.
+       */
+      localStorage.setItem(
+        SALES_DEMO_STATUS_KEY,
+        'dismissed'
+      );
+
+      setIsSalesDemoDataActive(
+        false
+      );
+
+
+      setSalesInvoices(
+        previous => [
+          savedInvoice,
+
+          ...previous.filter(
+            invoice =>
+              invoice.id !==
+                savedInvoice.id &&
+              invoice.invoiceNumber !==
+                savedInvoice.invoiceNumber
+          ),
+        ]
+      );
+
+
+      /*
+       * Advance the local invoice sequence only after
+       * PostgreSQL successfully created the invoice.
+       */
+      setSettings(previous => ({
+        ...previous,
+
+        nextInvoiceNumber:
+          Math.max(
+            previous.nextInvoiceNumber ||
+              101,
+            invoiceSequence + 1
+          ),
+      }));
+
+
+      /*
+       * A failed refresh must NOT turn an already-committed
+       * sale into a failed checkout.
+       */
+      try {
+        await reloadInventoryAfterSale();
+      } catch (reloadError) {
         console.error(
-          'Failed to persist sales bill to database:',
-          error
+          'Sale succeeded but inventory refresh failed:',
+          reloadError
         );
+      }
 
-        showToast(
-          error instanceof Error
-            ? error.message
-            : 'Sale could not be completed.',
-          'error',
-          'Checkout Failed'
+
+      return savedInvoice;
+    } catch (error) {
+      /*
+       * Nothing was optimistically inserted into salesInvoices,
+       * so there is no fake invoice to remove.
+       *
+       * Reload live stock in case the browser was stale.
+       */
+      try {
+        await reloadInventoryAfterSale();
+      } catch (reloadError) {
+        console.error(
+          'Failed to reload inventory after rejected sale:',
+          reloadError
         );
-      });
-    return newInvoice;
+      }
+
+
+      console.error(
+        'Failed to complete sales bill:',
+        error
+      );
+
+
+      /*
+       * Let PosView handle the user-facing error.
+       * Cart/customer information must remain untouched.
+       */
+      throw error;
+    }
   };
 
   const refreshLiveBills = async (): Promise<SaleInvoice[]> => {
@@ -2573,19 +2695,39 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return [];
   };
 
-  const refreshLiveReturns = async (): Promise<CustomerSalesReturn[]> => {
-    try {
-      const res = await apiRequest<{ data: CustomerSalesReturn[] }>('/bills/returns');
-      if (Array.isArray(res.data)) {
-        setCustomerSalesReturns(res.data);
-        return res.data;
+  const refreshLiveReturns =
+    async (): Promise<
+      CustomerSalesReturn[]
+    > => {
+      try {
+        const res =
+          await apiRequest<{
+            data:
+              CustomerSalesReturn[];
+          }>('/bills/returns');
+
+        if (
+          Array.isArray(
+            res.data
+          )
+        ) {
+          setCustomerSalesReturns(
+            res.data
+          );
+
+          return res.data;
+        }
+
+        return [];
+      } catch (error) {
+        console.error(
+          'Failed to refresh customer returns:',
+          error
+        );
+
+        return [];
       }
-      return [];
-    } catch (err) {
-      console.error('Failed to refresh customer returns:', err);
-      return [];
-    }
-  };
+    };
 
   const returnSaleItems = async (
     billId: string,

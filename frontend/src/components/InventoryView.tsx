@@ -1621,6 +1621,8 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
   onOpenAudit,
   onOpenVatInfo
 }) => {
+  const { confirmDialog } = useDialog();
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-xs">

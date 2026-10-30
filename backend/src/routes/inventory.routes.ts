@@ -66,18 +66,21 @@ router.get(
 router.get(
   "/adjustments",
   requireAuth,
+  requireAdmin,
   getAllStockAdjustmentLogs
 );
 
 router.get(
   "/:id/adjustments",
   requireAuth,
+  requireAdmin,
   getInventoryAdjustmentLogs
 );
 
 router.post(
   "/:id/adjust",
   requireAuth,
+  requireAdmin,
   adjustInventoryStock
 );
 
@@ -95,12 +98,14 @@ router.get(
 router.post(
   "/",
   requireAuth,
+  requireAdmin,
   createInventory
 );
 
 router.put(
   "/:id",
   requireAuth,
+  requireAdmin,
   updateInventory
 );
 
