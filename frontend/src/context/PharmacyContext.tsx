@@ -986,11 +986,15 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
     const cleanPassword =
       newPassword.trim();
 
-    if (cleanPassword.length < 6) {
+    if (
+      cleanPassword.length < 8 ||
+      !/[a-zA-Z]/.test(cleanPassword) ||
+      !/[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(cleanPassword)
+    ) {
       return {
         success: false,
         message:
-          'Password must be at least 6 characters long!'
+          'Password must be at least 8 characters and contain at least one letter and one number or symbol!'
       };
     }
 

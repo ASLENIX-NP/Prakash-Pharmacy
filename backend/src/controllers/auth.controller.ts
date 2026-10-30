@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { randomInt } from "node:crypto";
+import { randomInt, timingSafeEqual } from "node:crypto";
 import { prisma } from "../db.js";
 import { signJwt } from "../utils/jwt.js";
 import { AuthenticatedRequest } from "../middleware/auth.middleware.js";
@@ -8,6 +8,7 @@ import {
   verifyPassword,
   hashPassword,
   MIN_PASSWORD_LENGTH,
+  validatePasswordStrength,
 } from "../utils/user.helpers.js";
 
 // In-memory recovery token store (valid for 15 minutes)
@@ -240,14 +241,11 @@ export async function changePassword(
     const cleanNewPassword =
       String(newPassword).trim();
 
-    if (
-      cleanNewPassword.length <
-      MIN_PASSWORD_LENGTH
-    ) {
+    const pwdCheck = validatePasswordStrength(cleanNewPassword);
+    if (!pwdCheck.valid) {
       res.status(400).json({
         success: false,
-        message:
-          `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+        message: pwdCheck.message,
       });
       return;
     }
@@ -453,10 +451,11 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
+    const pwdCheck = validatePasswordStrength(cleanPassword);
+    if (!pwdCheck.valid) {
       res.status(400).json({
         success: false,
-        message: `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+        message: pwdCheck.message,
       });
       return;
     }
@@ -480,7 +479,13 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    if (record.code !== cleanCode) {
+    const recordCodeBuf = Buffer.from(record.code);
+    const inputCodeBuf = Buffer.from(cleanCode);
+    const codesMatch =
+      recordCodeBuf.length === inputCodeBuf.length &&
+      timingSafeEqual(recordCodeBuf, inputCodeBuf);
+
+    if (!codesMatch) {
       record.failedAttempts += 1;
 
       if (record.failedAttempts >= MAX_OTP_FAILURES) {

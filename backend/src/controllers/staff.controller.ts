@@ -7,6 +7,7 @@ import {
   resolveFlexibleFields,
   hashPassword,
   MIN_PASSWORD_LENGTH,
+  validatePasswordStrength,
 } from "../utils/user.helpers.js";
 
 const isUniqueConstraintError = (error: unknown): boolean =>
@@ -46,14 +47,11 @@ export async function register(req: AuthenticatedRequest, res: Response): Promis
     const cleanPassword =
       String(password).trim();
 
-    if (
-      cleanPassword.length <
-      MIN_PASSWORD_LENGTH
-    ) {
+    const pwdCheck = validatePasswordStrength(cleanPassword);
+    if (!pwdCheck.valid) {
       res.status(400).json({
         success: false,
-        message:
-          `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+        message: pwdCheck.message,
       });
       return;
     }
@@ -287,14 +285,11 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
       const cleanPassword =
         String(req.body.password).trim();
 
-      if (
-        cleanPassword.length <
-        MIN_PASSWORD_LENGTH
-      ) {
+      const pwdCheck = validatePasswordStrength(cleanPassword);
+      if (!pwdCheck.valid) {
         res.status(400).json({
           success: false,
-          message:
-            `New password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+          message: pwdCheck.message,
         });
         return;
       }

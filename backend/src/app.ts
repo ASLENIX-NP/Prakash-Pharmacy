@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import rateLimit from "express-rate-limit";
 import { checkDatabaseConnection } from "./db.js";
 import authRoutes from "./routes/auth.routes.js";
 import rackRoutes from "./routes/rack.routes.js";
@@ -67,6 +68,45 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
+
+// Rate limiting configurations
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each client IP to 1000 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests from this client. Please slow down and try again shortly.",
+  },
+});
+
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit authentication endpoints to 30 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication requests from this IP. Please try again after 15 minutes.",
+  },
+});
+
+const backupRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit database backup downloads to 10 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many database backup requests. Please wait a few minutes before requesting another download.",
+  },
+});
+
+// Apply rate limiting
+app.use("/api", apiLimiter);
+app.use("/api/auth", authRateLimiter);
+app.use("/api/reports/backup", backupRateLimiter);
 
 // Public health endpoint: intentionally minimal so it cannot disclose
 // database/user/version metadata to unauthenticated callers.

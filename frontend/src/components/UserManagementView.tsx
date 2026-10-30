@@ -208,12 +208,15 @@ export const UserManagementView: React.FC = () => {
     const cleanPassword =
       formData.password.trim();
 
+    const isStrongPassword = (p: string) =>
+      p.length >= 8 && /[a-zA-Z]/.test(p) && /[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(p);
+
     if (
       !editingUser &&
-      cleanPassword.length < 6
+      !isStrongPassword(cleanPassword)
     ) {
       showToast(
-        'Password must be at least 6 characters long!',
+        'Password must be at least 8 characters and contain at least one letter and one number or symbol!',
         'warning',
         'Validation'
       );
@@ -223,10 +226,10 @@ export const UserManagementView: React.FC = () => {
     if (
       editingUser &&
       cleanPassword &&
-      cleanPassword.length < 6
+      !isStrongPassword(cleanPassword)
     ) {
       showToast(
-        'Password must be at least 6 characters long!',
+        'Password must be at least 8 characters and contain at least one letter and one number or symbol!',
         'warning',
         'Validation'
       );
@@ -327,11 +330,15 @@ export const UserManagementView: React.FC = () => {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (
+      newPassword.length < 8 ||
+      !/[a-zA-Z]/.test(newPassword) ||
+      !/[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword)
+    ) {
       setPasswordFeedback({
         type: 'error',
         text:
-          'Password must be at least 6 characters long!'
+          'Password must be at least 8 characters and contain at least one letter and one number or symbol!'
       });
       return;
     }
@@ -709,7 +716,7 @@ export const UserManagementView: React.FC = () => {
                   <input
                     type={showPasswordText ? 'text' : 'password'}
                     required
-                    placeholder="Enter new staff password (min 6 chars)"
+                    placeholder="Enter new staff password (min 8 chars, letters & numbers)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono font-bold text-slate-900 pr-10 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
@@ -814,7 +821,7 @@ export const UserManagementView: React.FC = () => {
                     placeholder={
                       editingUser
                         ? "Leave blank to keep current password"
-                        : "Min 6 chars"
+                        : "Min 8 chars (letters & numbers)"
                     }
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}

@@ -157,8 +157,8 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
       return;
     }
 
-    if (cleanPass.length < 6) {
-      setErrorMessage('New password must be at least 6 characters.');
+    if (cleanPass.length < 8 || !/[a-zA-Z]/.test(cleanPass) || !/[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(cleanPass)) {
+      setErrorMessage('New password must be at least 8 characters and include at least one letter and one number or symbol.');
       return;
     }
 
@@ -416,7 +416,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
                       setNewPassword(e.target.value);
                       if (errorMessage) setErrorMessage(null);
                     }}
-                    placeholder="Minimum 6 characters"
+                    placeholder="Minimum 8 characters (letters & numbers)"
                     className="h-[52px] w-full rounded-[15px] border border-slate-200 bg-white pl-12 pr-12 text-[15px] font-medium text-slate-900 shadow-sm outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
                   />
                   <button
