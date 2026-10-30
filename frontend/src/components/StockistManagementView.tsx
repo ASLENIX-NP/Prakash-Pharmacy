@@ -44,6 +44,15 @@ import {
 } from '../utils/excelUtils';
 import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
+const sanitizeStockistName = (value: string): string =>
+  value
+    .replace(/[^A-Za-z\s.'-]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trimStart();
+
+const normalizeStockistPhone = (value: string): string =>
+  normalizePhoneNumber(value);
+
 export const StockistManagementView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
@@ -1950,7 +1959,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   required
                   placeholder="e.g. Kathmandu Pharma Distributors"
                   value={newStockistData.name}
-                  onChange={(e) => setNewStockistData({ ...newStockistData, name: e.target.value })}
+                  onChange={(e) => setNewStockistData({ ...newStockistData, name: sanitizeStockistName(e.target.value) })}
                   className="w-full border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
                 />
               </div>
@@ -1977,12 +1986,13 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   <input
                     type="tel"
                     inputMode="numeric"
+                    maxLength={10}
                     pattern="[0-9]{7,10}"
                     required
                     placeholder="Up to 10 digits"
                     value={newStockistData.phone}
                     onChange={(e) => {
-                      setNewStockistData({ ...newStockistData, phone: normalizePhoneNumber(e.target.value) });
+                      setNewStockistData({ ...newStockistData, phone: normalizeStockistPhone(e.target.value) });
                       setStockistFormError('');
                     }}
                     className="w-full border border-slate-300 rounded-lg p-2"
@@ -2026,9 +2036,15 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   <label className="block font-semibold text-slate-700 mb-1">Credit Limit (NPR):</label>
                   <input
                     type="number"
-                    value={newStockistData.creditLimit}
+                    value={newStockistData.creditLimit || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: parseIntegerInput(e.target.value, 9) ?? 0 })}
+                    onChange={(e) => {
+                      const nextValue = e.target.value;
+                      setNewStockistData({
+                        ...newStockistData,
+                        creditLimit: nextValue === '' ? 0 : parseIntegerInput(nextValue, 9) ?? 0,
+                      });
+                    }}
                     className="w-full border border-slate-300 rounded-lg p-2 font-mono"
                   />
                 </div>
@@ -2048,23 +2064,39 @@ onChange={(e) => setNewStockistData({ ...newStockistData, creditLimit: parseInte
               </button>
               <button
                 onClick={() => {
-                  if (!newStockistData.name.trim()) {
+                  const cleanedName = sanitizeStockistName(newStockistData.name).trim();
+                  const cleanedPhone = normalizeStockistPhone(newStockistData.phone);
+
+                  if (!cleanedName) {
                     setStockistFormError('Stockist name is required.');
                     return;
                   }
+
+                  if (!/^[A-Za-z][A-Za-z\s.'-]*$/.test(cleanedName)) {
+                    setStockistFormError('Stockist name can contain only letters, spaces, apostrophes, dots, and hyphens.');
+                    return;
+                  }
+
                   if (!/^\d{9}$/.test(newStockistData.panNumber)) {
                     setStockistFormError('PAN must contain exactly 9 digits.');
                     return;
                   }
-                  if (!/^\d{7,10}$/.test(newStockistData.phone)) {
+
+                  if (!/^\d{7,10}$/.test(cleanedPhone)) {
                     setStockistFormError('Phone number must contain between 7 and 10 digits.');
                     return;
                   }
+
                   if (newStockistData.email && !isValidEmail(newStockistData.email)) {
                     setStockistFormError('Enter a valid email address.');
                     return;
                   }
-                  addStockist(newStockistData);
+
+                  addStockist({
+                    ...newStockistData,
+                    name: cleanedName,
+                    phone: cleanedPhone,
+                  });
                   setStockistFormError('');
                   setShowAddStockistModal(false);
                 }}
