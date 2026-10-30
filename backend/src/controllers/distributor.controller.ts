@@ -2,6 +2,21 @@ import { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { formatDistributorCode, parseIdParam } from "../utils/id.helpers.js";
 
+type AnyRecord = Record<string, any>;
+
+class DistributorValidationError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = "DistributorValidationError";
+    this.statusCode = statusCode;
+  }
+}
+
+const roundMoney = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
 export const formatDistributorResponse = (distributor: any) => {
   return {
     id: formatDistributorCode(distributor.id),
@@ -150,6 +165,15 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    const parsedCreditLimit = Number(creditLimit);
+    if (!Number.isFinite(parsedCreditLimit) || parsedCreditLimit < 0) {
+      res.status(400).json({
+        success: false,
+        message: "Credit limit must be zero or a positive number.",
+      });
+      return;
+    }
+
     // Optional uniqueness warning for name
     const existing = await prisma.distributor.findFirst({
       where: { name: { equals: cleanName, mode: "insensitive" } },
@@ -170,7 +194,7 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
         email: cleanEmail || null,
         address: address ? String(address).trim() : null,
         contactPerson: contactPerson ? String(contactPerson).trim() : null,
-        creditLimit: Math.max(0, parseFloat(String(creditLimit)) || 0),
+        creditLimit: parsedCreditLimit,
         currentBalance: 0,
         notes: notes ? String(notes).trim() : null,
         status: "active",
@@ -219,10 +243,28 @@ export const updateDistributor = async (req: Request, res: Response): Promise<vo
     } = req.body;
 
     const data: any = {};
-    if (name !== undefined) data.name = String(name).trim();
+    if (name !== undefined) {
+      const cleanName = String(name).trim();
+      if (!cleanName) {
+        res.status(400).json({ success: false, message: "Distributor name cannot be empty." });
+        return;
+      }
+      const duplicateName = await prisma.distributor.findFirst({
+        where: {
+          id: { not: id },
+          name: { equals: cleanName, mode: "insensitive" },
+        },
+        select: { id: true },
+      });
+      if (duplicateName) {
+        res.status(409).json({ success: false, message: `Distributor "${cleanName}" already exists.` });
+        return;
+      }
+      data.name = cleanName;
+    }
     if (phone !== undefined) {
       const cleanPhone = String(phone).trim();
-      if (cleanPhone && !/^\d{7,10}$/.test(cleanPhone)) {
+      if (!/^\d{7,10}$/.test(cleanPhone)) {
         res.status(400).json({ success: false, message: "Distributor phone number must contain between 7 and 10 digits." });
         return;
       }
@@ -246,9 +288,26 @@ export const updateDistributor = async (req: Request, res: Response): Promise<vo
     }
     if (address !== undefined) data.address = String(address).trim() || null;
     if (contactPerson !== undefined) data.contactPerson = String(contactPerson).trim() || null;
-    if (creditLimit !== undefined) data.creditLimit = Math.max(0, parseFloat(String(creditLimit)) || 0);
+    if (creditLimit !== undefined) {
+      const parsedCreditLimit = Number(creditLimit);
+      if (!Number.isFinite(parsedCreditLimit) || parsedCreditLimit < 0) {
+        res.status(400).json({
+          success: false,
+          message: "Credit limit must be zero or a positive number.",
+        });
+        return;
+      }
+      data.creditLimit = parsedCreditLimit;
+    }
     if (notes !== undefined) data.notes = String(notes).trim() || null;
-    if (status !== undefined) data.status = String(status).trim();
+    if (status !== undefined) {
+      const normalizedStatus = String(status).trim().toLowerCase();
+      if (!["active", "inactive"].includes(normalizedStatus)) {
+        res.status(400).json({ success: false, message: "Distributor status must be 'active' or 'inactive'." });
+        return;
+      }
+      data.status = normalizedStatus;
+    }
 
     const updated = await prisma.distributor.update({
       where: { id },
@@ -281,7 +340,12 @@ export const deleteDistributor = async (req: Request, res: Response): Promise<vo
       where: { id },
       include: {
         _count: {
-          select: { inventories: true, purchases: true },
+          select: {
+            inventories: true,
+            purchases: true,
+            ledgers: true,
+            returns: true,
+          },
         },
       },
     });
@@ -291,8 +355,14 @@ export const deleteDistributor = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Safety guard: If distributor is tied to medicines or purchase invoices, do not hard-delete
-    if (existing._count.inventories > 0 || existing._count.purchases > 0) {
+    // Never destroy supplier-account history. Any linked stock, invoice,
+    // ledger or debit-note history makes this a deactivation, not a hard delete.
+    if (
+      existing._count.inventories > 0 ||
+      existing._count.purchases > 0 ||
+      existing._count.ledgers > 0 ||
+      existing._count.returns > 0
+    ) {
       await prisma.distributor.update({
         where: { id },
         data: { status: "inactive" },
@@ -300,7 +370,7 @@ export const deleteDistributor = async (req: Request, res: Response): Promise<vo
 
       res.status(200).json({
         success: true,
-        message: `Distributor "${existing.name}" is linked to existing stock or invoices and was marked inactive.`,
+        message: `Distributor "${existing.name}" has linked stock/accounting history and was marked inactive instead of deleted.`,
       });
       return;
     }
@@ -401,18 +471,25 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
       return;
     }
 
-    const currentBal = Number(distributor.currentBalance || 0);
-    const newBal = currentBal - parsedAmount;
     const cleanRef = String(refNumber || `PAY-${Date.now().toString().slice(-6)}`).trim();
     const cleanMode = String(paymentMode || "Bank Transfer").trim();
     const description = `Payment made via ${cleanMode.toUpperCase()}${notes ? ` (${notes})` : ""}`;
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Update distributor balance
+      // Serialize every posting for this supplier so ledger running-balance
+      // snapshots stay deterministic under concurrent requests.
+      const accountLockKey = `supplier-account:${id}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${accountLockKey}))
+      `;
+
       const updatedDistributor = await tx.distributor.update({
         where: { id },
-        data: { currentBalance: newBal },
+        data: {
+          currentBalance: { decrement: parsedAmount },
+        },
       });
+      const newBal = Number(updatedDistributor.currentBalance || 0);
 
       // 2. Create Ledger entry (Debit reduces liability)
       const ledgerEntry = await tx.ledger.create({
@@ -444,7 +521,7 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
           description,
           debit: parsedAmount,
           credit: 0,
-          balance: newBal,
+          balance: Number(result.updatedDistributor.currentBalance || 0),
         },
       },
     });
@@ -491,141 +568,242 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
   try {
     const id = parseIdParam(req.params.id);
     if (!id) {
-      res.status(400).json({ success: false, message: "Invalid distributor ID." });
-      return;
+      throw new DistributorValidationError("Invalid distributor ID.");
     }
 
-    const {
-      debitNoteNumber,
-      totalAmount,
-      items,
-      date,
-      notes,
-    } = req.body;
+    const { debitNoteNumber, items, date, notes } = req.body;
 
-    const parsedTotal = parseFloat(String(totalAmount));
-    if (isNaN(parsedTotal) || parsedTotal <= 0) {
-      res.status(400).json({ success: false, message: "Return total amount must be greater than zero." });
-      return;
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new DistributorValidationError(
+        "At least one medicine item is required for a supplier return."
+      );
     }
 
-    const distributor = await prisma.distributor.findUnique({ where: { id } });
-    if (!distributor) {
-      res.status(404).json({ success: false, message: "Distributor not found." });
-      return;
+    const cleanDebitNote = String(debitNoteNumber || "").trim();
+    if (!cleanDebitNote) {
+      throw new DistributorValidationError("Debit note number is required.");
     }
 
-    const cleanDebitNote = String(debitNoteNumber || `DN-${Date.now().toString().slice(-6)}`).trim();
     let cleanDate = new Date();
-    if (date) {
-      if (String(date).includes("T") || String(date).includes(" ")) {
-        const parsed = new Date(date);
-        if (!isNaN(parsed.getTime())) cleanDate = parsed;
-      } else {
-        const [y, m, d] = String(date).split("-").map(Number);
-        if (y && m && d) {
-          const now = new Date();
-          cleanDate = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-        }
-      }
-    }
+    if (date !== undefined && date !== null && String(date).trim() !== "") {
+      const rawDate = String(date).trim();
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
+        ? new Date(`${rawDate}T12:00:00`)
+        : new Date(rawDate);
 
-    const currentBal = Number(distributor.currentBalance || 0);
-    const newBal = currentBal - parsedTotal;
+      if (Number.isNaN(parsed.getTime())) {
+        throw new DistributorValidationError("Return date is invalid.");
+      }
+      cleanDate = parsed;
+    }
 
     const authUser = (req as any).user ?? {};
-    const recordedBy = String(authUser.username ?? authUser.fullName ?? "Pharmacist");
+    const recordedBy = String(
+      authUser.username ?? authUser.fullName ?? "Pharmacist"
+    );
 
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Process items and deduct inventory stock
-      if (Array.isArray(items) && items.length > 0) {
-        for (const item of items) {
-          const medId = parseIdParam(item.medicineId || item.id);
-          const packsToDeduct = Math.max(0, parseInt(String(item.packs ?? 0), 10) || 0);
-          const looseToDeduct = Math.max(0, parseInt(String(item.looseUnits ?? 0), 10) || 0);
+      // Use the same account lock as payments, purchases and cancellations.
+      const accountLockKey = `supplier-account:${id}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${accountLockKey}))
+      `;
 
-          let med = medId ? await tx.inventory.findUnique({ where: { id: medId } }) : null;
-
-          if (!med && item.medicineName && item.batchNumber) {
-            med = await tx.inventory.findFirst({
-              where: {
-                medicineBrand: { equals: String(item.medicineName).trim(), mode: "insensitive" },
-                batchNumber: { equals: String(item.batchNumber).trim(), mode: "insensitive" },
-              },
-            });
-          }
-
-          if (!med) {
-            throw new Error(
-              `Medicine '${item.medicineName || item.medicineId}' was not found.`
-            );
-          }
-
-          if (med.distributorId !== id) {
-            throw new Error(
-              `Medicine '${med.medicineBrand}' does not belong to the selected distributor.`
-            );
-          }
-
-          if (med) {
-            const unitsPerPack = Math.max(1, med.unitPerPack || 10);
-            const currentTotalUnits = med.packInStock * unitsPerPack + med.unitInStock;
-            const deductTotalUnits = packsToDeduct * unitsPerPack + looseToDeduct;
-
-            if (deductTotalUnits <= 0) {
-              throw new Error(
-                `Return quantity for '${med.medicineBrand}' must be greater than zero.`
-              );
-            }
-
-            if (deductTotalUnits > currentTotalUnits) {
-              throw new Error(
-                `Return quantity exceeds available stock for '${med.medicineBrand}'.`
-              );
-            }
-
-            const remainingUnits =
-              currentTotalUnits - deductTotalUnits;
-
-            const newPacks = Math.floor(remainingUnits / unitsPerPack);
-            const newLoose = remainingUnits % unitsPerPack;
-
-            await tx.inventory.update({
-              where: { id: med.id },
-              data: {
-                packInStock: newPacks,
-                unitInStock: newLoose,
-              },
-            });
-
-            // Log adjustment
-            await tx.stockAdjustmentLog.create({
-              data: {
-                medicineId: med.id,
-                adjustmentType: "DISPOSAL",
-                previousPacks: med.packInStock,
-                newPacks,
-                variancePacks: newPacks - med.packInStock,
-                previousLooseUnits: med.unitInStock,
-                newLooseUnits: newLoose,
-                varianceLooseUnits: newLoose - med.unitInStock,
-                reason: item.reason ? `Wholesaler Return (${cleanDebitNote}): ${item.reason}` : `Wholesaler Return (${cleanDebitNote})`,
-                recordedBy,
-              },
-            });
-          }
-        }
+      const distributor = await tx.distributor.findUnique({ where: { id } });
+      if (!distributor) {
+        throw new DistributorValidationError("Distributor not found.", 404);
       }
 
-      // 2. Update distributor balance
+      const duplicate = await tx.distributorReturn.findUnique({
+        where: { debitNoteNumber: cleanDebitNote },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new DistributorValidationError(
+          `Debit Note #${cleanDebitNote} already exists.`,
+          409
+        );
+      }
+
+      const seenInventoryIds = new Set<number>();
+      const processedItems: AnyRecord[] = [];
+      let authoritativeTotal = 0;
+
+      for (const [index, item] of items.entries()) {
+        const rawMedicineId = item?.medicineId ?? item?.id;
+        const medId = parseIdParam(rawMedicineId);
+
+        let med = medId
+          ? await tx.inventory.findUnique({ where: { id: medId } })
+          : null;
+
+        if (!med && item?.medicineName && item?.batchNumber) {
+          med = await tx.inventory.findFirst({
+            where: {
+              medicineBrand: {
+                equals: String(item.medicineName).trim(),
+                mode: "insensitive",
+              },
+              batchNumber: {
+                equals: String(item.batchNumber).trim(),
+                mode: "insensitive",
+              },
+            },
+          });
+        }
+
+        if (!med) {
+          throw new DistributorValidationError(
+            `Return row ${index + 1}: medicine was not found.`,
+            404
+          );
+        }
+
+        if (med.distributorId !== id) {
+          throw new DistributorValidationError(
+            `Medicine '${med.medicineBrand}' does not belong to the selected distributor.`,
+            409
+          );
+        }
+
+        if (seenInventoryIds.has(med.id)) {
+          throw new DistributorValidationError(
+            `Medicine '${med.medicineBrand}' appears more than once in this return. Combine it into one row.`
+          );
+        }
+        seenInventoryIds.add(med.id);
+
+        const packsToDeduct = Number(item?.packs ?? 0);
+        const looseToDeduct = Number(item?.looseUnits ?? 0);
+
+        if (
+          !Number.isInteger(packsToDeduct) ||
+          packsToDeduct < 0 ||
+          !Number.isInteger(looseToDeduct) ||
+          looseToDeduct < 0
+        ) {
+          throw new DistributorValidationError(
+            `Return quantities for '${med.medicineBrand}' must be non-negative whole numbers.`
+          );
+        }
+
+        const unitsPerPack = Math.max(1, med.unitPerPack || 1);
+        if (looseToDeduct >= unitsPerPack) {
+          throw new DistributorValidationError(
+            `Loose return quantity for '${med.medicineBrand}' must be less than ${unitsPerPack}. Convert full units into packs.`
+          );
+        }
+
+        const deductTotalUnits =
+          packsToDeduct * unitsPerPack + looseToDeduct;
+        if (deductTotalUnits <= 0) {
+          throw new DistributorValidationError(
+            `Return quantity for '${med.medicineBrand}' must be greater than zero.`
+          );
+        }
+
+        // Lock the exact stock row before reading its quantities. This makes
+        // simultaneous supplier returns deterministic and prevents oversell/
+        // over-return from stale read-modify-write state.
+        const lockedRows = await tx.$queryRaw<Array<{
+          id: number;
+          pack_in_stock: number;
+          unit_in_stock: number;
+        }>>`
+          SELECT id, pack_in_stock, unit_in_stock
+          FROM inventory_tbl
+          WHERE id = ${med.id}
+          FOR UPDATE
+        `;
+
+        const locked = lockedRows[0];
+        if (!locked) {
+          throw new DistributorValidationError(
+            `Medicine '${med.medicineBrand}' no longer exists.`,
+            409
+          );
+        }
+
+        const previousPacks = Number(locked.pack_in_stock);
+        const previousLoose = Number(locked.unit_in_stock);
+        const currentTotalUnits =
+          previousPacks * unitsPerPack + previousLoose;
+
+        if (deductTotalUnits > currentTotalUnits) {
+          throw new DistributorValidationError(
+            `Return quantity exceeds available stock for '${med.medicineBrand}'.`,
+            409
+          );
+        }
+
+        const remainingUnits = currentTotalUnits - deductTotalUnits;
+        const newPacks = Math.floor(remainingUnits / unitsPerPack);
+        const newLoose = remainingUnits % unitsPerPack;
+
+        await tx.inventory.update({
+          where: { id: med.id },
+          data: { packInStock: newPacks, unitInStock: newLoose },
+        });
+
+        await tx.stockAdjustmentLog.create({
+          data: {
+            medicineId: med.id,
+            adjustmentType: "DISPOSAL",
+            previousPacks,
+            newPacks,
+            variancePacks: newPacks - previousPacks,
+            previousLooseUnits: previousLoose,
+            newLooseUnits: newLoose,
+            varianceLooseUnits: newLoose - previousLoose,
+            reason: item?.reason
+              ? `Wholesaler Return (${cleanDebitNote}): ${String(item.reason).trim()}`
+              : `Wholesaler Return (${cleanDebitNote})`,
+            recordedBy,
+          },
+        });
+
+        const costPerPack = Number(med.costPrice);
+        if (!Number.isFinite(costPerPack) || costPerPack < 0) {
+          throw new DistributorValidationError(
+            `Medicine '${med.medicineBrand}' has an invalid stored cost price.`,
+            409
+          );
+        }
+
+        const lineAmount = roundMoney(
+          packsToDeduct * costPerPack +
+            looseToDeduct * (costPerPack / unitsPerPack)
+        );
+        authoritativeTotal = roundMoney(authoritativeTotal + lineAmount);
+
+        processedItems.push({
+          medicineId: med.id,
+          medicineName: med.medicineBrand,
+          batchNumber: med.batchNumber,
+          packs: packsToDeduct,
+          looseUnits: looseToDeduct,
+          unitsPerPack,
+          costPrice: costPerPack,
+          lineAmount,
+          reason: item?.reason ? String(item.reason).trim() : "",
+        });
+      }
+
+      if (authoritativeTotal <= 0) {
+        throw new DistributorValidationError(
+          "Return total calculated from inventory cost prices must be greater than zero."
+        );
+      }
+
       const updatedDistributor = await tx.distributor.update({
         where: { id },
-        data: { currentBalance: newBal },
+        data: { currentBalance: { decrement: authoritativeTotal } },
       });
+      const newBalance = Number(updatedDistributor.currentBalance || 0);
 
-      // 3. Create Ledger entry (Debit reduces liability)
-      const itemCount = Array.isArray(items) ? items.length : 1;
-      const description = `Debit Note #${cleanDebitNote}: Return of Damaged/Expired medicines (${itemCount} items)${notes ? ` - ${notes}` : ""}`;
+      const description =
+        `Debit Note #${cleanDebitNote}: Return of Damaged/Expired medicines ` +
+        `(${processedItems.length} items)${notes ? ` - ${String(notes).trim()}` : ""}`;
 
       const ledgerEntry = await tx.ledger.create({
         data: {
@@ -633,35 +811,39 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           ledgerType: "return",
           referenceNo: cleanDebitNote,
           description,
-          debitAmount: parsedTotal,
+          debitAmount: authoritativeTotal,
           creditAmount: 0,
-          balance: newBal,
+          balance: newBalance,
           dateOfCreation: cleanDate,
         },
       });
 
-      const returnVoucher =
-        await tx.distributorReturn.create({
-          data: {
-            distributorId: id,
-            debitNoteNumber: cleanDebitNote,
-            date: cleanDate,
-            items: Array.isArray(items) ? items : [],
-            totalAmount: parsedTotal,
-            notes: notes ? String(notes).trim() : null,
-          },
-        });
+      const returnVoucher = await tx.distributorReturn.create({
+        data: {
+          distributorId: id,
+          debitNoteNumber: cleanDebitNote,
+          date: cleanDate,
+          items: processedItems,
+          totalAmount: authoritativeTotal,
+          notes: notes ? String(notes).trim() : null,
+        },
+      });
 
       return {
+        distributor,
         updatedDistributor,
         ledgerEntry,
-        returnVoucher
+        returnVoucher,
+        authoritativeTotal,
+        newBalance,
       };
     });
 
     res.status(200).json({
       success: true,
-      message: `Debit Note #${cleanDebitNote} recorded successfully. Supplier balance reduced by Rs. ${parsedTotal.toFixed(2)}.`,
+      message:
+        `Debit Note #${cleanDebitNote} recorded successfully. ` +
+        `Supplier balance reduced by Rs. ${result.authoritativeTotal.toFixed(2)}.`,
       data: {
         distributor: formatDistributorResponse(result.updatedDistributor),
         ledgerEntry: {
@@ -671,39 +853,44 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           refType: "return_debit_note",
           refNumber: cleanDebitNote,
           description: result.ledgerEntry.description,
-          debit: parsedTotal,
+          debit: result.authoritativeTotal,
           credit: 0,
-          balance: newBal,
+          balance: result.newBalance,
         },
         returnVoucher: {
           id: `ret-${result.returnVoucher.id}`,
-          debitNoteNumber:
-            result.returnVoucher.debitNoteNumber,
+          debitNoteNumber: result.returnVoucher.debitNoteNumber,
           stockistId: formatDistributorCode(id),
-          stockistName: distributor.name,
-          date:
-            result.returnVoucher.date
-              .toISOString()
-              .split("T")[0],
-          items:
-            Array.isArray(result.returnVoucher.items)
-              ? result.returnVoucher.items
-              : [],
-          totalAmount:
-            Number(result.returnVoucher.totalAmount),
-          notes:
-            result.returnVoucher.notes || "",
-          createdAt:
-            result.returnVoucher.createdAt.toISOString(),
+          stockistName: result.distributor.name,
+          date: result.returnVoucher.date.toISOString().split("T")[0],
+          items: Array.isArray(result.returnVoucher.items)
+            ? result.returnVoucher.items
+            : [],
+          totalAmount: Number(result.returnVoucher.totalAmount),
+          notes: result.returnVoucher.notes || "",
+          createdAt: result.returnVoucher.createdAt.toISOString(),
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error recording distributor return:", error);
+
+    if (error instanceof DistributorValidationError) {
+      res.status(error.statusCode).json({ success: false, message: error.message });
+      return;
+    }
+
+    if (error?.code === "P2002") {
+      res.status(409).json({
+        success: false,
+        message: "A supplier return with this debit note number already exists.",
+      });
+      return;
+    }
+
     res.status(500).json({
       success: false,
-      message: error instanceof Error ? error.message : "Failed to record distributor return.",
+      message: "Failed to record distributor return.",
     });
   }
 };
-

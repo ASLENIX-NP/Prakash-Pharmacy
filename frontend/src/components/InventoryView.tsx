@@ -34,6 +34,7 @@ import {
 } from '../utils/excelUtils';
 import { decimalInputValue, digitsOnlyUpTo, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import { RacksManagerModal } from './RacksManagerModal';
+import { localDateString } from '../utils/date';
 
 const MEDICINE_CATEGORIES: MedicineCategory[] = [
   'Tablet',
@@ -107,7 +108,7 @@ export const InventoryView: React.FC = () => {
   const [newDistributorAddress, setNewDistributorAddress] = useState('Hetauda, Makwanpur');
   const [newDistributorContactPerson, setNewDistributorContactPerson] = useState('');
   const [billInvoiceNumber, setBillInvoiceNumber] = useState('');
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [billDate, setBillDate] = useState(() => localDateString());
   const [billPaymentMode, setBillPaymentMode] = useState<'credit' | 'cash'>('credit');
   const [billDueDate, setBillDueDate] = useState('');
 
@@ -251,8 +252,8 @@ export const InventoryView: React.FC = () => {
       name: '',
       genericName: '',
       category: 'Tablet',
-      batchNumber: `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-      expiryDate: '2027-12-31',
+      batchNumber: '',
+      expiryDate: '',
       stockPacks: undefined,
       stockLooseUnits: undefined,
       unitsPerPack: undefined,
@@ -318,10 +319,21 @@ export const InventoryView: React.FC = () => {
       }
     }
 
+    if (!String(formData.batchNumber || '').trim()) {
+      showToast('Batch Number is required. It will not be auto-generated.', 'warning', 'Validation');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(formData.expiryDate || '').trim())) {
+      showToast('A valid Expiry Date is required.', 'warning', 'Validation');
+      return;
+    }
+
     const normalizedFormData = {
       ...formData,
       name: medicineName,
-      genericName
+      genericName,
+      batchNumber: String(formData.batchNumber).trim(),
+      expiryDate: String(formData.expiryDate).trim()
     };
 
     const requiredNumbers = [
@@ -401,13 +413,10 @@ export const InventoryView: React.FC = () => {
       setImportErrors(res.errors);
 
       if (res.success.length > 0) {
-        if (!billInvoiceNumber) {
-          setBillInvoiceNumber(`BILL-${Math.floor(1000 + Math.random() * 9000)}`);
-        }
         const today = new Date();
         const nextMonth = new Date(today);
         nextMonth.setDate(nextMonth.getDate() + 30);
-        setBillDueDate(nextMonth.toISOString().split('T')[0]);
+        setBillDueDate(localDateString(nextMonth));
 
         // Auto-detect supplier from sheet if present
         const sheetSuppliers = Array.from(new Set(res.success.map(item => item.supplierName?.trim()).filter(Boolean) as string[]));
@@ -447,6 +456,19 @@ export const InventoryView: React.FC = () => {
       setIsSubmittingImport(true);
 
       if (importType === 'bill') {
+        if (!billInvoiceNumber.trim()) {
+          showToast('Enter the actual wholesaler invoice number. The system will not fabricate one.', 'warning', 'Validation');
+          return;
+        }
+        const invalidTraceabilityRow = parsedImportItems.findIndex(item =>
+          !String(item.batchNumber || '').trim() ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(String(item.expiryDate || '').trim())
+        );
+        if (invalidTraceabilityRow >= 0) {
+          showToast(`Imported row ${invalidTraceabilityRow + 1} is missing a real batch number or expiry date. Correct the source file and import again.`, 'warning', 'Validation');
+          return;
+        }
+
         let finalStockistId = selectedDistributorId;
         let finalStockistName = '';
         let finalStockistPan = '';
@@ -484,7 +506,7 @@ export const InventoryView: React.FC = () => {
           finalStockistPan = existing.panNumber || '';
         }
 
-        const invNum = billInvoiceNumber.trim() || `BILL-${Math.floor(1000 + Math.random() * 9000)}`;
+        const invNum = billInvoiceNumber.trim();
 
         const invoiceItems: StockistInvoiceItem[] = parsedImportItems.map((item, idx) => {
           const packs = Number(item.stockPacks) || 0;
@@ -499,8 +521,8 @@ export const InventoryView: React.FC = () => {
             medicineName: item.name,
             genericName: item.genericName || '',
             category: item.category || 'Tablet',
-            batchNumber: item.batchNumber || `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-            expiryDate: item.expiryDate || '2028-12-31',
+            batchNumber: item.batchNumber || '',
+            expiryDate: item.expiryDate || '',
             packQty: packs,
             looseUnits: loose,
             freePacks: 0,
@@ -1198,7 +1220,7 @@ export const InventoryView: React.FC = () => {
                             </span>
                           </div>
                           <span className="text-[11px] font-semibold text-teal-800 font-mono">
-                            {billInvoiceNumber || 'BILL-AUTO'}
+                            {billInvoiceNumber || 'Invoice number required'}
                           </span>
                         </div>
                         <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-teal-200">

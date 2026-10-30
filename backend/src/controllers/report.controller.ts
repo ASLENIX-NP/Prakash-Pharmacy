@@ -14,7 +14,7 @@ export async function getVatReportSummary(
   res: Response
 ): Promise<void> {
   try {
-    const [bills, purchases, inventory] =
+    const [bills, purchases, inventory, salesReturns] =
       await Promise.all([
         prisma.bill.findMany({
           select: {
@@ -26,6 +26,7 @@ export async function getVatReportSummary(
               select: {
                 netItemPrice: true,
                 vatitemPrice: true,
+                hasVatSnapshot: true,
                 inventory: {
                   select: {
                     hasvat: true,
@@ -59,6 +60,29 @@ export async function getVatReportSummary(
             unitPerPack: true,
             costPrice: true,
             sellingPrice: true,
+          },
+        }),
+
+        prisma.salesReturn.findMany({
+          select: {
+            refundAmount: true,
+            items: {
+              select: {
+                refundAmount: true,
+                billItem: {
+                  select: {
+                    netItemPrice: true,
+                    vatitemPrice: true,
+                    hasVatSnapshot: true,
+                    inventory: {
+                      select: {
+                        hasvat: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         }),
       ]);
@@ -102,7 +126,10 @@ export async function getVatReportSummary(
          */
         const isTaxable =
           lineVat > 0 ||
-          Boolean(item.inventory.hasvat);
+          Boolean(
+            item.hasVatSnapshot ??
+            item.inventory.hasvat
+          );
 
         if (isTaxable) {
           taxableSalesBase +=
@@ -116,6 +143,40 @@ export async function getVatReportSummary(
         }
       }
     }
+
+    // Persisted credit notes reverse the sale amounts. Use the original
+    // bill-line VAT split so later inventory edits cannot rewrite history.
+    for (const salesReturn of salesReturns) {
+      netSales -= toNumber(salesReturn.refundAmount);
+
+      for (const item of salesReturn.items) {
+        const refund = toNumber(item.refundAmount);
+        const lineNet = toNumber(item.billItem.netItemPrice);
+        const lineVat = toNumber(item.billItem.vatitemPrice);
+        const isTaxable =
+          lineVat > 0 ||
+          Boolean(
+            item.billItem.hasVatSnapshot ??
+            item.billItem.inventory.hasvat
+          );
+
+        if (isTaxable && lineNet > 0) {
+          const vatRefund = Math.min(
+            refund,
+            refund * lineVat / lineNet
+          );
+          outputVat -= vatRefund;
+          taxableSalesBase -= Math.max(0, refund - vatRefund);
+        } else {
+          salesWithoutVat -= refund;
+        }
+      }
+    }
+
+    netSales = roundMoney(netSales);
+    outputVat = roundMoney(outputVat);
+    taxableSalesBase = roundMoney(taxableSalesBase);
+    salesWithoutVat = roundMoney(salesWithoutVat);
 
     const salesWithVat =
       taxableSalesBase + outputVat;

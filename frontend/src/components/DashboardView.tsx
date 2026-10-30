@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { ActiveTab } from './Sidebar';
+import { localDateString } from '../utils/date';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -22,7 +23,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     setActiveInvoiceToPrint 
   } = usePharmacy();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateString();
 
   // Daily Sales KPI
   const todaySales = useMemo(() => {

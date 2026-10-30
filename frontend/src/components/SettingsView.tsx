@@ -13,6 +13,7 @@ export const SettingsView: React.FC = () => {
     phoneNumber: normalizePhoneNumber(settings.phoneNumber),
   }));
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [newRackName, setNewRackName] = useState('');
   const [newRackDescription, setNewRackDescription] = useState('');
@@ -44,7 +45,7 @@ export const SettingsView: React.FC = () => {
     return matchesSearch && matchesFilter;
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!/^\d{9}$/.test(formData.panNumber.trim())) {
@@ -63,9 +64,19 @@ export const SettingsView: React.FC = () => {
     }
 
     setFormError('');
-    updateSettings(formData);
-    setSaveSuccess(true);
-    window.setTimeout(() => setSaveSuccess(false), 3000);
+    setSaveSuccess(false);
+    setIsSaving(true);
+
+    try {
+      await updateSettings(formData);
+      setSaveSuccess(true);
+      window.setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      console.error('Failed to save pharmacy settings:', error);
+      setFormError('Settings could not be saved. Please retry.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleDiscardChanges = () => {
@@ -419,10 +430,11 @@ export const SettingsView: React.FC = () => {
               <button
                 type="submit"
                 form="pharmacy-profile-form"
-                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800"
+                disabled={isSaving}
+                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Save className="h-4 w-4" />
-                Save Settings
+                {isSaving ? 'Saving…' : 'Save Settings'}
               </button>
             </div>
           </div>

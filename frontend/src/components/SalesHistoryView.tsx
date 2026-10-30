@@ -20,6 +20,7 @@ import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { salesDemoInvoices } from '../data/salesDemoData';
 import { SalesReturnModal } from './SalesReturnModal';
+import { localDateString } from '../utils/date';
 
 export const SalesHistoryView: React.FC = () => {
   const { showToast } = useDialog();
@@ -47,10 +48,10 @@ export const SalesHistoryView: React.FC = () => {
 
   // Filter sales invoices
   const filteredSales = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateString();
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = localDateString(yesterday);
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -81,10 +82,10 @@ export const SalesHistoryView: React.FC = () => {
 
   // Filter customer returns
   const filteredReturns = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateString();
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = localDateString(yesterday);
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);

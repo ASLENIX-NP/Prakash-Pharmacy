@@ -4,6 +4,17 @@ import { formatInventoryItem } from "./inventory.controller.js";
 import { formatMedicineCode } from "../utils/id.helpers.js";
 
 
+class StockAdjustmentValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode = 400
+  ) {
+    super(message);
+    this.name = "StockAdjustmentValidationError";
+  }
+}
+
+
 const ALLOWED_ADJUSTMENT_TYPES =
   new Set([
     "AUDIT",
@@ -231,61 +242,6 @@ export const adjustInventoryStock = async (
     }
 
 
-    const previousPacks =
-      existing.packInStock;
-
-    const previousLooseUnits =
-      existing.unitInStock;
-
-
-    let newPacks: number;
-    let newLooseUnits: number;
-
-
-    if (hasAbsoluteValues) {
-
-      newPacks =
-        newPacksInput ??
-        previousPacks;
-
-      newLooseUnits =
-        newLooseInput ??
-        previousLooseUnits;
-
-    } else {
-
-      newPacks =
-        previousPacks +
-        (packDelta ?? 0);
-
-      newLooseUnits =
-        previousLooseUnits +
-        (looseDelta ?? 0);
-    }
-
-
-    if (
-      newPacks < 0 ||
-      newLooseUnits < 0
-    ) {
-      res.status(400).json({
-        success: false,
-        message:
-          "Stock cannot become negative.",
-      });
-      return;
-    }
-
-
-    const variancePacks =
-      newPacks -
-      previousPacks;
-
-    const varianceLooseUnits =
-      newLooseUnits -
-      previousLooseUnits;
-
-
     const authUser =
       (req as any).user ?? {};
 
@@ -303,61 +259,86 @@ export const adjustInventoryStock = async (
     const result =
       await prisma.$transaction(
         async (tx) => {
+          // Serialize physical stock edits against the freshest row.
+          await tx.$queryRaw`
+            SELECT id
+              FROM inventory_tbl
+             WHERE id = ${id}
+             FOR UPDATE
+          `;
 
-          const inventory =
-            await tx.inventory.update({
-              where: {
-                id,
-              },
-              data: {
-                packInStock:
-                  newPacks,
+          const current = await tx.inventory.findUnique({
+            where: { id },
+          });
 
-                unitInStock:
-                  newLooseUnits,
-              },
-              include: {
-                generic: true,
-                category: true,
-                rack: true,
-              },
-            });
+          if (!current) {
+            throw new StockAdjustmentValidationError(
+              "Medicine not found.",
+              404
+            );
+          }
 
+          const previousPacks = current.packInStock;
+          const previousLooseUnits = current.unitInStock;
 
-          const adjustment =
-            await tx.stockAdjustmentLog.create({
-              data: {
-                medicineId:
-                  id,
+          let newPacks: number;
+          let newLooseUnits: number;
 
-                adjustmentType,
+          if (hasAbsoluteValues) {
+            newPacks = newPacksInput ?? previousPacks;
+            newLooseUnits = newLooseInput ?? previousLooseUnits;
+          } else {
+            newPacks = previousPacks + (packDelta ?? 0);
+            newLooseUnits = previousLooseUnits + (looseDelta ?? 0);
+          }
 
-                previousPacks,
+          if (newPacks < 0 || newLooseUnits < 0) {
+            throw new StockAdjustmentValidationError(
+              "Stock cannot become negative."
+            );
+          }
 
-                newPacks,
+          const unitsPerPack = Math.max(1, Number(current.unitPerPack || 1));
+          if (newLooseUnits >= unitsPerPack) {
+            throw new StockAdjustmentValidationError(
+              `Loose-unit stock must be less than units per pack (${unitsPerPack}). Convert full loose units into packs.`
+            );
+          }
 
-                variancePacks,
+          const variancePacks = newPacks - previousPacks;
+          const varianceLooseUnits = newLooseUnits - previousLooseUnits;
 
-                previousLooseUnits,
+          const inventory = await tx.inventory.update({
+            where: { id },
+            data: {
+              packInStock: newPacks,
+              unitInStock: newLooseUnits,
+            },
+            include: {
+              generic: true,
+              category: true,
+              rack: true,
+            },
+          });
 
-                newLooseUnits,
+          const adjustment = await tx.stockAdjustmentLog.create({
+            data: {
+              medicineId: id,
+              adjustmentType,
+              previousPacks,
+              newPacks,
+              variancePacks,
+              previousLooseUnits,
+              newLooseUnits,
+              varianceLooseUnits,
+              reason,
+              recordedBy,
+            },
+          });
 
-                varianceLooseUnits,
-
-                reason,
-
-                recordedBy,
-              },
-            });
-
-
-          return {
-            inventory,
-            adjustment,
-          };
+          return { inventory, adjustment };
         }
       );
-
 
     res.status(200).json({
       success: true,
@@ -382,6 +363,14 @@ export const adjustInventoryStock = async (
       "Adjust inventory stock error:",
       error
     );
+
+    if (error instanceof StockAdjustmentValidationError) {
+      res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
 
     res.status(500).json({
       success: false,

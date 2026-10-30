@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { Medicine, StockAdjustmentLog, StockistLedgerEntry, SaleInvoice, StockistPurchaseInvoice } from '../types/pharmacy';
+import { localDateString } from './date';
 
 // Download pre-formatted Medicine Excel Import Template
 export function downloadMedicineExcelTemplate(): void {
@@ -446,7 +447,7 @@ export function exportInventoryToExcel(medicines: Medicine[], storeName: string)
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Inventory_Stock');
   
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = localDateString();
   XLSX.writeFile(wb, `${storeName.replace(/\s+/g, '_')}_Inventory_${dateStr}.xlsx`);
 }
 
@@ -474,7 +475,7 @@ export function exportAuditLogToExcel(logs: StockAdjustmentLog[], storeName: str
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stock_Audit_Log');
   
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = localDateString();
   XLSX.writeFile(wb, `${storeName.replace(/\s+/g, '_')}_Stock_Audit_Reconciliation_${dateStr}.xlsx`);
 }
 
@@ -498,7 +499,7 @@ export function exportStockistLedgerToExcel(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Stockist_Ledger');
   
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = localDateString();
   XLSX.writeFile(wb, `Ledger_${stockistName.replace(/\s+/g, '_')}_PAN_${panNumber}_${dateStr}.xlsx`);
 }
 
@@ -526,7 +527,7 @@ export function exportSalesBookToExcel(invoices: SaleInvoice[], storeName: strin
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sales_Register');
   
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = localDateString();
   XLSX.writeFile(wb, `${storeName.replace(/\s+/g, '_')}_Sales_VAT_Book_${dateStr}.xlsx`);
 }
 
@@ -539,7 +540,7 @@ export function exportWholesalerAnalyticsToExcel(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Wholesaler_Item_Analytics');
   
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = localDateString();
   XLSX.writeFile(wb, `${storeName.replace(/\s+/g, '_')}_Wholesaler_Item_Sales_Analysis_${dateStr}.xlsx`);
 }
 
