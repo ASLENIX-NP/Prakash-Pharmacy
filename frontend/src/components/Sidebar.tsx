@@ -1,12 +1,13 @@
 ﻿import React, { useState } from 'react';
 import {
+  ChevronDown,
   ChevronRight,
   LogOut,
   X
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
-import prakashLogo from '../assets/prakash-logo.png';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 
 export type ActiveTab =
   | 'dashboard'
@@ -137,7 +138,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const visibleItems = menuItems.filter(
-    (item) => !item.adminOnly || isAdmin
+    (item) =>
+      item.id !== 'users' &&
+      item.id !== 'settings' &&
+      (!item.adminOnly || isAdmin)
   );
 
   const handleNavigation = (tab: ActiveTab) => {
@@ -149,8 +153,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showProfileActions, setShowProfileActions] = useState(false);
 
   const handleLogout = () => {
+    setShowProfileActions(false);
     setShowLogoutConfirm(true);
   };
 
@@ -179,8 +185,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="flex min-w-0 items-center gap-3 text-left"
         >
           <img
-            src={prakashLogo}
-            alt="Prakash Pharmacy logo"
+            src={settings.storeLogo || prakashLogo}
+            alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
             className="h-11 w-11 shrink-0 rounded-2xl object-contain bg-white p-1 shadow-[0_8px_20px_rgba(16,185,129,0.12)]"
           />
 
@@ -275,20 +281,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* FIXED BOTTOM */}
       <div className="shrink-0 border-t border-slate-200 bg-white p-3">
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>Sign Out</span>
-        </button>
-
         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
-          <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            aria-expanded={showProfileActions}
+            onClick={() => setShowProfileActions((expanded) => !expanded)}
+            className="flex w-full items-center gap-2.5 text-left"
+          >
             <div
               className={`
-                flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-black text-white shadow-sm
+                flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white shadow-sm
                 ${
                   isAdmin
                     ? 'bg-gradient-to-br from-violet-600 to-purple-700'
@@ -321,7 +323,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isAdmin ? 'Admin' : 'Staff'}
               </span>
             </div>
-          </div>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${showProfileActions ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
+
+          {showProfileActions && (
+            <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigation('users')}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                      activeTab === 'users'
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    }`}
+                  >
+                    Staff &amp; Password Control
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigation('settings')}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                      activeTab === 'settings'
+                        ? 'bg-fuchsia-50 text-fuchsia-700'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    }`}
+                  >
+                    Settings &amp; Racks
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -354,22 +399,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ======================================================= */}
       {showLogoutConfirm && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/45 p-2 sm:px-4 backdrop-blur-[2px] overflow-y-auto"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               cancelLogout();
             }
           }}
         >
-          <div className="w-full max-w-[400px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
+          <div className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-[400px] overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
 
             {/* TOP */}
             <div className="px-7 pb-5 pt-7 text-center">
 
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
                 <img
-                  src={prakashLogo}
-                  alt="Prakash Pharmacy"
+                  src={settings.storeLogo || prakashLogo}
+                  alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
                   className="h-full w-full object-contain"
                 />
               </div>

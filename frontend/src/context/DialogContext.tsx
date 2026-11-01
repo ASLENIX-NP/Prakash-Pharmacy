@@ -140,9 +140,9 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       {/* Styled Modern Alert Modal */}
       {alertState && alertState.isOpen && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden transform transition-all scale-100 animate-in zoom-in-95 duration-150">
-            <div className="p-6">
+        <div className="fixed inset-0 z-[99999] flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
+          <div className="my-auto flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-3xl bg-white shadow-2xl border border-slate-100 overflow-hidden transform transition-all scale-100 animate-in zoom-in-95 duration-150">
+            <div className="min-h-0 overflow-y-auto p-6">
               <div className="flex items-start gap-4">
                 <div className={`p-3 rounded-2xl shrink-0 ${
                   alertState.type === 'error'
@@ -168,7 +168,7 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 </div>
               </div>
             </div>
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-end">
+            <div className="shrink-0 bg-slate-50 px-6 py-4 border-t border-slate-100 flex justify-end">
               <button
                 type="button"
                 autoFocus
@@ -184,9 +184,9 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       {/* Styled Modern Confirm Modal */}
       {confirmState && confirmState.isOpen && (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden transform transition-all scale-100 animate-in zoom-in-95 duration-150">
-            <div className="p-6">
+        <div className="fixed inset-0 z-[99999] flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-950/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150">
+          <div className="my-auto flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-3xl bg-white shadow-2xl border border-slate-100 overflow-hidden transform transition-all scale-100 animate-in zoom-in-95 duration-150">
+            <div className="min-h-0 overflow-y-auto p-6">
               <div className="flex items-start gap-4">
                 <div className={`p-3 rounded-2xl shrink-0 ${
                   confirmState.options.type === 'danger'
@@ -213,7 +213,7 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 </div>
               </div>
             </div>
-            <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+            <div className="shrink-0 bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
               <button
                 type="button"
                 onClick={() => confirmState.resolve(false)}

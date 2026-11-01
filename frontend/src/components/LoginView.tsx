@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState } from 'react';
-import prakashLogo from '../assets/prakash-logo.png';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 import {
   AlertCircle,
   ArrowRight,
@@ -91,7 +91,7 @@ export const LoginView: React.FC = () => {
   }
 
   return (
-    <main className="relative min-h-[100svh] overflow-hidden bg-[#f3fbfc] font-sans text-slate-900">
+    <main className="relative h-full min-h-0 overflow-x-hidden overflow-y-auto bg-[#f3fbfc] font-sans text-slate-900">
       {/* ============================================================
           BACKGROUND
       ============================================================ */}
@@ -189,7 +189,7 @@ export const LoginView: React.FC = () => {
           PAGE CONTENT
       ============================================================ */}
 
-      <section className="relative z-10 flex min-h-[100svh] flex-col items-center justify-center px-4 py-5 sm:px-6">
+      <section className="relative z-10 flex min-h-full flex-col items-center justify-center px-4 py-5 sm:px-6">
         {/* ============================================================
             LOGIN CARD
         ============================================================ */}
@@ -198,13 +198,11 @@ export const LoginView: React.FC = () => {
           {/* Brand */}
           <header className="text-center">
             {/* Logo */}
-            <div className="mx-auto flex h-[76px] w-[76px] items-center justify-center rounded-[22px] bg-gradient-to-br from-teal-400 via-teal-500 to-emerald-600 text-white shadow-[0_14px_30px_rgba(16,185,129,0.28)]">
-              <img
-                  src={prakashLogo}
-                  alt="Prakash Pharmacy"
-                  className="h-full w-full object-contain p-2"
-                />
-            </div>
+            <img
+              src={settings.storeLogo || prakashLogo}
+              alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
+              className="mx-auto h-[100px] w-[142px] object-contain"
+            />
 
             {/* Pharmacy name */}
             <h1 className="mt-5 text-[30px] font-black leading-tight tracking-[-0.025em] text-slate-900 sm:text-[34px]">

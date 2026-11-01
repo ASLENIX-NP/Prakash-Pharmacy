@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../services/api';
 import {
   Medicine,
@@ -487,6 +487,7 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
   );
 
   const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
+  const settingsUpdateVersion = useRef(0);
 
   // Modal states
   const [activeVatInfoMedicine, setActiveVatInfoMedicine] = useState<Medicine | null>(null);
@@ -542,6 +543,7 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
     }
 
     let cancelled = false;
+    const settingsVersionAtLoadStart = settingsUpdateVersion.current;
 
     const loadBackendData = async () => {
       setInventoryBackendStatus('loading');
@@ -874,7 +876,11 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
       // ------------------------------------------------------
       try {
         const settingsRes = await apiRequest<{ data: PharmacySettings }>('/settings');
-        if (!cancelled && settingsRes?.data) {
+        if (
+          !cancelled &&
+          settingsVersionAtLoadStart === settingsUpdateVersion.current &&
+          settingsRes?.data
+        ) {
           setSettings(settingsRes.data);
         }
       } catch (error) {
@@ -2768,7 +2774,7 @@ const response =
   };
 
   const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
-    setSettings(prev => ({ ...prev, ...updates }));
+    settingsUpdateVersion.current += 1;
 
     try {
       const res = await apiRequest<{ success: boolean; data: PharmacySettings }>('/settings', {
@@ -2776,9 +2782,11 @@ const response =
         body: JSON.stringify(updates),
       });
 
-      if (res?.data) {
-        setSettings(res.data);
+      if (!res?.data) {
+        throw new Error('The server did not return updated settings.');
       }
+
+      setSettings(res.data);
     } catch (error) {
       console.error('Failed to sync settings with server:', error);
       throw error;

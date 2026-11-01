@@ -151,9 +151,9 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150 overflow-y-auto">
       <div 
-        className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+        className="bg-white w-full max-w-xl max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -204,7 +204,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
 
         {/* Mode Selector Tabs */}
         <div className="px-6 pt-4">
-          <div className="grid grid-cols-3 gap-2 bg-slate-100 p-1.5 rounded-xl text-xs font-semibold">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-100 p-1.5 rounded-xl text-xs font-semibold">
             <button
               type="button"
               onClick={() => setMode('reconcile')}
@@ -253,7 +253,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                 <span>Enter Physical Stock Counted on Shelf:</span>
                 <span className="text-teal-700 font-normal">Pack size: {medicine.unitsPerPack} units</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">
                     Full Counted Packs:
@@ -296,7 +296,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                 </span>
                 <span className="text-slate-500 text-[11px] font-normal">Pack size: {medicine.unitsPerPack} units</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-medium text-slate-700 mb-1">
                     {mode === 'add' ? '+ Full Packs' : '- Full Packs'}:
@@ -367,7 +367,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
           </div>
 
           {/* Audit Reason & Log Details */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Audit / Adjustment Reason:

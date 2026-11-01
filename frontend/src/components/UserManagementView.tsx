@@ -673,10 +673,10 @@ export const UserManagementView: React.FC = () => {
 
       {/* Admin Change Staff Password Modal */}
       {passwordResetUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in overflow-y-auto">
           <form 
             onSubmit={handleSavePasswordReset}
-            className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+            className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto"
           >
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -778,8 +778,8 @@ export const UserManagementView: React.FC = () => {
 
       {/* Add / Edit User Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in overflow-y-auto">
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in overflow-y-auto">
+          <div className="bg-white w-full max-w-lg max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-base">
                 {editingUser ? 'Edit Staff User Profile' : 'Add New Pharmacy Staff'}
@@ -807,7 +807,7 @@ export const UserManagementView: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
                     User ID / Username: *
@@ -965,10 +965,10 @@ export const UserManagementView: React.FC = () => {
 
       {/* Switch User PIN Modal */}
       {switchPinInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
           <form 
             onSubmit={handleVerifySwitchPin}
-            className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4"
+            className="bg-white w-full max-w-sm max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4 overflow-y-auto my-auto"
           >
             <div className="text-center space-y-1">
               <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 mx-auto flex items-center justify-center">

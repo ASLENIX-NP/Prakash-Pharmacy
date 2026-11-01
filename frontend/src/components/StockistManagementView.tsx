@@ -1945,8 +1945,8 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
 
       {/* Add Stockist Modal */}
       {showAddStockistModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Register New Wholesaler / Stockist</h4>
               <button onClick={() => setShowAddStockistModal(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -1963,7 +1963,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   className="w-full border border-slate-300 rounded-lg p-2 font-semibold text-slate-900"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">PAN Number: *</label>
                   <input
@@ -2022,7 +2022,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   className="w-full border border-slate-300 rounded-lg p-2"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Contact Person:</label>
                   <input
@@ -2111,8 +2111,8 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
 
       {/* Record Payment Modal */}
       {showPaymentModal && currentSelectedStockist && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <form onSubmit={handleRecordPayment} className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+          <form onSubmit={handleRecordPayment} className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Record Payment to {currentSelectedStockist.name}</h4>
               <button type="button" onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white">✕</button>
@@ -2195,8 +2195,8 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
 
       {/* Upgraded Itemized Purchase Invoice / Bill Details Modal */}
       {viewingPurchaseBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-6">
-          <div className="bg-white w-full max-w-5xl max-h-[92vh] rounded-3xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-6 overflow-y-auto">
+          <div className="bg-white w-full max-w-5xl max-h-[calc(100dvh-1rem)] rounded-3xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-slate-950 via-teal-950 to-slate-950 text-white px-6 py-4.5 flex flex-wrap justify-between items-center gap-4 shrink-0 border-b border-teal-900/40">
               <div className="flex items-center gap-3.5">
@@ -2295,7 +2295,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
             </div>
 
             {/* Modal Body: Scrollable Line Items */}
-            <div className="p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
+            <div className="min-h-0 p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
               {/* Summary Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
