@@ -20,7 +20,6 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
-import { salesDemoInvoices } from '../data/salesDemoData';
 import { SalesReturnModal } from './SalesReturnModal';
 import { localDateString } from '../utils/date';
 
@@ -29,8 +28,6 @@ export const SalesHistoryView: React.FC = () => {
   const {
     salesInvoices,
     customerSalesReturns,
-    isSalesDemoDataActive,
-    clearSalesDemoData,
     setActiveInvoiceToPrint,
     settings,
   } = usePharmacy();
@@ -41,12 +38,7 @@ export const SalesHistoryView: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<SaleInvoice | null>(null);
   const [returningInvoice, setReturningInvoice] = useState<SaleInvoice | null>(null);
 
-  const registerInvoices = useMemo(
-    () => isSalesDemoDataActive
-      ? [...salesInvoices, ...salesDemoInvoices]
-      : salesInvoices,
-    [isSalesDemoDataActive, salesInvoices]
-  );
+  const registerInvoices = salesInvoices;
 
   // Filter sales invoices
   const filteredSales = useMemo(() => {
@@ -173,26 +165,6 @@ export const SalesHistoryView: React.FC = () => {
 
   return (
     <div className="space-y-5 pb-3">
-      {isSalesDemoDataActive && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 shadow-sm"
-        >
-          <div>
-            <strong className="font-extrabold">Demo sales are active.</strong>
-            <span className="ml-1 text-amber-800">
-              Sample invoices are only visible in this register and cannot be printed as statutory bills.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={clearSalesDemoData}
-            className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 transition hover:bg-amber-100"
-          >
-            Remove demo data
-          </button>
-        </div>
-      )}
 
       {/* View Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">

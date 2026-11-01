@@ -18,7 +18,6 @@ import {
   stockistDemoData,
   STOCKIST_DEMO_STATUS_KEY,
 } from '../data/stockistDemoData';
-import { SALES_DEMO_STATUS_KEY } from '../data/salesDemoData';
 
 interface PharmacyContextType {
   // Authentication & Credentials
@@ -132,8 +131,6 @@ interface PharmacyContextType {
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
   customerSalesReturns: CustomerSalesReturn[];
-  isSalesDemoDataActive: boolean;
-  clearSalesDemoData: () => void;
 
   completeSale: (
     sale: Omit<
@@ -304,17 +301,6 @@ function initializeStockistDemoData(): Stockist[] {
   return savedStockists;
 }
 
-function initializeSalesDemoStatus(): boolean {
-  const savedSales = readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES);
-  const demoStatus = localStorage.getItem(SALES_DEMO_STATUS_KEY);
-
-  if (savedSales.length === 0 && demoStatus !== 'active' && demoStatus !== 'dismissed') {
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'active');
-    return true;
-  }
-
-  return demoStatus === 'active' && savedSales.length === 0;
-}
 
 function readStoredSettings(): PharmacySettings {
   try {
@@ -483,9 +469,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       []
     );
 
-const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
-    initializeSalesDemoStatus
-  );
 
   const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
 
@@ -650,8 +633,6 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
 
         if (!cancelled && res.data && res.data.length > 0) {
           setSalesInvoices(res.data);
-          localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-          setIsSalesDemoDataActive(false);
         }
       } catch (error) {
         console.error(
@@ -2719,15 +2700,6 @@ const response =
         pendingRequestIdKey
       );
 
-      localStorage.setItem(
-        SALES_DEMO_STATUS_KEY,
-        'dismissed'
-      );
-
-      setIsSalesDemoDataActive(
-        false
-      );
-
 
       setSalesInvoices(
         previous => [
@@ -2897,11 +2869,6 @@ const response =
     };
   };
 
-  const clearSalesDemoData = () => {
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-    setIsSalesDemoDataActive(false);
-  };
-
   const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
     try {
       const res = await apiRequest<{ success: boolean; data: PharmacySettings }>('/settings', {
@@ -2948,8 +2915,6 @@ const response =
     localStorage.removeItem(STORAGE_KEYS.RACKS);
     localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
     setIsStockistDemoDataActive(false);
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-    setIsSalesDemoDataActive(false);
   };
 
   return (
@@ -3006,8 +2971,6 @@ const response =
 
         salesInvoices,
         customerSalesReturns,
-        isSalesDemoDataActive,
-        clearSalesDemoData,
         completeSale,
         returnSaleItems,
         refreshLiveBills,
