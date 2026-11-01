@@ -12,8 +12,30 @@ async function ensureInitialAdminAndSettings(): Promise<void> {
     });
 
     if (adminCount === 0) {
-      const username = process.env.SEED_ADMIN_USERNAME?.trim() || "admin";
-      const rawPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || "Admin@12345";
+      const username = process.env.SEED_ADMIN_USERNAME?.trim();
+      const rawPassword = process.env.SEED_ADMIN_PASSWORD?.trim();
+
+      if (!username || !rawPassword) {
+        console.error("❌ [BOOTSTRAP] No administrator account exists.");
+        console.error(
+          "   Set SEED_ADMIN_USERNAME and SEED_ADMIN_PASSWORD before starting the backend."
+        );
+        process.exit(1);
+      }
+
+      const hasStrongPassword =
+        rawPassword.length >= 12 &&
+        /[a-z]/.test(rawPassword) &&
+        /[A-Z]/.test(rawPassword) &&
+        /\d/.test(rawPassword) &&
+        /[^A-Za-z0-9]/.test(rawPassword);
+
+      if (!hasStrongPassword) {
+        console.error(
+          "❌ [BOOTSTRAP] SEED_ADMIN_PASSWORD must be at least 12 characters and contain uppercase, lowercase, number, and special character."
+        );
+        process.exit(1);
+      }
       const firstName = process.env.SEED_ADMIN_FIRST_NAME?.trim() || "Prakash";
       const lastName = process.env.SEED_ADMIN_LAST_NAME?.trim() || "Dulal";
       const email = process.env.SEED_ADMIN_EMAIL?.trim() || null;
@@ -37,7 +59,7 @@ async function ensureInitialAdminAndSettings(): Promise<void> {
 
       console.log(`👑 [BOOTSTRAP] Created initial administrator account:`);
       console.log(`   - Username: ${user.username}`);
-      console.log(`   - Password: ${rawPassword}`);
+
     }
 
     const settingsCount = await prisma.pharmacySetting.count();
