@@ -115,12 +115,22 @@ export const SalesHistoryView: React.FC = () => {
 
   // Aggregate stats for sales invoices
   const salesStats = useMemo(() => {
-    const totalRevenue = filteredSales.reduce((acc, s) => acc + s.grandTotal, 0);
+    const totalGross = filteredSales.reduce((acc, s) => acc + s.grandTotal, 0);
     const totalVat = filteredSales.reduce((acc, s) => acc + s.vatAmount, 0);
     const totalExempt = filteredSales.reduce((acc, s) => acc + s.vatExemptSubtotal, 0);
     const totalTaxable = filteredSales.reduce((acc, s) => acc + s.taxableBaseSubtotal, 0);
-    return { totalRevenue, totalVat, totalExempt, totalTaxable };
-  }, [filteredSales]);
+    const totalRefunded = filteredReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
+    const netRealized = Math.max(0, totalGross - totalRefunded);
+    return { 
+      totalRevenue: totalGross, 
+      totalGross, 
+      totalVat, 
+      totalExempt, 
+      totalTaxable, 
+      totalRefunded, 
+      netRealized 
+    };
+  }, [filteredSales, filteredReturns]);
 
   // Aggregate stats for returns
   const returnStats = useMemo(() => {
@@ -224,90 +234,107 @@ export const SalesHistoryView: React.FC = () => {
 
       {/* Aggregate Stats Cards */}
       {activeTab === 'sales' ? (
-        <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              label: 'Total Revenue',
-              value: salesStats.totalRevenue,
-              detail: `${filteredSales.length} bills completed`,
-              accent: 'teal',
-              icon: <Banknote className="h-4 w-4" />
-            },
-            {
-              label: 'VAT-Free Sales',
-              value: salesStats.totalExempt,
-              detail: '0% VAT therapeutic drugs',
-              accent: 'emerald',
-              icon: <CheckCircle2 className="h-4 w-4" />
-            },
-            {
-              label: 'Taxable Base',
-              value: salesStats.totalTaxable,
-              detail: 'Subject to 13% VAT',
-              accent: 'blue',
-              icon: <Filter className="h-4 w-4" />
-            },
-            {
-              label: '13% VAT Collected',
-              value: salesStats.totalVat,
-              detail: 'Payable to IRD Nepal',
-              accent: 'indigo',
-              icon: <QrCode className="h-4 w-4" />
-            }
-          ].map((card) => (
-            <div
-              key={card.label}
-              className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                card.accent === 'teal'
-                  ? 'border-teal-100 bg-teal-50/80'
-                  : card.accent === 'emerald'
-                    ? 'border-emerald-100 bg-emerald-50/80'
-                    : card.accent === 'blue'
-                      ? 'border-blue-100 bg-blue-50/80'
-                      : 'border-indigo-100 bg-indigo-50/80'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+        <div className="space-y-3">
+          <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Gross Billed Sales',
+                value: salesStats.totalRevenue,
+                detail: salesStats.totalRefunded > 0
+                  ? `Net: Rs. ${salesStats.netRealized.toFixed(2)} (-Rs. ${salesStats.totalRefunded.toFixed(2)} refunds)`
+                  : `${filteredSales.length} bills completed`,
+                accent: 'teal',
+                icon: <Banknote className="h-4 w-4" />
+              },
+              {
+                label: 'VAT-Free Sales',
+                value: salesStats.totalExempt,
+                detail: '0% VAT therapeutic drugs',
+                accent: 'emerald',
+                icon: <CheckCircle2 className="h-4 w-4" />
+              },
+              {
+                label: 'Taxable Base',
+                value: salesStats.totalTaxable,
+                detail: 'Subject to 13% VAT',
+                accent: 'blue',
+                icon: <Filter className="h-4 w-4" />
+              },
+              {
+                label: '13% VAT Collected',
+                value: salesStats.totalVat,
+                detail: 'Payable to IRD Nepal',
+                accent: 'indigo',
+                icon: <QrCode className="h-4 w-4" />
+              }
+            ].map((card) => (
+              <div
+                key={card.label}
+                className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                   card.accent === 'teal'
-                    ? 'bg-white text-teal-700 ring-teal-100'
+                    ? 'border-teal-100 bg-teal-50/80'
                     : card.accent === 'emerald'
-                      ? 'bg-white text-emerald-700 ring-emerald-100'
+                      ? 'border-emerald-100 bg-emerald-50/80'
                       : card.accent === 'blue'
-                        ? 'bg-white text-blue-700 ring-blue-100'
-                        : 'bg-white text-indigo-700 ring-indigo-100'
-                }`}>
-                  {card.icon}
-                </span>
-                <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  card.accent === 'teal'
-                    ? 'text-teal-700'
-                    : card.accent === 'emerald'
-                      ? 'text-emerald-700'
-                      : card.accent === 'blue'
-                        ? 'text-blue-700'
-                        : 'text-indigo-700'
-                }`}>
-                  Summary
-                </span>
-              </div>
-              <div className="mt-5">
-                <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
-                <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
-                  card.accent === 'teal'
-                    ? 'text-teal-800'
-                    : card.accent === 'emerald'
-                      ? 'text-emerald-800'
-                      : card.accent === 'blue'
-                        ? 'text-blue-800'
-                        : 'text-indigo-800'
-                }`}>
-                  Rs. {card.value.toFixed(2)}
+                        ? 'border-blue-100 bg-blue-50/80'
+                        : 'border-indigo-100 bg-indigo-50/80'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+                    card.accent === 'teal'
+                      ? 'bg-white text-teal-700 ring-teal-100'
+                      : card.accent === 'emerald'
+                        ? 'bg-white text-emerald-700 ring-emerald-100'
+                        : card.accent === 'blue'
+                          ? 'bg-white text-blue-700 ring-blue-100'
+                          : 'bg-white text-indigo-700 ring-indigo-100'
+                  }`}>
+                    {card.icon}
+                  </span>
+                  <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                    card.accent === 'teal'
+                      ? 'text-teal-700'
+                      : card.accent === 'emerald'
+                        ? 'text-emerald-700'
+                        : card.accent === 'blue'
+                          ? 'text-blue-700'
+                          : 'text-indigo-700'
+                  }`}>
+                    Summary
+                  </span>
                 </div>
-                <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+                <div className="mt-5">
+                  <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
+                  <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
+                    card.accent === 'teal'
+                      ? 'text-teal-800'
+                      : card.accent === 'emerald'
+                        ? 'text-emerald-800'
+                        : card.accent === 'blue'
+                          ? 'text-blue-800'
+                          : 'text-indigo-800'
+                  }`}>
+                    Rs. {card.value.toFixed(2)}
+                  </div>
+                  <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+                </div>
               </div>
+            ))}
+          </div>
+
+          {salesStats.totalRefunded > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50/80 px-4 py-2.5 text-xs text-teal-900 shadow-sm">
+              <span className="font-medium">
+                Gross Billed: <strong className="font-mono">Rs. {salesStats.totalGross.toFixed(2)}</strong> ({filteredSales.length} bills)
+                {'  '}•{'  '}
+                Customer Returns: <strong className="font-mono text-rose-700">- Rs. {salesStats.totalRefunded.toFixed(2)}</strong> ({filteredReturns.length} returns)
+              </span>
+              <span className="font-bold">
+                Net Realized Sales: <strong className="font-mono text-sm text-teal-950">Rs. {salesStats.netRealized.toFixed(2)}</strong>
+              </span>
             </div>
-          ))}
+          )}
         </div>
       ) : (
         <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">

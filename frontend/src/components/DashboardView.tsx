@@ -17,6 +17,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
   const { 
     medicines, 
     salesInvoices, 
+    customerSalesReturns,
     stockists, 
     settings, 
     setActiveAuditMedicine, 
@@ -25,13 +26,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
   const todayStr = localDateString();
 
-  // Daily Sales KPI
+  // Daily Sales & Returns KPI
   const todaySales = useMemo(() => {
     return salesInvoices.filter(s => s.date === todayStr);
   }, [salesInvoices, todayStr]);
 
-  const todayRevenue = todaySales.reduce((acc, s) => acc + s.grandTotal, 0);
-  const avgBillValue = todaySales.length > 0 ? todayRevenue / todaySales.length : 0;
+  const todayReturns = useMemo(() => {
+    return (customerSalesReturns || []).filter(r => {
+      const returnDateStr = r.returnDate ? (r.returnDate.includes('T') ? r.returnDate.split('T')[0] : r.returnDate) : '';
+      return returnDateStr === todayStr;
+    });
+  }, [customerSalesReturns, todayStr]);
+
+  const todayGrossRevenue = todaySales.reduce((acc, s) => acc + s.grandTotal, 0);
+  const todayRefunds = todayReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
+  const todayNetRevenue = Math.max(0, todayGrossRevenue - todayRefunds);
+  const avgBillValue = todaySales.length > 0 ? todayGrossRevenue / todaySales.length : 0;
 
   // Inventory Overview KPIs
   const totalPacks = medicines.reduce((acc, m) => acc + m.stockPacks, 0);
@@ -91,31 +101,51 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         {/* Today's Revenue */}
         <div className="premium-kpi-card premium-kpi-revenue rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
-            <p className="text-[12px] font-bold text-slate-600">
-              Today's Counter Revenue
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-bold text-slate-600">
+                Today's Counter Revenue
+              </p>
+              {todayRefunds > 0 && (
+                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-200">
+                  Net after returns
+                </span>
+              )}
+            </div>
 
-            <p className="mt-4 font-mono text-[28px] font-black leading-none tracking-tight text-slate-950">
-              Rs. {todayRevenue.toFixed(2)}
+            <p className="mt-3 font-mono text-[28px] font-black leading-none tracking-tight text-slate-950">
+              Rs. {todayNetRevenue.toFixed(2)}
             </p>
           </div>
 
-          <div className="mt-5 border-t border-slate-200 pt-3">
-            <div className="flex items-center justify-between gap-4 text-[11px]">
-              <span className="text-slate-500">
-                Bills
-                <strong className="ml-1.5 font-bold text-slate-800">
-                  {todaySales.length}
-                </strong>
-              </span>
+          <div className="mt-4 border-t border-slate-200 pt-3">
+            {todayRefunds > 0 ? (
+              <div className="space-y-1 text-[11px]">
+                <div className="flex items-center justify-between text-slate-500">
+                  <span>Gross Sales ({todaySales.length} bills):</span>
+                  <span className="font-mono font-semibold text-slate-800">Rs. {todayGrossRevenue.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between font-medium text-rose-600">
+                  <span>Customer Refunds ({todayReturns.length}):</span>
+                  <span className="font-mono font-bold">- Rs. {todayRefunds.toFixed(2)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-4 text-[11px]">
+                <span className="text-slate-500">
+                  Bills
+                  <strong className="ml-1.5 font-bold text-slate-800">
+                    {todaySales.length}
+                  </strong>
+                </span>
 
-              <span className="text-right text-slate-500">
-                Avg Bill
-                <strong className="ml-1.5 font-bold text-slate-800">
-                  Rs. {avgBillValue.toFixed(0)}
-                </strong>
-              </span>
-            </div>
+                <span className="text-right text-slate-500">
+                  Avg Bill
+                  <strong className="ml-1.5 font-bold text-slate-800">
+                    Rs. {avgBillValue.toFixed(0)}
+                  </strong>
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

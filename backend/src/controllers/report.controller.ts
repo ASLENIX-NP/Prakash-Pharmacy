@@ -10,13 +10,69 @@ const roundMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
 export async function getVatReportSummary(
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> {
   try {
+    // ── Date-range filter ──────────────────────────────────────────────────
+    // Accept ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD (ISO date strings).
+    // If omitted the query covers ALL time (backward-compatible).
+    const { startDate, endDate } = req.query as {
+      startDate?: string;
+      endDate?: string;
+    };
+
+    const parseDate = (raw: string | undefined): Date | undefined => {
+      if (!raw) return undefined;
+      const d = new Date(raw);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+
+    const start = parseDate(startDate);
+    // Set end to end-of-day so a single-day query includes the whole day.
+    const end = (() => {
+      const d = parseDate(endDate);
+      if (!d) return undefined;
+      d.setHours(23, 59, 59, 999);
+      return d;
+    })();
+
+    // Prisma `where` fragments — only add date filter when dates are given.
+    const billDateWhere =
+      start || end
+        ? {
+            transactionDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+
+    const purchaseDateWhere =
+      start || end
+        ? {
+            purchaseDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+
+    const returnDateWhere =
+      start || end
+        ? {
+            returnDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+    // ──────────────────────────────────────────────────────────────────────
+
     const [bills, purchases, inventory, salesReturns] =
       await Promise.all([
         prisma.bill.findMany({
+          where: billDateWhere,
           select: {
             subTotal: true,
             discountAmount: true,
@@ -38,6 +94,7 @@ export async function getVatReportSummary(
         }),
 
         prisma.purchaseInvoice.findMany({
+          where: purchaseDateWhere,
           select: {
             subtotal: true,
             discountAmount: true,
@@ -53,6 +110,7 @@ export async function getVatReportSummary(
           },
         }),
 
+        // Inventory valuation is always current stock snapshot — no date filter.
         prisma.inventory.findMany({
           select: {
             packInStock: true,
@@ -64,6 +122,7 @@ export async function getVatReportSummary(
         }),
 
         prisma.salesReturn.findMany({
+          where: returnDateWhere,
           select: {
             refundAmount: true,
             items: {
@@ -313,6 +372,11 @@ export async function getVatReportSummary(
     res.status(200).json({
       success: true,
       data: {
+        // Echoed back so the frontend can show "Showing period: X → Y"
+        period: {
+          startDate: start ? start.toISOString() : null,
+          endDate:   end   ? end.toISOString()   : null,
+        },
         sales: {
           totalGross: roundMoney(
             totalSalesGross

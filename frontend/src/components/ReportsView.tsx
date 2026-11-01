@@ -3,13 +3,19 @@ import {
   Download, 
   BarChart3, 
   ShieldCheck, 
-  Layers
+  Layers,
+  CalendarDays,
+  RefreshCw,
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { exportSalesBookToExcel, exportInventoryToExcel } from '../utils/excelUtils';
 import { apiRequest } from '../services/api';
 
 type VatReportSummary = {
+  period: {
+    startDate: string | null;
+    endDate: string | null;
+  };
   sales: {
     totalGross: number;
     discounts: number;
@@ -44,6 +50,10 @@ type VatReportSummary = {
 };
 
 const EMPTY_VAT_REPORT: VatReportSummary = {
+  period: {
+    startDate: null,
+    endDate: null,
+  },
   sales: {
     totalGross: 0,
     discounts: 0,
@@ -97,6 +107,20 @@ export const ReportsView: React.FC = () => {
     return Object.entries(map).sort((a, b) => b[1].mrpVal - a[1].mrpVal);
   }, [medicines]);
 
+  // ── VAT period filter state ──────────────────────────────────────────────
+  // Default: first day of current month → today (a sensible IRD filing period).
+  const today = new Date();
+  const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+  const defaultEnd   = today.toISOString().split('T')[0];
+
+  const [vatStartDate, setVatStartDate] = useState(defaultStart);
+  const [vatEndDate,   setVatEndDate]   = useState(defaultEnd);
+  // "applied" values — only updated when user clicks Apply so numbers don't
+  // jump on every keystroke.
+  const [appliedStart, setAppliedStart] = useState(defaultStart);
+  const [appliedEnd,   setAppliedEnd]   = useState(defaultEnd);
+  // ─────────────────────────────────────────────────────────────────────────
+
   // VAT / IRD summary is calculated directly from PostgreSQL.
   const [vatReport, setVatReport] =
     useState<VatReportSummary>(
@@ -120,11 +144,16 @@ export const ReportsView: React.FC = () => {
       try {
         setVatReportLoading(true);
 
+        const params = new URLSearchParams();
+        if (appliedStart) params.set('startDate', appliedStart);
+        if (appliedEnd)   params.set('endDate',   appliedEnd);
+        const qs = params.toString() ? `?${params.toString()}` : '';
+
         const response =
           await apiRequest<{
             success: boolean;
             data: VatReportSummary;
-          }>('/reports/vat-summary');
+          }>(`/reports/vat-summary${qs}`);
 
         if (!cancelled) {
           setVatReport(
@@ -160,6 +189,8 @@ export const ReportsView: React.FC = () => {
       cancelled = true;
     };
   }, [
+    appliedStart,
+    appliedEnd,
     salesInvoices,
     purchaseInvoices,
     medicines
@@ -282,13 +313,85 @@ export const ReportsView: React.FC = () => {
         </div>
       </div>
 
+      {/* ── VAT Period Date Filter ── */}
+      <div className="rounded-[20px] border border-teal-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
+          <div className="flex items-center gap-2 text-teal-700">
+            <CalendarDays className="h-4 w-4 shrink-0" />
+            <span className="text-xs font-bold uppercase tracking-widest">VAT Period</span>
+          </div>
+
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                From
+              </label>
+              <input
+                type="date"
+                value={vatStartDate}
+                onChange={e => setVatStartDate(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-400/20"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                To
+              </label>
+              <input
+                type="date"
+                value={vatEndDate}
+                onChange={e => setVatEndDate(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 shadow-sm transition focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-400/20"
+              />
+            </div>
+
+            <button
+              onClick={() => {
+                setAppliedStart(vatStartDate);
+                setAppliedEnd(vatEndDate);
+              }}
+              disabled={vatReportLoading}
+              className="flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-teal-800 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${vatReportLoading ? 'animate-spin' : ''}`} />
+              Apply Period
+            </button>
+
+            <button
+              onClick={() => {
+                const t = new Date();
+                const s = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-01`;
+                const e = t.toISOString().split('T')[0];
+                setVatStartDate(s);
+                setVatEndDate(e);
+                setAppliedStart(s);
+                setAppliedEnd(e);
+              }}
+              className="text-[11px] font-semibold text-teal-600 underline-offset-2 hover:underline"
+            >
+              This month
+            </button>
+          </div>
+
+          {/* Active period badge */}
+          {(appliedStart || appliedEnd) && (
+            <div className="shrink-0 rounded-lg border border-teal-100 bg-teal-50 px-3 py-1.5 text-[11px] font-semibold text-teal-800">
+              {appliedStart && new Date(appliedStart).toLocaleDateString('en-NP', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {' → '}
+              {appliedEnd && new Date(appliedEnd).toLocaleDateString('en-NP', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] shadow-sm">
         <span className="font-semibold text-slate-600">
           {vatReportLoading
             ? 'Refreshing report from PostgreSQL...'
             : vatReportError
               ? `Database report error: ${vatReportError}`
-              : 'Live PostgreSQL report'}
+              : `Live PostgreSQL report — period: ${appliedStart || 'all time'} → ${appliedEnd || 'all time'}`}
         </span>
 
         {!vatReportLoading && !vatReportError && (

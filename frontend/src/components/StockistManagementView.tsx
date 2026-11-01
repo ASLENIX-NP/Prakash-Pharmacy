@@ -223,6 +223,7 @@ export const StockistManagementView: React.FC = () => {
   const [selectedReturnMedId, setSelectedReturnMedId] = useState<string>('');
   const [returnPacks, setReturnPacks] = useState<number>(1);
   const [returnLoose, setReturnLoose] = useState<number>(0);
+  const [returnUnitCost, setReturnUnitCost] = useState<number>(0);
   const [returnReason, setReturnReason] = useState<StockistReturnReason>('Expired Medicine');
   const [returnNotes, setReturnNotes] = useState<string>('');
   const [viewingPurchaseBill, setViewingPurchaseBill] = useState<StockistPurchaseInvoice | null>(null);
@@ -755,9 +756,9 @@ export const StockistManagementView: React.FC = () => {
       return;
     }
 
-    const unitCost = med.costPrice;
-    const looseCost = med.unitsPerPack > 1 ? (med.costPrice / med.unitsPerPack) : med.costPrice;
-    const totalReturnAmount = (returnPacks * unitCost) + (returnLoose * looseCost);
+    const unitCost = Number(returnUnitCost) > 0 ? Number(returnUnitCost) : med.costPrice;
+    const looseCost = med.unitsPerPack > 1 ? (unitCost / med.unitsPerPack) : unitCost;
+    const totalReturnAmount = Math.round(((returnPacks * unitCost) + (returnLoose * looseCost)) * 100) / 100;
 
     setReturnItems([
       ...returnItems,
@@ -778,6 +779,7 @@ export const StockistManagementView: React.FC = () => {
     setSelectedReturnMedId('');
     setReturnPacks(1);
     setReturnLoose(0);
+    setReturnUnitCost(0);
   };
 
   // Submit Stockist Return (Debit Note)
@@ -1844,7 +1846,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
             <span className="text-xs font-bold text-rose-900 block">
               Add Medicine to Return Voucher:
             </span>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 text-xs">
               <div className="md:col-span-2 space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-700">
@@ -1863,8 +1865,13 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                   onChange={(e) => {
                     setSelectedReturnMedId(e.target.value);
                     const chosen = medicines.find(m => m.id === e.target.value);
-                    if (chosen && chosen.stockPacks > 0) {
-                      setReturnPacks(1);
+                    if (chosen) {
+                      setReturnUnitCost(chosen.costPrice || 0);
+                      if (chosen.stockPacks > 0) {
+                        setReturnPacks(1);
+                      }
+                    } else {
+                      setReturnUnitCost(0);
                     }
                   }}
                   className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 font-medium focus:border-rose-600 outline-none"
@@ -1915,6 +1922,21 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
               </div>
 
               <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1" title="Invoice rate for debit note">
+                  Cost/Pk (Rs.):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={returnUnitCost || ''}
+                  onChange={(e) => setReturnUnitCost(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-mono font-bold text-teal-800"
+                />
+              </div>
+
+              <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">Return Reason: *</label>
                 <select
                   value={returnReason}
@@ -1953,6 +1975,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                     <th className="py-2 px-2">Batch</th>
                     <th className="py-2 px-2">Expiry</th>
                     <th className="py-2 px-2">Quantity</th>
+                    <th className="py-2 px-2 text-right">Cost/Pk</th>
                     <th className="py-2 px-2">Reason</th>
                     <th className="py-2 px-3 text-right">Credit Value (Rs.)</th>
                     <th className="py-2 px-2 text-center"></th>
@@ -1965,6 +1988,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                       <td className="py-2 px-2 font-mono">{it.batchNumber}</td>
                       <td className="py-2 px-2 font-mono text-slate-500">{it.expiryDate}</td>
                       <td className="py-2 px-2 font-mono font-bold">{it.packs} packs</td>
+                      <td className="py-2 px-2 font-mono text-right text-slate-700">Rs. {it.unitCost.toFixed(2)}</td>
                       <td className="py-2 px-2 font-medium text-rose-800">{it.reason}</td>
                       <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
                         Rs. {it.totalReturnAmount.toFixed(2)}

@@ -766,7 +766,14 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           },
         });
 
-        const costPerPack = Number(med.costPrice);
+        // Allow user to supply the actual purchase invoice unit cost for the return.
+        // Fall back to the stored medicine cost price if not specified.
+        const inputCost = Number(item?.costPrice ?? item?.unitCost);
+        const costPerPack =
+          Number.isFinite(inputCost) && inputCost > 0
+            ? roundMoney(inputCost)
+            : Number(med.costPrice);
+
         if (!Number.isFinite(costPerPack) || costPerPack < 0) {
           throw new DistributorValidationError(
             `Medicine '${med.medicineBrand}' has an invalid stored cost price.`,
