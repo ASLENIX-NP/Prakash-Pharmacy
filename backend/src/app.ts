@@ -1,4 +1,7 @@
 import express from "express";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -21,7 +24,19 @@ import { requireAuth, requireAdmin } from "./middleware/auth.middleware.js";
 
 const app = express();
 
-app.use(helmet());
+const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+const candidateDistPaths = [
+  path.resolve(process.cwd(), "frontend/dist"),
+  path.resolve(process.cwd(), "../frontend/dist"),
+  path.resolve(currentFileDir, "../../frontend/dist"),
+  path.resolve(currentFileDir, "../../../frontend/dist"),
+];
+
+const resolvedFrontendDist = candidateDistPaths.find((p) => fs.existsSync(p));
+
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow Vite SPA bundled scripts/assets to load cleanly
+}));
 
 const configuredOrigins = [
   process.env.FRONTEND_URL,
@@ -110,7 +125,7 @@ app.use("/api/reports/backup", backupRateLimiter);
 
 // Public health endpoint: intentionally minimal so it cannot disclose
 // database/user/version metadata to unauthenticated callers.
-app.get(["/", "/api/health"], async (_req, res) => {
+app.get("/api/health", async (_req, res) => {
   const dbHealth = await checkDatabaseConnection();
 
   res.status(dbHealth.connected ? 200 : 503).json({
@@ -119,6 +134,18 @@ app.get(["/", "/api/health"], async (_req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+if (!resolvedFrontendDist) {
+  app.get("/", async (_req, res) => {
+    const dbHealth = await checkDatabaseConnection();
+
+    res.status(dbHealth.connected ? 200 : 503).json({
+      success: dbHealth.connected,
+      status: dbHealth.connected ? "ok" : "degraded",
+      timestamp: new Date().toISOString(),
+    });
+  });
+}
 
 // Detailed diagnostics are useful for deployment/QA, but are administrative
 // information and therefore require a current Admin identity.
@@ -167,5 +194,17 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/clinic-patients", clinicPatientRoutes);
 app.use("/api/clinic-visits", clinicVisitRoutes);
+
+// If the frontend build is present, serve it directly (Unified Single-Service Fullstack Mode)
+if (resolvedFrontendDist) {
+  app.use(express.static(resolvedFrontendDist));
+  app.use((req, res, next) => {
+    if (req.method === "GET" && !req.path.startsWith("/api")) {
+      res.sendFile(path.join(resolvedFrontendDist, "index.html"));
+      return;
+    }
+    next();
+  });
+}
 
 export default app;

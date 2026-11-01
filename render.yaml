@@ -3,14 +3,14 @@
 
 services:
   # ---------------------------------------------------------------------------
-  # 1. Backend Web Service (Node.js + Express + Prisma)
+  # Unified Fullstack Web Service (Backend API + Frontend SPA in ONE service)
+  # Both Frontend & Backend run together on a single port, single URL.
   # ---------------------------------------------------------------------------
   - type: web
-    name: prakash-pharmacy-backend
+    name: prakash-pharmacy
     runtime: node
     plan: free
-    rootDir: backend
-    buildCommand: npm install && npx prisma generate && npx prisma migrate deploy && npm run build
+    buildCommand: npm run build:all
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
@@ -22,13 +22,6 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
-      - key: FRONTEND_URL
-        fromService:
-          type: web
-          name: prakash-pharmacy-frontend
-          property: host
-      - key: CORS_ORIGINS
-        sync: false
       - key: SEED_ADMIN_USERNAME
         sync: false
       - key: SEED_ADMIN_PASSWORD
@@ -40,29 +33,9 @@ services:
       - key: SEED_ADMIN_EMAIL
         sync: false
 
-  # ---------------------------------------------------------------------------
-  # 2. Frontend Static Site (React + Vite SPA)
-  # ---------------------------------------------------------------------------
-  - type: static
-    name: prakash-pharmacy-frontend
-    plan: free
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        fromService:
-          type: web
-          name: prakash-pharmacy-backend
-          property: host
-
 databases:
   # ---------------------------------------------------------------------------
-  # 3. PostgreSQL Database
+  # PostgreSQL Database
   # ---------------------------------------------------------------------------
   - name: prakash-pharmacy-db
     plan: free
