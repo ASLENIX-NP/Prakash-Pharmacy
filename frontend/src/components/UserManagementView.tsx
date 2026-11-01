@@ -973,6 +973,7 @@ export const UserManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };
