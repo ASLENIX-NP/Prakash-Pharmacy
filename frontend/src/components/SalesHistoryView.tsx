@@ -21,7 +21,13 @@ import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { SalesReturnModal } from './SalesReturnModal';
-import { localDateString } from '../utils/date';
+import {
+  instantToNepalDateString,
+  localDateString,
+  nepalDateDaysAgo,
+  nepalMonthStartString,
+  NEPAL_TIME_ZONE
+} from '../utils/date';
 
 export const SalesHistoryView: React.FC = () => {
   const { showToast } = useDialog();
@@ -43,14 +49,9 @@ export const SalesHistoryView: React.FC = () => {
   // Filter sales invoices
   const filteredSales = useMemo(() => {
     const todayStr = localDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = localDateString(yesterday);
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const yesterdayStr = nepalDateDaysAgo(1);
+    const sevenDaysAgoStr = nepalDateDaysAgo(7);
+    const firstOfMonthStr = nepalMonthStartString();
 
     return registerInvoices.filter(inv => {
       // Search
@@ -67,8 +68,8 @@ export const SalesHistoryView: React.FC = () => {
       // Date
       if (dateFilter === 'today') return inv.date === todayStr;
       if (dateFilter === 'yesterday') return inv.date === yesterdayStr;
-      if (dateFilter === '7days') return new Date(inv.date) >= sevenDaysAgo;
-      if (dateFilter === 'month') return new Date(inv.date) >= firstOfMonth;
+      if (dateFilter === '7days') return inv.date >= sevenDaysAgoStr && inv.date <= todayStr;
+      if (dateFilter === 'month') return inv.date >= firstOfMonthStr && inv.date <= todayStr;
 
       return true;
     });
@@ -77,18 +78,16 @@ export const SalesHistoryView: React.FC = () => {
   // Filter customer returns
   const filteredReturns = useMemo(() => {
     const todayStr = localDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = localDateString(yesterday);
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const yesterdayStr = nepalDateDaysAgo(1);
+    const sevenDaysAgoStr = nepalDateDaysAgo(7);
+    const firstOfMonthStr = nepalMonthStartString();
 
     return (customerSalesReturns || []).filter(ret => {
       const q = searchQuery.toLowerCase();
-      const returnDateStr = ret.returnDate ? ret.returnDate.split('T')[0] : '';
+      const returnDateStr =
+        ret.returnDate
+          ? instantToNepalDateString(ret.returnDate)
+          : '';
       const invoiceNumber = ret.invoice?.invoiceNumber || ret.invoiceNumber || '';
       const customerName = ret.invoice?.customerName || ret.customerName || '';
 
@@ -106,8 +105,8 @@ export const SalesHistoryView: React.FC = () => {
 
       if (dateFilter === 'today') return returnDateStr === todayStr;
       if (dateFilter === 'yesterday') return returnDateStr === yesterdayStr;
-      if (dateFilter === '7days') return new Date(ret.returnDate) >= sevenDaysAgo;
-      if (dateFilter === 'month') return new Date(ret.returnDate) >= firstOfMonth;
+      if (dateFilter === '7days') return returnDateStr >= sevenDaysAgoStr && returnDateStr <= todayStr;
+      if (dateFilter === 'month') return returnDateStr >= firstOfMonthStr && returnDateStr <= todayStr;
 
       return true;
     });
@@ -668,10 +667,10 @@ export const SalesHistoryView: React.FC = () => {
                 {paginatedReturns.map((ret) => {
                   const dateObj = new Date(ret.returnDate);
                   const dateFormatted = !isNaN(dateObj.getTime())
-                    ? dateObj.toLocaleDateString()
+                    ? dateObj.toLocaleDateString('en-NP', { timeZone: NEPAL_TIME_ZONE })
                     : ret.returnDate;
                   const timeFormatted = !isNaN(dateObj.getTime())
-                    ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    ? dateObj.toLocaleTimeString('en-NP', { timeZone: NEPAL_TIME_ZONE, hour: '2-digit', minute: '2-digit' })
                     : '';
 
                   return (

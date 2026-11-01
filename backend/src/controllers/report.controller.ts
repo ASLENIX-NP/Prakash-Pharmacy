@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
+import {
+  parseNepalDateBoundary,
+} from "../utils/nepal-time.js";
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -22,20 +25,50 @@ export async function getVatReportSummary(
       endDate?: string;
     };
 
-    const parseDate = (raw: string | undefined): Date | undefined => {
-      if (!raw) return undefined;
-      const d = new Date(raw);
-      return Number.isNaN(d.getTime()) ? undefined : d;
-    };
+    const start =
+      startDate
+        ? parseNepalDateBoundary(
+            startDate,
+            false
+          )
+        : null;
 
-    const start = parseDate(startDate);
-    // Set end to end-of-day so a single-day query includes the whole day.
-    const end = (() => {
-      const d = parseDate(endDate);
-      if (!d) return undefined;
-      d.setHours(23, 59, 59, 999);
-      return d;
-    })();
+    if (startDate && !start) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid VAT report start date.",
+      });
+      return;
+    }
+
+    const end =
+      endDate
+        ? parseNepalDateBoundary(
+            endDate,
+            true
+          )
+        : null;
+
+    if (endDate && !end) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid VAT report end date.",
+      });
+      return;
+    }
+
+    if (
+      start &&
+      end &&
+      start.getTime() > end.getTime()
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "VAT report start date cannot be after end date.",
+      });
+      return;
+    }
 
     // Prisma `where` fragments — only add date filter when dates are given.
     const billDateWhere =
@@ -374,8 +407,8 @@ export async function getVatReportSummary(
       data: {
         // Echoed back so the frontend can show "Showing period: X → Y"
         period: {
-          startDate: start ? start.toISOString() : null,
-          endDate:   end   ? end.toISOString()   : null,
+          startDate: startDate || null,
+          endDate: endDate || null,
         },
         sales: {
           totalGross: roundMoney(

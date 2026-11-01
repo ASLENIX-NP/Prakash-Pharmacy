@@ -10,6 +10,11 @@ import {
 import { usePharmacy } from '../context/PharmacyContext';
 import { exportSalesBookToExcel, exportInventoryToExcel } from '../utils/excelUtils';
 import { apiRequest } from '../services/api';
+import {
+  formatNepalDateForDisplay,
+  localDateString,
+  nepalMonthStartString
+} from '../utils/date';
 
 type VatReportSummary = {
   period: {
@@ -109,9 +114,8 @@ export const ReportsView: React.FC = () => {
 
   // ── VAT period filter state ──────────────────────────────────────────────
   // Default: first day of current month → today (a sensible IRD filing period).
-  const today = new Date();
-  const defaultStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
-  const defaultEnd   = today.toISOString().split('T')[0];
+  const defaultStart = nepalMonthStartString();
+  const defaultEnd = localDateString();
 
   const [vatStartDate, setVatStartDate] = useState(defaultStart);
   const [vatEndDate,   setVatEndDate]   = useState(defaultEnd);
@@ -360,9 +364,8 @@ export const ReportsView: React.FC = () => {
 
             <button
               onClick={() => {
-                const t = new Date();
-                const s = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-01`;
-                const e = t.toISOString().split('T')[0];
+                const s = nepalMonthStartString();
+                const e = localDateString();
                 setVatStartDate(s);
                 setVatEndDate(e);
                 setAppliedStart(s);
@@ -377,9 +380,9 @@ export const ReportsView: React.FC = () => {
           {/* Active period badge */}
           {(appliedStart || appliedEnd) && (
             <div className="shrink-0 rounded-lg border border-teal-100 bg-teal-50 px-3 py-1.5 text-[11px] font-semibold text-teal-800">
-              {appliedStart && new Date(appliedStart).toLocaleDateString('en-NP', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {appliedStart && formatNepalDateForDisplay(appliedStart)}
               {' → '}
-              {appliedEnd && new Date(appliedEnd).toLocaleDateString('en-NP', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {appliedEnd && formatNepalDateForDisplay(appliedEnd)}
             </div>
           )}
         </div>
