@@ -88,6 +88,7 @@ export const UserManagementView: React.FC = () => {
     users, 
     currentUser, 
     logout,
+    switchShift,
     addUser, 
     updateUser, 
     deleteUser, 
@@ -95,6 +96,7 @@ export const UserManagementView: React.FC = () => {
     changeStaffPassword 
   } = usePharmacy();
 
+  const [switchingUserId, setSwitchingUserId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState<PharmacyUser | null>(null);
   const [shiftTimes, setShiftTimes] = useState(DEFAULT_SHIFT_TIMES);
@@ -381,23 +383,42 @@ export const UserManagementView: React.FC = () => {
     }
   };
 
-  const handleSwitchUser = (targetUser: PharmacyUser) => {
+  const handleSwitchUser = async (targetUser: PharmacyUser) => {
     if (!currentUser || targetUser.id === currentUser.id) return;
     if (!targetUser.isActive) {
       showToast('This staff account is deactivated!', 'warning', 'Account Deactivated');
       return;
     }
 
-    // A local PIN must never change the displayed user while retaining the
-    // previous user's JWT. End the privileged session and require the target
-    // staff member to authenticate normally so UI identity and backend identity
-    // always match.
-    showToast(
-      `Admin session ended. Sign in as ${targetUser.name} with that user's password.`,
-      'info',
-      'Secure User Switch'
-    );
-    logout();
+    const confirmed = await confirmDialog({
+      title: 'Switch Active Shift',
+      message: `Switch active session to "${targetUser.name}" (@${targetUser.username})? You will immediately be logged in as this staff member for POS billing.`,
+      confirmLabel: 'Switch Shift',
+      cancelLabel: 'Cancel',
+      type: 'primary',
+    });
+
+    if (!confirmed) return;
+
+    setSwitchingUserId(targetUser.id);
+    try {
+      const res = await switchShift(targetUser.id);
+      if (res.success) {
+        showToast(
+          `Switched shift to ${targetUser.name} (@${targetUser.username}).`,
+          'success',
+          'Shift Active'
+        );
+      } else {
+        showToast(
+          res.message || 'Failed to switch shift.',
+          'error',
+          'Shift Switch Failed'
+        );
+      }
+    } finally {
+      setSwitchingUserId(null);
+    }
   };
 
   if (!isAdmin) {
@@ -563,10 +584,11 @@ export const UserManagementView: React.FC = () => {
                 <div className="flex gap-2">
                   {!isCurrent && (
                     <button
+                      disabled={switchingUserId === u.id}
                       onClick={() => handleSwitchUser(u)}
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer"
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer disabled:opacity-50"
                     >
-                      Switch Shift
+                      {switchingUserId === u.id ? 'Switching...' : 'Switch Shift'}
                     </button>
                   )}
                   <button

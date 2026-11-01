@@ -5,6 +5,7 @@ import {
   changePassword,
   forgotPassword,
   resetPassword,
+  switchShift,
 } from "../controllers/auth.controller.js";
 import {
   register,
@@ -38,6 +39,7 @@ router.post(
 // ==========================================
 // Admin-Only Staff & User Management Routes
 // ==========================================
+router.post("/switch-shift", requireAuth, requireAdmin, switchShift);
 router.post("/register", requireAuth, requireAdmin, register);
 router.get("/users", requireAuth, requireAdmin, getAllUsers);
 router.get("/users/:id", requireAuth, requireAdmin, getUserById);

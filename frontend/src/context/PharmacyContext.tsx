@@ -25,6 +25,7 @@ interface PharmacyContextType {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
+  switchShift: (userId: string) => Promise<{ success: boolean; message?: string }>;
   isAdmin: boolean;
   changeStaffPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
 
@@ -550,6 +551,30 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
       setStockAdjustmentHistoryBackendError('');
 
       // ------------------------------------------------------
+      // CURRENT USER PROFILE (All authenticated roles)
+      // ------------------------------------------------------
+      try {
+        const meRes = await apiRequest<{ success: boolean; user: any }>('/auth/me');
+        if (!cancelled && meRes?.user) {
+          const liveMe: PharmacyUser = {
+            ...meRes.user,
+            password: '',
+          };
+          setCurrentUserId(liveMe.id);
+          localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, liveMe.id);
+          setUsers(prev => {
+            const exists = prev.some(u => u.id === liveMe.id);
+            if (exists) {
+              return prev.map(u => (u.id === liveMe.id ? { ...u, ...liveMe } : u));
+            }
+            return [...prev, liveMe];
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching current user profile:', error);
+      }
+
+      // ------------------------------------------------------
       // INVENTORY
       // ------------------------------------------------------
       try {
@@ -859,7 +884,11 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
         setStockists([]);
         setStockistLedgers([]);
         setPurchaseInvoices([]);
-        setUsers([]);
+        // For non-admin accounts, do not wipe the current logged-in user!
+        setUsers(prev => {
+          const activeUser = prev.find(u => u.id === currentUserId);
+          return activeUser ? [activeUser] : prev;
+        });
 
         setStockAdjustmentHistoryBackendStatus(
           'idle'
@@ -964,8 +993,68 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
 
   const logout = () => {
     localStorage.removeItem('prakash_auth_token');
-    setIsAuthenticated(false);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
+    setCurrentUserId('');
+    setIsAuthenticated(false);
+  };
+
+  const switchShift = async (
+    userId: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        token: string;
+        user: any;
+        message?: string;
+      }>('/auth/switch-shift', {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!res || !res.token || !res.user) {
+        return {
+          success: false,
+          message: res?.message || 'Failed to switch shift.',
+        };
+      }
+
+      const liveUser: PharmacyUser = {
+        ...res.user,
+        password: '',
+      };
+
+      localStorage.setItem('prakash_auth_token', res.token);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, liveUser.id);
+      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
+
+      setUsers(prev => {
+        const exists = prev.some(user => user.id === liveUser.id);
+        if (exists) {
+          return prev.map(user =>
+            user.id === liveUser.id ? { ...user, ...liveUser } : user
+          );
+        }
+        return [...prev, liveUser];
+      });
+
+      setCurrentUserId(liveUser.id);
+      setIsAuthenticated(true);
+
+      return {
+        success: true,
+        message: res.message || `Switched shift to ${liveUser.name}`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Unable to connect to the pharmacy server',
+      };
+    }
   };
 
   const changeStaffPassword = async (
@@ -2869,6 +2958,7 @@ const response =
         isAuthenticated,
         login,
         logout,
+        switchShift,
         isAdmin,
         changeStaffPassword,
 

@@ -545,3 +545,67 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     });
   }
 }
+
+// ==========================================
+// 5. Switch Shift / Impersonate Staff (Admin Only)
+// ==========================================
+export async function switchShift(req: AuthenticatedRequest, res: Response): Promise<void> {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      res.status(400).json({
+        success: false,
+        message: "Target User ID is required to switch shift.",
+      });
+      return;
+    }
+
+    const cleanId = String(userId).trim();
+
+    const targetUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { id: { equals: cleanId, mode: "insensitive" } },
+          { username: { equals: cleanId, mode: "insensitive" } },
+        ],
+      },
+    });
+
+    if (!targetUser) {
+      res.status(404).json({
+        success: false,
+        message: `Target user '${cleanId}' not found.`,
+      });
+      return;
+    }
+
+    if (targetUser.status && targetUser.status.toLowerCase() !== "active") {
+      res.status(400).json({
+        success: false,
+        message: `Cannot switch to '${targetUser.username}' because the account is deactivated.`,
+      });
+      return;
+    }
+
+    const token = signJwt({
+      id: targetUser.id,
+      username: targetUser.username,
+      role: targetUser.role,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Shift switched to ${targetUser.firstName} ${targetUser.lastName} (@${targetUser.username}).`,
+      token,
+      user: formatUserResponse(targetUser),
+    });
+  } catch (error) {
+    console.error("SwitchShift error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to switch shift.",
+    });
+  }
+}
+
