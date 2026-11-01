@@ -152,8 +152,20 @@ export const PosView: React.FC = () => {
     isLoose = false
   ) => {
     const isExpired =
-      new Date(medicine.expiryDate).getTime() <
-      Date.now();
+      new Date(medicine.expiryDate).getTime() <=
+      new Date().setHours(0, 0, 0, 0);
+
+    const saleStatus = (medicine.saleStatus || medicine.safetyStatus || 'SELLABLE').toUpperCase();
+    const isSafetyBlocked = saleStatus !== 'SELLABLE' || medicine.isRecalled || medicine.isQuarantined;
+
+    if (isSafetyBlocked) {
+      showToast(
+        `Cannot sell ${medicine.name}. Batch ${medicine.batchNumber} is ${saleStatus.toLowerCase()}.`,
+        'error',
+        'Batch Blocked'
+      );
+      return;
+    }
 
     if (isExpired) {
       showToast(
@@ -879,8 +891,11 @@ export const PosView: React.FC = () => {
                 const isExpired =
                   new Date(
                     medicine.expiryDate
-                  ).getTime() <
-                  Date.now();
+                  ).getTime() <=
+                  new Date().setHours(0, 0, 0, 0);
+
+                const saleStatus = (medicine.saleStatus || medicine.safetyStatus || 'SELLABLE').toUpperCase();
+                const isSafetyBlocked = saleStatus !== 'SELLABLE' || medicine.isRecalled || medicine.isQuarantined;
 
                 const isLowStock =
                   medicine.stockPacks <=
@@ -941,11 +956,13 @@ export const PosView: React.FC = () => {
                         {medicine.stockPacks} packs
                         {' + '}
                         {medicine.stockLooseUnits} units
-                        {isExpired
-                          ? ' Â· Expired'
-                          : isLowStock
-                            ? ' Â· Low'
-                            : ''}
+                        {isSafetyBlocked
+                          ? ` · ${saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}`
+                          : isExpired
+                            ? ' · Expired'
+                            : isLowStock
+                              ? ' · Low'
+                              : ''}
                       </p>
 
                       <p className="mt-1 text-[11px] text-slate-400">
@@ -978,7 +995,7 @@ export const PosView: React.FC = () => {
                       {/* ADD FULL PACK */}
                       <button
                         type="button"
-                        disabled={isExpired || medicine.stockPacks <= 0}
+                        disabled={isSafetyBlocked || isExpired || medicine.stockPacks <= 0}
                         onClick={() =>
                           handleAddToCart(
                             medicine,
@@ -1012,7 +1029,7 @@ export const PosView: React.FC = () => {
                           disabled={
                             isExpired ||
                             (
-                              medicine.stockPacks <= 0 &&
+                              (isSafetyBlocked || medicine.stockPacks <= 0) &&
                               medicine.stockLooseUnits <= 0
                             )
                           }

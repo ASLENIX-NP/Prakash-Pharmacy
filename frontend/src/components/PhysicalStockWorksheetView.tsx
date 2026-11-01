@@ -76,6 +76,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
   const [verifiedIds, setVerifiedIds] = useState<Set<string>>(() => new Set());
   const [pendingSubmissionIds, setPendingSubmissionIds] = useState<Set<string> | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
   const [submitMessage, setSubmitMessage] = useState('');
 
@@ -134,12 +135,20 @@ export const PhysicalStockWorksheetView: React.FC = () => {
         medicine.stockPacks * medicine.unitsPerPack + medicine.stockLooseUnits &&
       !count.reason
   ).length;
+
+  const modifiedEntries = entries.filter(({ medicine, count }) => {
+    const systemUnits = medicine.stockPacks * medicine.unitsPerPack + medicine.stockLooseUnits;
+    return getUnits(medicine, count) !== systemUnits;
+  });
+
   const canSubmit =
-    medicines.length > 0 &&
-    verifiedCount === medicines.length &&
-    pendingReasons === 0 &&
     inventoryBackendStatus === 'connected' &&
-    !isSubmitting;
+    !isSubmitting &&
+    pendingReasons === 0 &&
+    (
+      (medicines.length > 0 && verifiedCount === medicines.length) ||
+      (modifiedEntries.length > 0 && modifiedEntries.every(({ medicine, count }) => verifiedIds.has(medicine.id) && Boolean(count.reason)))
+    );
 
   const updateCount = (
     medicine: Medicine,
@@ -181,6 +190,47 @@ export const PhysicalStockWorksheetView: React.FC = () => {
     setVerifiedIds(previous => new Set(previous).add(medicine.id));
   };
 
+  const handleSaveSingleMedicine = async (medicine: Medicine, count: WorksheetEntry) => {
+    const variance =
+      getUnits(medicine, count) -
+      (medicine.stockPacks * medicine.unitsPerPack + medicine.stockLooseUnits);
+
+    if (variance !== 0 && !count.reason) {
+      setSubmitError(`Please select an audit reason for "${medicine.name}" before saving.`);
+      return;
+    }
+
+    try {
+      setSavingRowId(medicine.id);
+      setSubmitError('');
+      setSubmitMessage('');
+
+      await submitStockAdjustment({
+        medicineId: medicine.id,
+        type: 'reconcile',
+        countedPacks: count.packs,
+        countedLoose: count.loose,
+        reason: count.reason || 'Physical Count Audit',
+        notes: 'Physical stock worksheet audit',
+      });
+
+      // Clear from modified worksheet counts so it syncs cleanly with updated inventory
+      setWorksheetCounts(previous => {
+        const next = { ...previous };
+        delete next[medicine.id];
+        return next;
+      });
+      setVerifiedIds(previous => new Set(previous).add(medicine.id));
+      setSubmitMessage(`Updated stock count for "${medicine.name}" successfully.`);
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error ? error.message : `Failed to save stock for "${medicine.name}".`
+      );
+    } finally {
+      setSavingRowId(null);
+    }
+  };
+
   const handleConfirmMatches = () => {
     setSubmitError('');
     setSubmitMessage('');
@@ -219,10 +269,14 @@ export const PhysicalStockWorksheetView: React.FC = () => {
     setSubmitError('');
     setSubmitMessage('');
 
-    const entriesToSubmit = entries.filter(
-      ({ medicine }) =>
-        pendingSubmissionIds === null || pendingSubmissionIds.has(medicine.id)
-    );
+    const entriesToSubmit = entries.filter(({ medicine, count }) => {
+      const systemUnits = medicine.stockPacks * medicine.unitsPerPack + medicine.stockLooseUnits;
+      const hasVariance = getUnits(medicine, count) !== systemUnits;
+      if (pendingSubmissionIds) {
+        return pendingSubmissionIds.has(medicine.id);
+      }
+      return hasVariance || verifiedIds.has(medicine.id);
+    });
     const failedEntries: Record<string, WorksheetEntry> = {};
     let submitted = 0;
 
@@ -266,9 +320,11 @@ export const PhysicalStockWorksheetView: React.FC = () => {
       ? inventoryBackendStatus === 'error'
         ? 'Reconnect to live inventory before submitting this audit.'
         : 'Wait for live inventory to connect before submitting this audit.'
-    : verifiedCount < medicines.length
-      ? `${medicines.length - verifiedCount} item(s) left to verify.`
-      : 'All items verified. Ready to submit.';
+    : modifiedEntries.length > 0 && modifiedEntries.every(({ medicine }) => verifiedIds.has(medicine.id))
+      ? `${modifiedEntries.length} verified item variance(s) ready to submit.`
+      : verifiedCount < medicines.length
+        ? `${medicines.length - verifiedCount} item(s) left to verify.`
+        : 'All items verified. Ready to submit.';
 
   return (
     <div className="space-y-5 pb-3">
@@ -673,17 +729,28 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                         </td>
                         <td className="px-3 py-3.5">
                           <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => verifyMedicine(medicine, count)}
-                              className={`whitespace-nowrap rounded-lg border px-2.5 py-2 text-[11px] font-bold ${
-                                isVerified
-                                  ? 'border-emerald-700 bg-emerald-700 text-white shadow-sm'
-                                  : 'border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:bg-teal-50'
-                              }`}
-                            >
-                              {isVerified ? <><Check className="mr-1 inline h-3.5 w-3.5" />Verified</> : 'Verify'}
-                            </button>
+                            {variance !== 0 ? (
+                              <button
+                                type="button"
+                                disabled={savingRowId === medicine.id}
+                                onClick={() => void handleSaveSingleMedicine(medicine, count)}
+                                className="whitespace-nowrap rounded-lg border border-teal-600 bg-teal-600 px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-teal-700 disabled:opacity-50"
+                              >
+                                {savingRowId === medicine.id ? 'Saving…' : 'Save Count'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => verifyMedicine(medicine, count)}
+                                className={`whitespace-nowrap rounded-lg border px-2.5 py-2 text-[11px] font-bold ${
+                                  isVerified
+                                    ? 'border-emerald-700 bg-emerald-700 text-white shadow-sm'
+                                    : 'border-slate-300 bg-white text-slate-700 hover:border-teal-600 hover:bg-teal-50'
+                                }`}
+                              >
+                                {isVerified ? <><Check className="mr-1 inline h-3.5 w-3.5" />Verified</> : 'Verify'}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setActiveAuditMedicine(medicine)}
@@ -747,7 +814,11 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                 title={inventoryBackendStatus !== 'connected' ? 'Connect to live inventory before submitting the audit.' : undefined}
                 className="rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-extrabold text-white shadow-sm transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-700 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {isSubmitting ? 'Submitting…' : 'Submit audit'}
+                {isSubmitting
+                  ? 'Submitting…'
+                  : modifiedEntries.length > 0
+                    ? `Submit ${modifiedEntries.length} variance(s)`
+                    : 'Submit audit'}
               </button>
             </div>
           </section>

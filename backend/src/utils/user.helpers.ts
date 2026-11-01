@@ -125,7 +125,36 @@ export async function generateStaffCode(role: string): Promise<string> {
   return `${prefix}-${String(maxNum + 1).padStart(3, "0")}`;
 }
 
-export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_PASSWORD_LENGTH = 8;
+
+// ==========================================
+// Validate password policy strength
+// ==========================================
+export function validatePasswordStrength(password: string): {
+  valid: boolean;
+  message?: string;
+} {
+  const cleanPassword = String(password ?? "").trim();
+  if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
+    return {
+      valid: false,
+      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
+    };
+  }
+
+  const hasLetter = /[a-zA-Z]/.test(cleanPassword);
+  const hasDigitOrSpecial = /[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(cleanPassword);
+
+  if (!hasLetter || !hasDigitOrSpecial) {
+    return {
+      valid: false,
+      message:
+        "Password must contain at least one letter and at least one number or special character.",
+    };
+  }
+
+  return { valid: true };
+}
 
 // ==========================================
 // Hash a plaintext password

@@ -7,18 +7,33 @@ type AnyRecord = Record<string, any>;
 const cleanString = (value: unknown): string =>
   value === undefined || value === null ? "" : String(value).trim();
 
+
+const isValidExpiryDate = (value: unknown): boolean => {
+  const text = cleanString(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(parsed.getTime()) &&
+    parsed.toISOString().slice(0, 10) === text
+  );
+};
+
 const toInt = (
   value: unknown,
   fallback = 0,
   minimum = 0
 ): number => {
-  const parsed = Number.parseInt(String(value ?? ""), 10);
-
-  if (Number.isNaN(parsed)) {
+  if (value === undefined || value === null || value === "") {
     return fallback;
   }
 
-  return Math.max(minimum, parsed);
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`Expected a whole number greater than or equal to ${minimum}; received '${String(value)}'.`);
+  }
+
+  return parsed;
 };
 
 const toNumber = (
@@ -26,13 +41,16 @@ const toNumber = (
   fallback = 0,
   minimum = 0
 ): number => {
-  const parsed = Number.parseFloat(String(value ?? ""));
-
-  if (Number.isNaN(parsed)) {
+  if (value === undefined || value === null || value === "") {
     return fallback;
   }
 
-  return Math.max(minimum, parsed);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < minimum) {
+    throw new Error(`Expected a number greater than or equal to ${minimum}; received '${String(value)}'.`);
+  }
+
+  return parsed;
 };
 
 const toBoolean = (
@@ -49,28 +67,17 @@ const toBoolean = (
 
   const normalized = String(value).trim().toLowerCase();
 
-  if (
-    normalized === "true" ||
-    normalized === "1" ||
-    normalized === "yes" ||
-    normalized === "13%" ||
-    normalized === "vat"
-  ) {
+  if (["true", "1", "yes", "13%", "vat"].includes(normalized)) {
     return true;
   }
 
-  if (
-    normalized === "false" ||
-    normalized === "0" ||
-    normalized === "no" ||
-    normalized === "vat free" ||
-    normalized === "0%"
-  ) {
+  if (["false", "0", "no", "vat free", "0%"].includes(normalized)) {
     return false;
   }
 
-  return fallback;
+  throw new Error(`VAT applicability must be true/false; received '${String(value)}'.`);
 };
+
 
 async function resolveGeneric(item: AnyRecord): Promise<number> {
   const rawGenericId =
@@ -482,6 +489,20 @@ export const bulkImportInventory = async (
           ? Boolean(provided.expiryDate)
           : Boolean(cleanString(item.expiryDate));
 
+        // Batch and expiry are physical batch identity. Bulk import must never
+        // invent either value or match an ambiguous brand-only row.
+        if (!hasBatch || !rawBatch) {
+          throw new Error("Batch Number is required; bulk import will not fabricate a batch.");
+        }
+
+        const strictExpiry = cleanString(item.expiryDate);
+        if (!hasExpiry || !strictExpiry) {
+          throw new Error("Expiry Date is required; bulk import will not fabricate an expiry date.");
+        }
+        if (!isValidExpiryDate(strictExpiry)) {
+          throw new Error("Expiry Date must be a valid calendar date in YYYY-MM-DD format.");
+        }
+
         const hasCostPrice = provided
           ? Boolean(provided.costPrice)
           : (item.costPrice !== undefined && item.costPrice !== null && item.costPrice !== "");
@@ -649,10 +670,8 @@ export const bulkImportInventory = async (
 
             // If rack is not in the uploaded sheet, clear old rack (set null / unassigned)
             const rackId = hasRack ? await resolveRack(item) : null;
-            const finalBatch = hasBatch && rawBatch ? rawBatch : "BAT-DEFAULT";
-            const finalExpiry = hasExpiry && cleanString(item.expiryDate)
-              ? cleanString(item.expiryDate)
-              : "2028-12-31";
+            const finalBatch = rawBatch;
+            const finalExpiry = strictExpiry;
 
             const unitPerPack = hasUnitsPerPack
               ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
@@ -665,6 +684,12 @@ export const bulkImportInventory = async (
             const unitInStock = hasStockLoose
               ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
               : 0;
+
+            if (unitInStock >= unitPerPack) {
+              throw new Error(
+                `Loose-unit stock must be less than units per pack (${unitPerPack}); convert full units into packs.`
+              );
+            }
 
             const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
               ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)
@@ -689,6 +714,28 @@ export const bulkImportInventory = async (
             const saved =
               await prisma.$transaction(
                 async (tx) => {
+                  await tx.$queryRaw`
+                    SELECT id
+                      FROM inventory_tbl
+                     WHERE id = ${existing.id}
+                     FOR UPDATE
+                  `;
+
+                  const current = await tx.inventory.findUnique({
+                    where: { id: existing.id },
+                  });
+                  if (!current) {
+                    throw new Error("Inventory row no longer exists.");
+                  }
+                  if (
+                    current.packInStock !== existing.packInStock ||
+                    current.unitInStock !== existing.unitInStock
+                  ) {
+                    throw new Error(
+                      "Inventory stock changed while REPLACE import was being prepared. Retry the import so a concurrent sale/adjustment is not overwritten."
+                    );
+                  }
+
                   const inventory =
                     await tx.inventory.update({
                       where: {
@@ -733,9 +780,9 @@ export const bulkImportInventory = async (
 
                   if (
                     packInStock !==
-                      existing.packInStock ||
+                      current.packInStock ||
                     unitInStock !==
-                      existing.unitInStock
+                      current.unitInStock
                   ) {
                     await tx.stockAdjustmentLog.create({
                       data: {
@@ -746,24 +793,24 @@ export const bulkImportInventory = async (
                           "CORRECTION",
 
                         previousPacks:
-                          existing.packInStock,
+                          current.packInStock,
 
                         newPacks:
                           packInStock,
 
                         variancePacks:
                           packInStock -
-                          existing.packInStock,
+                          current.packInStock,
 
                         previousLooseUnits:
-                          existing.unitInStock,
+                          current.unitInStock,
 
                         newLooseUnits:
                           unitInStock,
 
                         varianceLooseUnits:
                           unitInStock -
-                          existing.unitInStock,
+                          current.unitInStock,
 
                         reason:
                           `Bulk inventory import REPLACE mode, row ${row}.`,
@@ -833,23 +880,12 @@ export const bulkImportInventory = async (
             );
           }
 
-          if (hasStockPacks) {
-            const inputPacks = toInt(
-              item.packInStock ?? item.stockPacks,
-              0,
-              0
-            );
-            updateData.packInStock = existing.packInStock + inputPacks;
-          }
-
-          if (hasStockLoose) {
-            const inputLoose = toInt(
-              item.unitInStock ?? item.stockLooseUnits,
-              0,
-              0
-            );
-            updateData.unitInStock = existing.unitInStock + inputLoose;
-          }
+          const inputPacksToAdd = hasStockPacks
+            ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+            : 0;
+          const inputLooseToAdd = hasStockLoose
+            ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+            : 0;
 
           if (item.packAlertLevel !== undefined || item.reorderLevel !== undefined) {
             updateData.packAlertLevel = toInt(
@@ -894,17 +930,48 @@ export const bulkImportInventory = async (
             updateData.distributorId = targetDistId;
           }
 
-          const nextPacks =
-            updateData.packInStock ??
-            existing.packInStock;
-
-          const nextLooseUnits =
-            updateData.unitInStock ??
-            existing.unitInStock;
-
           const saved =
             await prisma.$transaction(
               async (tx) => {
+                await tx.$queryRaw`
+                  SELECT id
+                    FROM inventory_tbl
+                   WHERE id = ${existing.id}
+                   FOR UPDATE
+                `;
+
+                const current = await tx.inventory.findUnique({
+                  where: { id: existing.id },
+                });
+                if (!current) {
+                  throw new Error("Inventory row no longer exists.");
+                }
+
+                const targetUnitsPerPack = Number(
+                  updateData.unitPerPack ?? current.unitPerPack
+                );
+                if (
+                  targetUnitsPerPack !== current.unitPerPack &&
+                  (current.packInStock > 0 || current.unitInStock > 0)
+                ) {
+                  throw new Error(
+                    "Units per pack cannot be changed by MERGE import while physical stock exists. Normalize stock first."
+                  );
+                }
+
+                const addedUnits =
+                  inputPacksToAdd * targetUnitsPerPack + inputLooseToAdd;
+                const currentUnits =
+                  current.packInStock * targetUnitsPerPack + current.unitInStock;
+                const mergedUnits = currentUnits + addedUnits;
+                const nextPacks = Math.floor(mergedUnits / targetUnitsPerPack);
+                const nextLooseUnits = mergedUnits % targetUnitsPerPack;
+
+                if (hasStockPacks || hasStockLoose) {
+                  updateData.packInStock = nextPacks;
+                  updateData.unitInStock = nextLooseUnits;
+                }
+
                 const inventory =
                   await tx.inventory.update({
                     where: {
@@ -925,9 +992,9 @@ export const bulkImportInventory = async (
 
                 if (
                   nextPacks !==
-                    existing.packInStock ||
+                    current.packInStock ||
                   nextLooseUnits !==
-                    existing.unitInStock
+                    current.unitInStock
                 ) {
                   await tx.stockAdjustmentLog.create({
                     data: {
@@ -938,24 +1005,24 @@ export const bulkImportInventory = async (
                         "CORRECTION",
 
                       previousPacks:
-                        existing.packInStock,
+                        current.packInStock,
 
                       newPacks:
                         nextPacks,
 
                       variancePacks:
                         nextPacks -
-                        existing.packInStock,
+                        current.packInStock,
 
                       previousLooseUnits:
-                        existing.unitInStock,
+                        current.unitInStock,
 
                       newLooseUnits:
                         nextLooseUnits,
 
                       varianceLooseUnits:
                         nextLooseUnits -
-                        existing.unitInStock,
+                        current.unitInStock,
 
                       reason:
                         `Bulk inventory import MERGE mode, row ${row}.`,
@@ -1002,12 +1069,8 @@ export const bulkImportInventory = async (
         }
 
         const rackId = hasRack ? await resolveRack(item) : null;
-        const finalBatch = hasBatch && rawBatch ? rawBatch : "BAT-DEFAULT";
-
-        let finalExpiry = cleanString(item.expiryDate);
-        if (!finalExpiry) {
-          finalExpiry = "2028-12-31";
-        }
+        const finalBatch = rawBatch;
+        const finalExpiry = strictExpiry;
 
         const unitPerPack = hasUnitsPerPack
           ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
@@ -1020,6 +1083,12 @@ export const bulkImportInventory = async (
         const unitInStock = hasStockLoose
           ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
           : 0;
+
+        if (unitInStock >= unitPerPack) {
+          throw new Error(
+            `Loose-unit stock must be less than units per pack (${unitPerPack}); convert full units into packs.`
+          );
+        }
 
         const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
           ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)
@@ -1041,31 +1110,52 @@ export const bulkImportInventory = async (
         const notes = hasNotes ? cleanString(item.notes) || null : null;
         const distributorId = targetDistId;
 
-        const saved = await prisma.inventory.create({
-          data: {
-            medicineBrand: brand,
-            batchNumber: finalBatch,
-            expiryDate: finalExpiry,
-            genericId,
-            categoryId,
-            rackId,
-            distributorId,
-            unitPerPack,
-            packInStock,
-            unitInStock,
-            packAlertLevel,
-            costPrice,
-            sellingPrice,
-            hasvat,
-            barcode,
-            notes,
-          },
-          include: {
-            generic: true,
-            category: true,
-            rack: true,
-            distributor: true,
-          },
+        const saved = await prisma.$transaction(async (tx) => {
+          const batchLockKey =
+            `inventory-batch:${brand.toLowerCase()}|${finalBatch.toLowerCase()}`;
+          await tx.$executeRaw`
+            SELECT pg_advisory_xact_lock(hashtext(${batchLockKey}))
+          `;
+
+          const duplicate = await tx.inventory.findFirst({
+            where: {
+              medicineBrand: { equals: brand, mode: "insensitive" },
+              batchNumber: { equals: finalBatch, mode: "insensitive" },
+            },
+            select: { id: true, expiryDate: true },
+          });
+          if (duplicate) {
+            throw new Error(
+              `Medicine '${brand}' batch '${finalBatch}' already exists (inventory ID ${duplicate.id}, expiry ${duplicate.expiryDate}).`
+            );
+          }
+
+          return tx.inventory.create({
+            data: {
+              medicineBrand: brand,
+              batchNumber: finalBatch,
+              expiryDate: finalExpiry,
+              genericId,
+              categoryId,
+              rackId,
+              distributorId,
+              unitPerPack,
+              packInStock,
+              unitInStock,
+              packAlertLevel,
+              costPrice,
+              sellingPrice,
+              hasvat,
+              barcode,
+              notes,
+            },
+            include: {
+              generic: true,
+              category: true,
+              rack: true,
+              distributor: true,
+            },
+          });
         });
 
         created.push(

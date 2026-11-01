@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -33,6 +33,8 @@ interface ClinicPatient {
   phone: string;
   gender: string;
   ageYears: number | null;
+  ageMonths?: number | null;
+  ageUnit?: string | null;
   address: string;
   createdAt?: string;
   updatedAt?: string;
@@ -61,6 +63,8 @@ interface ClinicVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
   consultationFee: number;
   additionalCharge: number;
   additionalChargeNote: string | null;
@@ -111,6 +115,7 @@ interface NewPatientForm {
   name: string;
   phone: string;
   ageYears: string;
+  ageUnit: 'years' | 'months' | 'days';
   gender: string;
   address: string;
 }
@@ -131,8 +136,29 @@ const EMPTY_PATIENT_FORM: NewPatientForm = {
   name: '',
   phone: '',
   ageYears: '',
+  ageUnit: 'years',
   gender: '',
   address: '',
+};
+
+export const displayAge = (
+  years?: number | null,
+  months?: number | null,
+  unit?: string | null
+): string => {
+  if (unit === 'months' || (months !== null && months !== undefined && months > 0 && (years === 0 || years === null))) {
+    return `${months} Month${months === 1 ? '' : 's'}`;
+  }
+  if (unit === 'days') {
+    return `${months ?? years} Days`;
+  }
+  if (years !== null && years !== undefined) {
+    if (months && months > 0) {
+      return `${years} Y ${months} M`;
+    }
+    return `${years} Yrs`;
+  }
+  return '—';
 };
 
 
@@ -387,31 +413,36 @@ export const NewOpdPanel: React.FC = () => {
     }
 
 
-    let parsedAge:
-      | number
-      | null =
-      null;
+    let parsedAgeYears: number | null = null;
+    let parsedAgeMonths: number | null = null;
 
-    if (
-      newPatient.ageYears.trim() !==
-      ''
-    ) {
-      parsedAge =
-        Number(
-          newPatient.ageYears
-        );
-
-      if (
-        !Number.isInteger(
-          parsedAge
-        ) ||
-        parsedAge < 0 ||
-        parsedAge > 130
-      ) {
-        setError(
-          'Age must be a whole number between 0 and 130.'
-        );
+    if (newPatient.ageYears.trim() !== '') {
+      const val = Number(newPatient.ageYears);
+      if (!Number.isInteger(val) || val < 0) {
+        setError('Age must be a positive whole number.');
         return;
+      }
+      if (newPatient.ageUnit === 'months') {
+        if (val > 120) {
+          setError('Age in months must be between 0 and 120.');
+          return;
+        }
+        parsedAgeMonths = val;
+        parsedAgeYears = Math.floor(val / 12);
+      } else if (newPatient.ageUnit === 'days') {
+        if (val > 365) {
+          setError('Age in days must be between 0 and 365.');
+          return;
+        }
+        parsedAgeMonths = 0;
+        parsedAgeYears = 0;
+      } else {
+        if (val > 130) {
+          setError('Age in years must be between 0 and 130.');
+          return;
+        }
+        parsedAgeYears = val;
+        parsedAgeMonths = 0;
       }
     }
 
@@ -435,7 +466,13 @@ export const NewOpdPanel: React.FC = () => {
                 cleanPhone,
 
               ageYears:
-                parsedAge,
+                parsedAgeYears,
+
+              ageMonths:
+                parsedAgeMonths,
+
+              ageUnit:
+                newPatient.ageUnit,
 
               gender:
                 newPatient.gender,
@@ -573,6 +610,12 @@ export const NewOpdPanel: React.FC = () => {
 
                 ageAtVisit:
                   selectedPatient.ageYears,
+
+                ageMonthsAtVisit:
+                  selectedPatient.ageMonths,
+
+                ageUnitAtVisit:
+                  selectedPatient.ageUnit,
 
                 totalCharge:
                   charge,
@@ -742,8 +785,11 @@ export const NewOpdPanel: React.FC = () => {
               </span>
 
               <strong className="mt-1 block text-xs text-slate-800">
-                {savedVisit.ageAtVisit ??
-                  '—'}
+                {displayAge(
+                  savedVisit.ageAtVisit,
+                  savedVisit.ageMonthsAtVisit,
+                  savedVisit.ageUnitAtVisit
+                )}
                 {savedVisit.patient.gender
                   ? ` / ${savedVisit.patient.gender}`
                   : ''}
@@ -933,13 +979,9 @@ export const NewOpdPanel: React.FC = () => {
                                 </span>
                               )}
 
-                              {patient.ageYears !==
-                                null && (
+                              {(patient.ageYears !== null || patient.ageMonths !== undefined) && (
                                 <span>
-                                  Age{' '}
-                                  {
-                                    patient.ageYears
-                                  }
+                                  Age {displayAge(patient.ageYears, patient.ageMonths, patient.ageUnit)}
                                 </span>
                               )}
 
@@ -997,13 +1039,9 @@ export const NewOpdPanel: React.FC = () => {
                         </span>
                       )}
 
-                      {selectedPatient.ageYears !==
-                        null && (
+                      {(selectedPatient.ageYears !== null || selectedPatient.ageMonths !== undefined) && (
                         <span>
-                          Age:{' '}
-                          {
-                            selectedPatient.ageYears
-                          }
+                          Age: {displayAge(selectedPatient.ageYears, selectedPatient.ageMonths, selectedPatient.ageUnit)}
                         </span>
                       )}
 
@@ -1145,31 +1183,37 @@ export const NewOpdPanel: React.FC = () => {
                       Age
                     </label>
 
-                    <input
-                      type="number"
-                      min="0"
-                      max="130"
-                      step="1"
-                      value={
-                        newPatient.ageYears
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setNewPatient(
-                          (
-                            previous
-                          ) => ({
+                    <div className="flex gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        max={newPatient.ageUnit === 'months' ? 120 : newPatient.ageUnit === 'days' ? 365 : 130}
+                        step="1"
+                        value={newPatient.ageYears}
+                        onChange={(event) =>
+                          setNewPatient((previous) => ({
                             ...previous,
-                            ageYears:
-                              event
-                                .target
-                                .value,
-                          })
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500"
-                    />
+                            ageYears: event.target.value,
+                          }))
+                        }
+                        placeholder={newPatient.ageUnit === 'months' ? 'Months' : newPatient.ageUnit === 'days' ? 'Days' : 'Years'}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500"
+                      />
+                      <select
+                        value={newPatient.ageUnit}
+                        onChange={(event) =>
+                          setNewPatient((previous) => ({
+                            ...previous,
+                            ageUnit: event.target.value as 'years' | 'months' | 'days',
+                          }))
+                        }
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-700 outline-none focus:border-teal-500"
+                      >
+                        <option value="years">Years</option>
+                        <option value="months">Months</option>
+                        <option value="days">Days</option>
+                      </select>
+                    </div>
                   </div>
 
 

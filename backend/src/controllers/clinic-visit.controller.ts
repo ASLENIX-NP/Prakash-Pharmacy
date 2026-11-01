@@ -240,6 +240,12 @@ const formatVisit = (
     ageAtVisit:
       visit.ageAtVisit,
 
+    ageMonthsAtVisit:
+      visit.ageMonthsAtVisit ?? null,
+
+    ageUnitAtVisit:
+      visit.ageUnitAtVisit ?? "years",
+
     consultationFee,
 
     additionalCharge,
@@ -999,11 +1005,14 @@ export const completeClinicVisit = async (
       );
 
 
-    const visit =
-      await prisma.clinicVisit.update({
+    // Compare-and-set the lifecycle state in the database. Two concurrent
+    // requests may both have observed OPEN above, but only one is allowed to
+    // transition the row.
+    const completion =
+      await prisma.clinicVisit.updateMany({
         where: {
-          id:
-            visitId,
+          id: visitId,
+          status: "open",
         },
 
         data: {
@@ -1031,10 +1040,30 @@ export const completeClinicVisit = async (
           completedAt:
             new Date(),
         },
-
-        include:
-          visitInclude,
       });
+
+    if (completion.count !== 1) {
+      res.status(409).json({
+        success: false,
+        message:
+          `${formatOpdNumber(visitId)} changed state while this request was being processed and cannot be completed.`,
+      });
+      return;
+    }
+
+    const visit =
+      await prisma.clinicVisit.findUnique({
+        where: { id: visitId },
+        include: visitInclude,
+      });
+
+    if (!visit) {
+      res.status(409).json({
+        success: false,
+        message: "OPD visit changed unexpectedly after completion.",
+      });
+      return;
+    }
 
 
     res.status(200).json({
@@ -1178,6 +1207,8 @@ export const createClinicVisit = async (
       visitDateTime,
 
       ageAtVisit,
+      ageMonthsAtVisit,
+      ageUnitAtVisit,
 
       consultationFee,
 
@@ -1420,6 +1451,14 @@ export const createClinicVisit = async (
           ageAtVisit:
             parsedAge,
 
+          ageMonthsAtVisit:
+            ageMonthsAtVisit !== undefined && ageMonthsAtVisit !== null
+              ? Number(ageMonthsAtVisit)
+              : patient.ageMonths,
+
+          ageUnitAtVisit:
+            ageUnitAtVisit ?? patient.ageUnit ?? "years",
+
           consultationFee:
             parsedConsultationFee,
 
@@ -1571,11 +1610,11 @@ export const deleteClinicVisit = async (
       ).trim();
 
 
-    const visit =
-      await prisma.clinicVisit.update({
+    const cancellation =
+      await prisma.clinicVisit.updateMany({
         where: {
-          id:
-            visitId,
+          id: visitId,
+          status: "open",
         },
 
         data: {
@@ -1589,10 +1628,30 @@ export const deleteClinicVisit = async (
             reason ||
             "Cancelled by administrator",
         },
-
-        include:
-          visitInclude,
       });
+
+    if (cancellation.count !== 1) {
+      res.status(409).json({
+        success: false,
+        message:
+          `${formatOpdNumber(visitId)} changed state while this request was being processed and cannot be cancelled.`,
+      });
+      return;
+    }
+
+    const visit =
+      await prisma.clinicVisit.findUnique({
+        where: { id: visitId },
+        include: visitInclude,
+      });
+
+    if (!visit) {
+      res.status(409).json({
+        success: false,
+        message: "OPD visit changed unexpectedly after cancellation.",
+      });
+      return;
+    }
 
 
     res.status(200).json({
@@ -1739,11 +1798,11 @@ export const voidClinicVisit = async (
      * changing status to VOIDED removes this OPD from
      * finalized clinic revenue without deleting history.
      */
-    const visit =
-      await prisma.clinicVisit.update({
+    const voidResult =
+      await prisma.clinicVisit.updateMany({
         where: {
-          id:
-            visitId,
+          id: visitId,
+          status: "completed",
         },
 
         data: {
@@ -1756,10 +1815,30 @@ export const voidClinicVisit = async (
           voidReason:
             reason,
         },
-
-        include:
-          visitInclude,
       });
+
+    if (voidResult.count !== 1) {
+      res.status(409).json({
+        success: false,
+        message:
+          `${formatOpdNumber(visitId)} changed state while this request was being processed and cannot be voided.`,
+      });
+      return;
+    }
+
+    const visit =
+      await prisma.clinicVisit.findUnique({
+        where: { id: visitId },
+        include: visitInclude,
+      });
+
+    if (!visit) {
+      res.status(409).json({
+        success: false,
+        message: "OPD visit changed unexpectedly after voiding.",
+      });
+      return;
+    }
 
 
     res.status(200).json({

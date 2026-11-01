@@ -173,16 +173,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentUser?.name?.trim()?.charAt(0)?.toUpperCase() || 'U';
 
   const sidebarContent = (
-    <div className="flex h-full min-h-0 flex-col bg-white">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_42%,#f8fbff_100%)]">
 
       {/* HEADER */}
-      <div className="flex h-[82px] shrink-0 items-center justify-between border-b border-slate-100 px-4">
+      <div className="flex h-[88px] shrink-0 items-center justify-between border-b border-slate-200/70 bg-white/85 px-4 backdrop-blur-xl">
         <button
           type="button"
           onClick={() =>
             handleNavigation(isAdmin ? 'dashboard' : 'pos')
           }
-          className="flex min-w-0 items-center gap-3 text-left"
+          className="group flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1.5 text-left transition-all duration-200 hover:bg-slate-50/80"
         >
           <img
             src={settings.storeLogo || prakashLogo}
@@ -191,7 +191,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           <div className="min-w-0">
-            <h1 className="truncate text-[16px] font-extrabold tracking-tight text-slate-900">
+            <h1 className="truncate text-[16px] font-black tracking-[-0.02em] text-slate-950">
               {settings.storeName || 'Prakash Pharmacy'}
             </h1>
 
@@ -212,12 +212,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* SCROLLABLE MENU */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-        <p className="mb-2 px-3 text-[9px] font-extrabold uppercase tracking-[0.18em] text-slate-400">
+      <div className="premium-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-4">
+        <p className="mb-2.5 px-3 text-[9px] font-black uppercase tracking-[0.22em] text-slate-400">
           Main Menu
         </p>
 
-        <nav className="space-y-1.5">
+        <nav className="space-y-2">
           {visibleItems.map((item) => {
             const active = activeTab === item.id;
 
@@ -227,21 +227,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={() => handleNavigation(item.id)}
                 className={`
-                  group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all duration-200
+                  group relative flex w-full items-center gap-3 rounded-[18px] border px-3 py-3 text-left transition-all duration-200
                   ${
                     active
-                      ? 'bg-gradient-to-r from-teal-50 to-emerald-50 text-slate-900 shadow-[0_4px_16px_rgba(15,23,42,0.04)]'
-                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      ? 'border-emerald-100/90 bg-[linear-gradient(100deg,rgba(236,253,245,0.96)_0%,rgba(240,253,250,0.96)_100%)] text-slate-950 shadow-[0_10px_24px_rgba(15,118,110,0.08)]'
+                      : 'border-transparent text-slate-600 hover:-translate-y-[1px] hover:border-slate-200/80 hover:bg-white hover:text-slate-950 hover:shadow-[0_8px_20px_rgba(15,23,42,0.055)]'
                   }
                 `}
               >
                 {active && (
-                  <span className="absolute -left-3 top-2 bottom-2 w-[3px] rounded-r-full bg-teal-600" />
+                  <span className="absolute -left-3 bottom-2.5 top-2.5 w-[4px] rounded-r-full bg-gradient-to-b from-teal-500 to-emerald-600 shadow-[2px_0_10px_rgba(13,148,136,0.28)]" />
                 )}
 
                 <div
                   className={`
-                    flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-[11px] font-black tracking-wide shadow-sm transition
+                    flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] border text-[11px] font-black tracking-wide shadow-[0_5px_12px_rgba(15,23,42,0.08)] transition-all duration-200 group-hover:scale-[1.03]
                     ${active ? item.toneActive : item.tone}
                   `}
                 >
@@ -258,7 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </span>
 
                 {item.badge !== undefined && item.badge > 0 && (
-                  <span className="min-w-[22px] rounded-full bg-amber-100 px-1.5 py-0.5 text-center text-[9px] font-extrabold text-amber-700">
+                  <span className="min-w-[24px] rounded-full border border-amber-200/70 bg-amber-50 px-1.5 py-0.5 text-center text-[9px] font-black text-amber-700 shadow-sm">
                     {item.badge}
                   </span>
                 )}
@@ -302,7 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-extrabold text-slate-900">
+              <p className="truncate text-[11px] font-black tracking-[-0.01em] text-slate-950">
                 {currentUser?.name || 'User'}
               </p>
 
@@ -312,11 +312,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <span
                 className={`
-                  mt-1 inline-flex rounded-md px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide
+                  mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.08em] shadow-sm
                   ${
                     isAdmin
-                      ? 'bg-purple-100 text-purple-700'
-                      : 'bg-emerald-100 text-emerald-700'
+                      ? 'border-purple-200/70 bg-purple-50 text-purple-700'
+                      : 'border-emerald-200/70 bg-emerald-50 text-emerald-700'
                   }
                 `}
               >
@@ -374,7 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <aside className="hidden h-full min-h-0 w-[255px] shrink-0 border-r border-slate-200 bg-white shadow-[5px_0_25px_rgba(15,23,42,0.025)] lg:block">
+      <aside className="hidden h-full min-h-0 w-[255px] shrink-0 border-r border-slate-200/80 bg-white shadow-[8px_0_32px_rgba(15,23,42,0.045)] lg:block">
         {sidebarContent}
       </aside>
 
@@ -387,7 +387,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <aside
         className={`
-          fixed bottom-0 left-0 top-[32px] z-50 w-[280px] border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 lg:hidden
+          fixed bottom-0 left-0 top-[32px] z-50 w-[280px] border-r border-slate-200/80 bg-white shadow-[18px_0_50px_rgba(15,23,42,0.18)] transition-transform duration-300 lg:hidden
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >

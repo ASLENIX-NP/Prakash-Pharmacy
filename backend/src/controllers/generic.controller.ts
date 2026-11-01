@@ -69,8 +69,13 @@ export const createGeneric = async (req: Request, res: Response): Promise<void> 
 
     const trimmedName = name.trim();
 
-    const existing = await prisma.generic.findUnique({
-      where: { name: trimmedName },
+    const existing = await prisma.generic.findFirst({
+      where: {
+        name: {
+          equals: trimmedName,
+          mode: "insensitive",
+        },
+      },
     });
 
     if (existing) {
@@ -145,7 +150,10 @@ export const updateGeneric = async (req: Request, res: Response): Promise<void> 
 
     const duplicate = await prisma.generic.findFirst({
       where: {
-        name: trimmedName,
+        name: {
+          equals: trimmedName,
+          mode: "insensitive",
+        },
         NOT: { id: genericId },
       },
     });

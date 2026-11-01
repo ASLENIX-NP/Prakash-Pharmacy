@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   FileText, 
   Search, 
@@ -12,22 +12,22 @@ import {
   Banknote, 
   QrCode, 
   CreditCard,
-  RotateCcw
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
-import { salesDemoInvoices } from '../data/salesDemoData';
 import { SalesReturnModal } from './SalesReturnModal';
+import { localDateString } from '../utils/date';
 
 export const SalesHistoryView: React.FC = () => {
   const { showToast } = useDialog();
   const {
     salesInvoices,
     customerSalesReturns,
-    isSalesDemoDataActive,
-    clearSalesDemoData,
     setActiveInvoiceToPrint,
     settings,
   } = usePharmacy();
@@ -38,19 +38,14 @@ export const SalesHistoryView: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<SaleInvoice | null>(null);
   const [returningInvoice, setReturningInvoice] = useState<SaleInvoice | null>(null);
 
-  const registerInvoices = useMemo(
-    () => isSalesDemoDataActive
-      ? [...salesInvoices, ...salesDemoInvoices]
-      : salesInvoices,
-    [isSalesDemoDataActive, salesInvoices]
-  );
+  const registerInvoices = salesInvoices;
 
   // Filter sales invoices
   const filteredSales = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateString();
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = localDateString(yesterday);
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -81,10 +76,10 @@ export const SalesHistoryView: React.FC = () => {
 
   // Filter customer returns
   const filteredReturns = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = localDateString();
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = localDateString(yesterday);
 
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -94,8 +89,8 @@ export const SalesHistoryView: React.FC = () => {
     return (customerSalesReturns || []).filter(ret => {
       const q = searchQuery.toLowerCase();
       const returnDateStr = ret.returnDate ? ret.returnDate.split('T')[0] : '';
-      const invoiceNumber = ret.invoice?.invoiceNumber || '';
-      const customerName = ret.invoice?.customerName || '';
+      const invoiceNumber = ret.invoice?.invoiceNumber || ret.invoiceNumber || '';
+      const customerName = ret.invoice?.customerName || ret.customerName || '';
 
       const matchesSearch = !q ||
         ret.creditNoteNumber.toLowerCase().includes(q) ||
@@ -141,28 +136,35 @@ export const SalesHistoryView: React.FC = () => {
     return { totalRefunded, totalPacks, totalUnits, count: filteredReturns.length };
   }, [filteredReturns]);
 
+  const [salesPage, setSalesPage] = useState(1);
+  const [returnsPage, setReturnsPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  useEffect(() => {
+    setSalesPage(1);
+    setReturnsPage(1);
+  }, [searchQuery, dateFilter]);
+
+  const totalSalesPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
+  const paginatedSales = useMemo(() => {
+    const start = (salesPage - 1) * PAGE_SIZE;
+    return filteredSales.slice(start, start + PAGE_SIZE);
+  }, [filteredSales, salesPage]);
+
+  const salesStartIndex = (salesPage - 1) * PAGE_SIZE;
+  const salesEndIndex = Math.min(salesStartIndex + PAGE_SIZE, filteredSales.length);
+
+  const totalReturnsPages = Math.max(1, Math.ceil(filteredReturns.length / PAGE_SIZE));
+  const paginatedReturns = useMemo(() => {
+    const start = (returnsPage - 1) * PAGE_SIZE;
+    return filteredReturns.slice(start, start + PAGE_SIZE);
+  }, [filteredReturns, returnsPage]);
+
+  const returnsStartIndex = (returnsPage - 1) * PAGE_SIZE;
+  const returnsEndIndex = Math.min(returnsStartIndex + PAGE_SIZE, filteredReturns.length);
+
   return (
     <div className="space-y-5 pb-3">
-      {isSalesDemoDataActive && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 shadow-sm"
-        >
-          <div>
-            <strong className="font-extrabold">Demo sales are active.</strong>
-            <span className="ml-1 text-amber-800">
-              Sample invoices are only visible in this register and cannot be printed as statutory bills.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={clearSalesDemoData}
-            className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 font-bold text-amber-900 transition hover:bg-amber-100"
-          >
-            Remove demo data
-          </button>
-        </div>
-      )}
 
       {/* View Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
@@ -423,6 +425,34 @@ export const SalesHistoryView: React.FC = () => {
       {/* Main Table: Sales Invoices vs Customer Returns */}
       {activeTab === 'sales' ? (
         <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/50 px-5 py-3">
+            <span className="text-xs font-semibold text-slate-500">
+              Showing {filteredSales.length === 0 ? '0' : `${salesStartIndex + 1}–${salesEndIndex}`} of {filteredSales.length} sales
+            </span>
+            {totalSalesPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 mr-1">
+                  Page {salesPage} of {totalSalesPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={salesPage <= 1}
+                  onClick={() => setSalesPage(p => Math.max(1, p - 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={salesPage >= totalSalesPages}
+                  onClick={() => setSalesPage(p => Math.min(totalSalesPages, p + 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1100px] text-left text-xs">
               <thead className="bg-slate-50 text-slate-600">
@@ -440,7 +470,7 @@ export const SalesHistoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredSales.map((inv) => (
+                {paginatedSales.map((inv) => (
                   <tr key={inv.id} className="transition-colors hover:bg-slate-50/70">
                     <td className="px-4 py-3 align-top text-slate-500">
                       <div className="text-[11px] font-semibold text-slate-700">{inv.date}</div>
@@ -527,10 +557,72 @@ export const SalesHistoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {totalSalesPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+              <div className="text-xs font-medium text-slate-600">
+                Showing <span className="font-bold text-slate-900">{salesStartIndex + 1}</span> to{' '}
+                <span className="font-bold text-slate-900">{salesEndIndex}</span> of{' '}
+                <span className="font-bold text-slate-900">{filteredSales.length}</span> sales
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={salesPage <= 1}
+                  onClick={() => setSalesPage(p => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Previous
+                </button>
+                <span className="px-2 text-xs font-bold text-slate-700">
+                  {salesPage} / {totalSalesPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={salesPage >= totalSalesPages}
+                  onClick={() => setSalesPage(p => Math.min(totalSalesPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         /* Customer Returns & Credit Notes Table */
         <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/50 px-5 py-3">
+            <span className="text-xs font-semibold text-slate-500">
+              Showing {filteredReturns.length === 0 ? '0' : `${returnsStartIndex + 1}–${returnsEndIndex}`} of {filteredReturns.length} credit notes
+            </span>
+            {totalReturnsPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500 mr-1">
+                  Page {returnsPage} of {totalReturnsPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={returnsPage <= 1}
+                  onClick={() => setReturnsPage(p => Math.max(1, p - 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={returnsPage >= totalReturnsPages}
+                  onClick={() => setReturnsPage(p => Math.min(totalReturnsPages, p + 1))}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1050px] text-left text-xs">
               <thead className="bg-slate-50 text-slate-600">
@@ -546,7 +638,7 @@ export const SalesHistoryView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredReturns.map((ret) => {
+                {paginatedReturns.map((ret) => {
                   const dateObj = new Date(ret.returnDate);
                   const dateFormatted = !isNaN(dateObj.getTime())
                     ? dateObj.toLocaleDateString()
@@ -628,6 +720,40 @@ export const SalesHistoryView: React.FC = () => {
               </tbody>
             </table>
           </div>
+
+          {totalReturnsPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+              <div className="text-xs font-medium text-slate-600">
+                Showing <span className="font-bold text-slate-900">{returnsStartIndex + 1}</span> to{' '}
+                <span className="font-bold text-slate-900">{returnsEndIndex}</span> of{' '}
+                <span className="font-bold text-slate-900">{filteredReturns.length}</span> returns
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={returnsPage <= 1}
+                  onClick={() => setReturnsPage(p => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Previous
+                </button>
+                <span className="px-2 text-xs font-bold text-slate-700">
+                  {returnsPage} / {totalReturnsPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={returnsPage >= totalReturnsPages}
+                  onClick={() => setReturnsPage(p => Math.min(totalReturnsPages, p + 1))}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

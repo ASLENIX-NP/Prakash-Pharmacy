@@ -3,9 +3,11 @@ import {
   AlertTriangle,
   FileText,
   ShieldAlert,
+  CreditCard,
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { ActiveTab } from './Sidebar';
+import { localDateString } from '../utils/date';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -21,7 +23,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     setActiveInvoiceToPrint 
   } = usePharmacy();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateString();
 
   // Daily Sales KPI
   const todaySales = useMemo(() => {
@@ -67,15 +69,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
   // Total Outstanding Payables to Stockists
   const totalPayableToStockists = stockists.reduce((acc, s) => acc + Math.max(0, s.currentBalance), 0);
 
+  // Credit Limit Alerts
+  const creditAlerts = useMemo(() => {
+    return stockists
+      .filter(s => s.creditLimit > 0 && s.currentBalance > 0)
+      .map(s => {
+        const pct = (s.currentBalance / s.creditLimit) * 100;
+        return { ...s, usagePct: pct };
+      })
+      .filter(s => s.usagePct >= 80)
+      .sort((a, b) => b.usagePct - a.usagePct);
+  }, [stockists]);
+
   return (
     <div className="space-y-6">
 
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="dashboard-premium-kpis grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
         {/* Today's Revenue */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-revenue rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Today's Counter Revenue
@@ -107,7 +121,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Inventory Valuation */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-inventory rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Inventory Stock Valuation
@@ -144,7 +158,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Active Stock */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-stock rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Active Stock Quantities
@@ -182,7 +196,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Payables */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-payables rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Stockist Payables Balance
@@ -215,12 +229,92 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
       </div>
 
+      {/* Credit Limit Alerts */}
+      {creditAlerts.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <CreditCard className="h-5 w-5 text-rose-600" />
+              <div>
+                <h3 className="text-[15px] font-extrabold text-rose-900">
+                  Distributor Credit Alerts
+                </h3>
+                <p className="mt-0.5 text-[11px] font-medium text-rose-600">
+                  {creditAlerts.filter(s => s.usagePct >= 100).length} exceeded limit ·{' '}
+                  {creditAlerts.filter(s => s.usagePct >= 80 && s.usagePct < 100).length} near limit
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('stockists')}
+              className="text-[12px] font-bold text-rose-700 hover:text-rose-900"
+            >
+              View Ledger →
+            </button>
+          </div>
+
+          <div className="divide-y divide-slate-100">
+            {creditAlerts.map(s => {
+              const exceeded = s.usagePct >= 100;
+              const barColor = exceeded ? 'bg-rose-500' : 'bg-amber-400';
+              const barWidth = `${Math.min(s.usagePct, 100).toFixed(0)}%`;
+              return (
+                <div
+                  key={s.id}
+                  className="grid grid-cols-[minmax(0,1fr)_200px_120px] items-center gap-4 px-5 py-3.5 hover:bg-slate-50/60"
+                >
+                  {/* Distributor name */}
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-extrabold text-slate-900">
+                      {s.name}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      {s.phone || s.contactPerson || '—'}
+                    </p>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="min-w-0">
+                    <div className="mb-1 flex justify-between text-[10px] font-semibold text-slate-500">
+                      <span>Rs. {s.currentBalance.toLocaleString()}</span>
+                      <span>Limit: Rs. {s.creditLimit.toLocaleString()}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className={`h-full rounded-full transition-all ${barColor}`}
+                        style={{ width: barWidth }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Badge */}
+                  <div className="text-right">
+                    {exceeded ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-100 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                        <AlertTriangle className="h-3 w-3" />
+                        Limit Exceeded
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+                        <ShieldAlert className="h-3 w-3" />
+                        {s.usagePct.toFixed(0)}% Used
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* Main Dual Grid: Stock & Expiry Alerts */}
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:items-stretch">
 
         {/* LOW STOCK */}
-        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <section className="premium-dashboard-panel premium-low-stock-panel flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="premium-panel-header flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
 
@@ -248,7 +342,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             {lowStockMedicines.slice(0, 6).map((m) => (
               <div
                 key={m.id}
-                className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                className="premium-alert-row grid grid-cols-[minmax(0,1fr)_120px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
               >
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-extrabold text-slate-900">
@@ -289,8 +383,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* EXPIRY WATCH */}
-        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <section className="premium-dashboard-panel premium-expiry-panel flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="premium-panel-header flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
 
@@ -323,7 +417,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
               return (
                 <div
                   key={m.id}
-                  className="grid grid-cols-[minmax(0,1fr)_190px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                  className="premium-alert-row grid grid-cols-[minmax(0,1fr)_190px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-extrabold text-slate-900">
@@ -386,8 +480,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
       {/* Recent Counter Bills */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+      <div className="premium-bills-panel bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="premium-bills-header p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
             <FileText className="w-4 h-4 text-teal-700" />
             <span>Recent Completed Bills (Today)</span>
@@ -401,7 +495,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="premium-bills-table w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
               <tr>
                 <th className="py-2.5 px-4">Time</th>
@@ -415,7 +509,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {salesInvoices.slice(0, 5).map(sale => (
-                <tr key={sale.id} className="hover:bg-slate-50/70">
+                <tr key={sale.id} className="premium-bill-row hover:bg-slate-50/70">
                   <td className="py-2.5 px-4 font-mono text-slate-500">{sale.time}</td>
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{sale.invoiceNumber}</td>
                   <td className="py-2.5 px-3 font-semibold text-slate-800">{sale.customerName}</td>

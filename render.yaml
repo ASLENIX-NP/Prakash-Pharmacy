@@ -1,0 +1,43 @@
+# Render Blueprint specification for Prakash Pharmacy
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ---------------------------------------------------------------------------
+  # Unified Fullstack Web Service (Backend API + Frontend SPA in ONE service)
+  # Both Frontend & Backend run together on a single port, single URL.
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: prakash-pharmacy
+    runtime: node
+    plan: free
+    buildCommand: npm run build:all
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: prakash-pharmacy-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SEED_ADMIN_USERNAME
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_ADMIN_FIRST_NAME
+        sync: false
+      - key: SEED_ADMIN_LAST_NAME
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+
+databases:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  - name: prakash-pharmacy-db
+    plan: free
+    databaseName: prakash_pharmacy
+    user: prakash_admin

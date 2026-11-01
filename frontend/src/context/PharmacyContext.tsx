@@ -18,13 +18,13 @@ import {
   stockistDemoData,
   STOCKIST_DEMO_STATUS_KEY,
 } from '../data/stockistDemoData';
-import { SALES_DEMO_STATUS_KEY } from '../data/salesDemoData';
 
 interface PharmacyContextType {
   // Authentication & Credentials
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
+  switchShift: (userId: string) => Promise<{ success: boolean; message?: string }>;
   isAdmin: boolean;
   changeStaffPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; message: string }>;
 
@@ -131,8 +131,6 @@ interface PharmacyContextType {
   // Sales & POS Billing
   salesInvoices: SaleInvoice[];
   customerSalesReturns: CustomerSalesReturn[];
-  isSalesDemoDataActive: boolean;
-  clearSalesDemoData: () => void;
 
   completeSale: (
     sale: Omit<
@@ -303,17 +301,6 @@ function initializeStockistDemoData(): Stockist[] {
   return savedStockists;
 }
 
-function initializeSalesDemoStatus(): boolean {
-  const savedSales = readStoredCollection<SaleInvoice>(STORAGE_KEYS.SALES);
-  const demoStatus = localStorage.getItem(SALES_DEMO_STATUS_KEY);
-
-  if (savedSales.length === 0 && demoStatus !== 'active' && demoStatus !== 'dismissed') {
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'active');
-    return true;
-  }
-
-  return demoStatus === 'active' && savedSales.length === 0;
-}
 
 function readStoredSettings(): PharmacySettings {
   try {
@@ -482,9 +469,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       []
     );
 
-const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
-    initializeSalesDemoStatus
-  );
 
   const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
   const settingsUpdateVersion = useRef(0);
@@ -550,6 +534,30 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
       setInventoryBackendError('');
       setStockAdjustmentHistoryBackendStatus('loading');
       setStockAdjustmentHistoryBackendError('');
+
+      // ------------------------------------------------------
+      // CURRENT USER PROFILE (All authenticated roles)
+      // ------------------------------------------------------
+      try {
+        const meRes = await apiRequest<{ success: boolean; user: any }>('/auth/me');
+        if (!cancelled && meRes?.user) {
+          const liveMe: PharmacyUser = {
+            ...meRes.user,
+            password: '',
+          };
+          setCurrentUserId(liveMe.id);
+          localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, liveMe.id);
+          setUsers(prev => {
+            const exists = prev.some(u => u.id === liveMe.id);
+            if (exists) {
+              return prev.map(u => (u.id === liveMe.id ? { ...u, ...liveMe } : u));
+            }
+            return [...prev, liveMe];
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching current user profile:', error);
+      }
 
       // ------------------------------------------------------
       // INVENTORY
@@ -627,8 +635,6 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
 
         if (!cancelled && res.data && res.data.length > 0) {
           setSalesInvoices(res.data);
-          localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-          setIsSalesDemoDataActive(false);
         }
       } catch (error) {
         console.error(
@@ -861,7 +867,11 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
         setStockists([]);
         setStockistLedgers([]);
         setPurchaseInvoices([]);
-        setUsers([]);
+        // For non-admin accounts, do not wipe the current logged-in user!
+        setUsers(prev => {
+          const activeUser = prev.find(u => u.id === currentUserId);
+          return activeUser ? [activeUser] : prev;
+        });
 
         setStockAdjustmentHistoryBackendStatus(
           'idle'
@@ -970,8 +980,68 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
 
   const logout = () => {
     localStorage.removeItem('prakash_auth_token');
-    setIsAuthenticated(false);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
     localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'false');
+    setCurrentUserId('');
+    setIsAuthenticated(false);
+  };
+
+  const switchShift = async (
+    userId: string
+  ): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        token: string;
+        user: any;
+        message?: string;
+      }>('/auth/switch-shift', {
+        method: 'POST',
+        body: JSON.stringify({ userId }),
+      });
+
+      if (!res || !res.token || !res.user) {
+        return {
+          success: false,
+          message: res?.message || 'Failed to switch shift.',
+        };
+      }
+
+      const liveUser: PharmacyUser = {
+        ...res.user,
+        password: '',
+      };
+
+      localStorage.setItem('prakash_auth_token', res.token);
+      localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, liveUser.id);
+      localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, 'true');
+
+      setUsers(prev => {
+        const exists = prev.some(user => user.id === liveUser.id);
+        if (exists) {
+          return prev.map(user =>
+            user.id === liveUser.id ? { ...user, ...liveUser } : user
+          );
+        }
+        return [...prev, liveUser];
+      });
+
+      setCurrentUserId(liveUser.id);
+      setIsAuthenticated(true);
+
+      return {
+        success: true,
+        message: res.message || `Switched shift to ${liveUser.name}`,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Unable to connect to the pharmacy server',
+      };
+    }
   };
 
   const changeStaffPassword = async (
@@ -992,11 +1062,15 @@ const [isSalesDemoDataActive, setIsSalesDemoDataActive] = useState(
     const cleanPassword =
       newPassword.trim();
 
-    if (cleanPassword.length < 6) {
+    if (
+      cleanPassword.length < 8 ||
+      !/[a-zA-Z]/.test(cleanPassword) ||
+      !/[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(cleanPassword)
+    ) {
       return {
         success: false,
         message:
-          'Password must be at least 6 characters long!'
+          'Password must be at least 8 characters and contain at least one letter and one number or symbol!'
       };
     }
 
@@ -2284,6 +2358,23 @@ const response =
     if (updates.email !== undefined)
       payload.email = updates.email;
 
+    if (updates.notes !== undefined)
+      payload.notes = updates.notes;
+
+    if (updates.status !== undefined)
+      payload.status = updates.status;
+
+    // Handle client-side demo data
+    if (id.startsWith('demo-')) {
+      setStockists(prev =>
+        prev.map(stockist =>
+          stockist.id === id
+            ? { ...stockist, ...updates }
+            : stockist
+        )
+      );
+      return;
+    }
 
     // Some old frontend-only workflows still update only the
     // displayed balance. Do not send an empty PUT to PostgreSQL.
@@ -2490,52 +2581,56 @@ const response =
       'id' | 'invoiceNumber' | 'createdAt' | 'fiscalYear'
     >
   ): Promise<SaleInvoice> => {
-    const invoicePrefix =
-      settings.invoicePrefix ||
-      'PP-2081/82-';
+    /*
+     * The backend owns invoice numbering. The browser sends only a durable
+     * checkout request ID so retries can return the already-committed bill
+     * without deducting stock twice.
+     */
+    const checkoutFingerprint = JSON.stringify({
+      customerName: saleData.customerName || '',
+      customerPhone: saleData.customerPhone || '',
+      customerPan: saleData.customerPan || '',
+      doctorName: saleData.doctorName || '',
+      paymentMode: saleData.paymentMode,
+      discountType: saleData.discountType,
+      discountValue: saleData.discountValue,
+      cashTendered: saleData.cashTendered,
+      items: saleData.items.map(item => ({
+        inventoryId: item.inventoryId || item.medicineId,
+        quantity: item.quantity,
+        isLooseUnit: item.isLooseUnit,
+      })),
+    });
 
-    const lastUsedInvoiceNumber =
-      salesInvoices.reduce(
-        (highest, sale) => {
-          if (
-            !sale.invoiceNumber.startsWith(
-              invoicePrefix
-            )
-          ) {
-            return highest;
-          }
+    const pendingFingerprintKey =
+      'prakash_pending_checkout_fingerprint';
+    const pendingRequestIdKey =
+      'prakash_pending_checkout_request_id';
 
-          const suffix = Number(
-            sale.invoiceNumber.slice(
-              invoicePrefix.length
-            )
-          );
+    const previousFingerprint =
+      sessionStorage.getItem(pendingFingerprintKey);
+    const previousRequestId =
+      sessionStorage.getItem(pendingRequestIdKey);
 
-          return Number.isInteger(suffix)
-            ? Math.max(
-                highest,
-                suffix
-              )
-            : highest;
-        },
-        0
+    let clientRequestId =
+      previousFingerprint === checkoutFingerprint && previousRequestId
+        ? previousRequestId
+        : '';
+
+    if (!clientRequestId) {
+      clientRequestId =
+        globalThis.crypto?.randomUUID?.() ||
+        `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+      sessionStorage.setItem(
+        pendingFingerprintKey,
+        checkoutFingerprint
       );
-
-    const invoiceSequence =
-      Math.max(
-        settings.nextInvoiceNumber ||
-          101,
-        lastUsedInvoiceNumber + 1
+      sessionStorage.setItem(
+        pendingRequestIdKey,
+        clientRequestId
       );
-
-    const invoiceSeq =
-      invoiceSequence
-        .toString()
-        .padStart(5, '0');
-
-    const invoiceNumber =
-      `${invoicePrefix}${invoiceSeq}`;
-
+    }
 
     const reloadInventoryAfterSale =
       async () => {
@@ -2575,14 +2670,13 @@ const response =
         await apiRequest<{
           success: boolean;
           data: SaleInvoice;
+          replayed?: boolean;
         }>('/bills', {
           method: 'POST',
 
           body: JSON.stringify({
             ...saleData,
-
-            invoiceNumber,
-
+            clientRequestId,
             cashierId:
               saleData.cashierId ||
               currentUser?.id,
@@ -2605,13 +2699,11 @@ const response =
        * PostgreSQL has now committed the bill.
        * Only now may the frontend treat the sale as completed.
        */
-      localStorage.setItem(
-        SALES_DEMO_STATUS_KEY,
-        'dismissed'
+      sessionStorage.removeItem(
+        pendingFingerprintKey
       );
-
-      setIsSalesDemoDataActive(
-        false
+      sessionStorage.removeItem(
+        pendingRequestIdKey
       );
 
 
@@ -2631,19 +2723,32 @@ const response =
 
 
       /*
-       * Advance the local invoice sequence only after
-       * PostgreSQL successfully created the invoice.
+       * Keep the local display of the next invoice sequence aligned with the
+       * database-issued invoice, but never use it to issue the invoice itself.
        */
-      setSettings(previous => ({
-        ...previous,
+      const configuredPrefix =
+        settings.invoicePrefix || '';
 
-        nextInvoiceNumber:
-          Math.max(
-            previous.nextInvoiceNumber ||
-              101,
-            invoiceSequence + 1
-          ),
-      }));
+      if (
+        configuredPrefix &&
+        savedInvoice.invoiceNumber.startsWith(configuredPrefix)
+      ) {
+        const issuedNumber = Number(
+          savedInvoice.invoiceNumber.slice(
+            configuredPrefix.length
+          )
+        );
+
+        if (Number.isInteger(issuedNumber)) {
+          setSettings(previous => ({
+            ...previous,
+            nextInvoiceNumber: Math.max(
+              previous.nextInvoiceNumber || 1,
+              issuedNumber + 1
+            ),
+          }));
+        }
+      }
 
 
       /*
@@ -2666,7 +2771,9 @@ const response =
        * Nothing was optimistically inserted into salesInvoices,
        * so there is no fake invoice to remove.
        *
-       * Reload live stock in case the browser was stale.
+       * Keep the pending checkout request ID. If PostgreSQL committed but the
+       * response was lost, retrying the unchanged cart will reuse this ID and
+       * the backend will return the existing bill instead of selling twice.
        */
       try {
         await reloadInventoryAfterSale();
@@ -2768,11 +2875,6 @@ const response =
     };
   };
 
-  const clearSalesDemoData = () => {
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-    setIsSalesDemoDataActive(false);
-  };
-
   const updateSettings = async (updates: Partial<PharmacySettings>): Promise<void> => {
     settingsUpdateVersion.current += 1;
 
@@ -2823,8 +2925,6 @@ const response =
     localStorage.removeItem(STORAGE_KEYS.RACKS);
     localStorage.setItem(STOCKIST_DEMO_STATUS_KEY, 'dismissed');
     setIsStockistDemoDataActive(false);
-    localStorage.setItem(SALES_DEMO_STATUS_KEY, 'dismissed');
-    setIsSalesDemoDataActive(false);
   };
 
   return (
@@ -2833,6 +2933,7 @@ const response =
         isAuthenticated,
         login,
         logout,
+        switchShift,
         isAdmin,
         changeStaffPassword,
 
@@ -2880,8 +2981,6 @@ const response =
 
         salesInvoices,
         customerSalesReturns,
-        isSalesDemoDataActive,
-        clearSalesDemoData,
         completeSale,
         returnSaleItems,
         refreshLiveBills,

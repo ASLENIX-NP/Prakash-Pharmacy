@@ -1,7 +1,11 @@
 import express from "express";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import rateLimit from "express-rate-limit";
 import { checkDatabaseConnection } from "./db.js";
 import authRoutes from "./routes/auth.routes.js";
 import rackRoutes from "./routes/rack.routes.js";
@@ -16,28 +20,59 @@ import reportRoutes from "./routes/report.routes.js";
 import doctorRoutes from "./routes/doctor.routes.js";
 import clinicPatientRoutes from "./routes/clinic-patient.routes.js";
 import clinicVisitRoutes from "./routes/clinic-visit.routes.js";
+import { requireAuth, requireAdmin } from "./middleware/auth.middleware.js";
 
 const app = express();
 
-app.use(helmet());
+const currentFileDir = path.dirname(fileURLToPath(import.meta.url));
+const candidateDistPaths = [
+  path.resolve(process.cwd(), "frontend/dist"),
+  path.resolve(process.cwd(), "../frontend/dist"),
+  path.resolve(currentFileDir, "../../frontend/dist"),
+  path.resolve(currentFileDir, "../../../frontend/dist"),
+];
 
-const allowedOrigins = [
+const resolvedFrontendDist = candidateDistPaths.find((p) => fs.existsSync(p));
+
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow Vite SPA bundled scripts/assets to load cleanly
+}));
+
+const configuredOrigins = [
   process.env.FRONTEND_URL,
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:5173",
-].filter(Boolean) as string[];
+  process.env.CORS_ORIGINS,
+]
+  .filter(Boolean)
+  .flatMap((value) => String(value).split(","))
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const developmentOrigins =
+  process.env.NODE_ENV === "production"
+    ? []
+    : [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+      ];
+
+const allowedOrigins = new Set([
+  ...configuredOrigins,
+  ...developmentOrigins,
+]);
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or Postman)
-      if (!origin || allowedOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
+      // Requests without Origin (server-to-server, curl, Postman) do not need
+      // browser CORS permission. Browser origins must be explicitly allowed.
+      if (!origin || allowedOrigins.has(origin)) {
         callback(null, true);
-      } else {
-        callback(null, true); // Permissive during development to avoid blocking team
+        return;
       }
+
+      callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -49,35 +84,98 @@ app.use(express.json({ limit: '3mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
-// Health check endpoint verifying both backend & PostgreSQL
-app.get(["/", "/api/health"], async (_req, res) => {
-  const dbHealth = await checkDatabaseConnection();
-
-  const response = {
-    success: dbHealth.connected,
-    message: dbHealth.connected
-      ? "🚀 Backend is running successfully and PostgreSQL is connected!"
-      : "⚠️ Backend is running, but PostgreSQL connection failed.",
-    timestamp: new Date().toISOString(),
-    services: {
-      backend: {
-        status: "RUNNING",
-        uptimeSeconds: Math.floor(process.uptime()),
-        nodeVersion: process.version,
-      },
-      postgres: {
-        status: dbHealth.connected ? "CONNECTED" : "DISCONNECTED",
-        database: dbHealth.database ?? "unknown",
-        user: dbHealth.user ?? "unknown",
-        version: dbHealth.version ?? "unknown",
-        error: dbHealth.error ?? null,
-      },
-    },
-  };
-
-  res.status(dbHealth.connected ? 200 : 503).json(response);
+// Rate limiting configurations
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each client IP to 1000 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests from this client. Please slow down and try again shortly.",
+  },
 });
 
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30, // Limit authentication endpoints to 30 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication requests from this IP. Please try again after 15 minutes.",
+  },
+});
+
+const backupRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit database backup downloads to 10 requests per 15 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many database backup requests. Please wait a few minutes before requesting another download.",
+  },
+});
+
+// Apply rate limiting
+app.use("/api", apiLimiter);
+app.use("/api/auth", authRateLimiter);
+app.use("/api/reports/backup", backupRateLimiter);
+
+// Public health endpoint: intentionally minimal so it cannot disclose
+// database/user/version metadata to unauthenticated callers.
+app.get("/api/health", async (_req, res) => {
+  const dbHealth = await checkDatabaseConnection();
+
+  res.status(dbHealth.connected ? 200 : 503).json({
+    success: dbHealth.connected,
+    status: dbHealth.connected ? "ok" : "degraded",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+if (!resolvedFrontendDist) {
+  app.get("/", async (_req, res) => {
+    const dbHealth = await checkDatabaseConnection();
+
+    res.status(dbHealth.connected ? 200 : 503).json({
+      success: dbHealth.connected,
+      status: dbHealth.connected ? "ok" : "degraded",
+      timestamp: new Date().toISOString(),
+    });
+  });
+}
+
+// Detailed diagnostics are useful for deployment/QA, but are administrative
+// information and therefore require a current Admin identity.
+app.get(
+  "/api/health/details",
+  requireAuth,
+  requireAdmin,
+  async (_req, res) => {
+    const dbHealth = await checkDatabaseConnection();
+
+    res.status(dbHealth.connected ? 200 : 503).json({
+      success: dbHealth.connected,
+      timestamp: new Date().toISOString(),
+      services: {
+        backend: {
+          status: "RUNNING",
+          uptimeSeconds: Math.floor(process.uptime()),
+          nodeVersion: process.version,
+        },
+        postgres: {
+          status: dbHealth.connected ? "CONNECTED" : "DISCONNECTED",
+          database: dbHealth.database ?? "unknown",
+          user: dbHealth.user ?? "unknown",
+          version: dbHealth.version ?? "unknown",
+          error: dbHealth.error ?? null,
+        },
+      },
+    });
+  }
+);
 // API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/racks", rackRoutes);
@@ -96,5 +194,17 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/clinic-patients", clinicPatientRoutes);
 app.use("/api/clinic-visits", clinicVisitRoutes);
+
+// If the frontend build is present, serve it directly (Unified Single-Service Fullstack Mode)
+if (resolvedFrontendDist) {
+  app.use(express.static(resolvedFrontendDist));
+  app.use((req, res, next) => {
+    if (req.method === "GET" && !req.path.startsWith("/api")) {
+      res.sendFile(path.join(resolvedFrontendDist, "index.html"));
+      return;
+    }
+    next();
+  });
+}
 
 export default app;

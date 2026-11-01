@@ -7,6 +7,8 @@ import React, {
 import {
   Calendar,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Eye,
   History,
@@ -25,6 +27,7 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { apiRequest } from '../services/api';
 import { printOpdSticker } from '../utils/opdSticker';
+import { displayAge } from './NewOpdPanel';
 
 
 interface ClinicPatient {
@@ -34,6 +37,8 @@ interface ClinicPatient {
   phone: string | null;
   gender: string | null;
   ageYears: number | null;
+  ageMonths?: number | null;
+  ageUnit?: string | null;
   address: string | null;
 }
 
@@ -66,6 +71,8 @@ interface ClinicVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
 
   consultationFee: number;
   additionalCharge: number;
@@ -107,6 +114,8 @@ interface PatientHistoryVisit {
 
   visitDateTime: string;
   ageAtVisit: number | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
 
   consultationFee: number;
   additionalCharge: number;
@@ -218,6 +227,8 @@ export const OpdRecordsPanel: React.FC = () => {
   ] =
     useState<ClinicVisit[]>([]);
   const [cancelingVisitId, setCancelingVisitId] = useState<string | null>(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
 
 
   const [
@@ -489,10 +500,7 @@ export const OpdRecordsPanel: React.FC = () => {
           null
         );
       }
-
-      await fetchVisits(
-        filters
-      );
+      await fetchVisits(filters);
     } catch (err) {
       showToast(
         err instanceof Error
@@ -691,6 +699,21 @@ export const OpdRecordsPanel: React.FC = () => {
           ),
       [visits]
     );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, visits.length]);
+
+  const PAGE_SIZE = 10;
+  const totalPages = Math.max(1, Math.ceil(visits.length / PAGE_SIZE));
+
+  const paginatedVisits = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return visits.slice(start, start + PAGE_SIZE);
+  }, [visits, currentPage]);
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, visits.length);
 
 
   const completionFinalTotal =
@@ -1015,7 +1038,7 @@ export const OpdRecordsPanel: React.FC = () => {
 
 
       {/* Operational Summary */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${isAdmin ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <span className="text-xs font-bold text-slate-500">
@@ -1049,18 +1072,19 @@ export const OpdRecordsPanel: React.FC = () => {
           </strong>
         </div>
 
+        {isAdmin && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+            <span className="text-xs font-bold text-emerald-700">
+              Finalized Revenue
+            </span>
 
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
-          <span className="text-xs font-bold text-emerald-700">
-            Finalized Revenue
-          </span>
-
-          <strong className="mt-2 block font-mono text-2xl font-extrabold text-emerald-800">
-            {money(
-              finalizedRevenue
-            )}
-          </strong>
-        </div>
+            <strong className="mt-2 block font-mono text-2xl font-extrabold text-emerald-800">
+              {money(
+                finalizedRevenue
+              )}
+            </strong>
+          </div>
+        )}
 
       </div>
 
@@ -1456,8 +1480,11 @@ export const OpdRecordsPanel: React.FC = () => {
 
               <span className="mt-1 block text-xs text-slate-500">
                 Age:{' '}
-                {selectedVisit.ageAtVisit ??
-                  '—'}
+                {displayAge(
+                  selectedVisit.ageAtVisit,
+                  selectedVisit.ageMonthsAtVisit,
+                  selectedVisit.ageUnitAtVisit
+                )}
                 {selectedVisit.patient.gender
                   ? ` / ${selectedVisit.patient.gender}`
                   : ''}
@@ -1953,24 +1980,45 @@ export const OpdRecordsPanel: React.FC = () => {
       {/* Records Table */}
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
 
-        <div className="border-b border-slate-200 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-base font-extrabold text-slate-900">
+              OPD Records
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {visits.length === 0
+                ? 'No records'
+                : `Showing ${startIndex + 1}–${endIndex} of ${visits.length} record${visits.length === 1 ? '' : 's'}`}
+            </p>
+          </div>
 
-          <h2 className="text-base font-extrabold text-slate-900">
-            OPD Records
-          </h2>
-
-          <p className="mt-1 text-xs text-slate-500">
-            {
-              visits.length
-            }{' '}
-            record
-            {visits.length ===
-            1
-              ? ''
-              : 's'}{' '}
-            shown
-          </p>
-
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-500">
+                Page {currentPage} of {totalPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  title="Next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
 
@@ -2040,7 +2088,7 @@ export const OpdRecordsPanel: React.FC = () => {
 
               <tbody className="divide-y divide-slate-100">
 
-                {visits.map(
+                {paginatedVisits.map(
                   (visit) => (
                     <tr
                       key={
@@ -2082,10 +2130,14 @@ export const OpdRecordsPanel: React.FC = () => {
                         </div>
 
                         <div className="mt-0.5 text-[10px] text-slate-400">
-                          {
-                            visit.patient.phone ||
-                            ''
-                          }
+                          {visit.patient.phone || ''}
+                          {(visit.ageAtVisit !== null || visit.ageMonthsAtVisit !== undefined) && (
+                            <span>
+                              {visit.patient.phone ? ' · ' : ''}
+                              {displayAge(visit.ageAtVisit, visit.ageMonthsAtVisit, visit.ageUnitAtVisit)}
+                              {visit.patient.gender ? ` (${visit.patient.gender})` : ''}
+                            </span>
+                          )}
                         </div>
 
                       </td>
@@ -2246,6 +2298,65 @@ export const OpdRecordsPanel: React.FC = () => {
               </tbody>
 
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+                <div className="text-xs font-medium text-slate-600">
+                  Showing <span className="font-bold text-slate-900">{startIndex + 1}</span> to{' '}
+                  <span className="font-bold text-slate-900">{endIndex}</span> of{' '}
+                  <span className="font-bold text-slate-900">{visits.length}</span> records
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    Previous
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                      .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                      .map((p, idx, arr) => {
+                        const prev = arr[idx - 1];
+                        return (
+                          <React.Fragment key={p}>
+                            {prev && p - prev > 1 && (
+                              <span className="px-1 text-xs text-slate-400">...</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setCurrentPage(p)}
+                              className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-bold transition ${
+                                currentPage === p
+                                  ? 'bg-teal-700 text-white shadow-2xs'
+                                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
+                  >
+                    Next
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
 
           </div>
         )}

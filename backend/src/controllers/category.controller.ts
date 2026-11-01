@@ -57,8 +57,13 @@ export const createCategory = async (req: Request, res: Response): Promise<void>
 
     const trimmedName = name.trim();
 
-    const existing = await prisma.category.findUnique({
-      where: { name: trimmedName },
+    const existing = await prisma.category.findFirst({
+      where: {
+        name: {
+          equals: trimmedName,
+          mode: "insensitive",
+        },
+      },
     });
 
     if (existing) {
@@ -133,7 +138,10 @@ export const updateCategory = async (req: Request, res: Response): Promise<void>
 
     const duplicate = await prisma.category.findFirst({
       where: {
-        name: trimmedName,
+        name: {
+          equals: trimmedName,
+          mode: "insensitive",
+        },
         NOT: { id: categoryId },
       },
     });

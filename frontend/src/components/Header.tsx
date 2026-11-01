@@ -151,7 +151,9 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                     ? 'bg-purple-100 text-purple-900 border-purple-200'
                     : 'bg-emerald-100 text-emerald-900 border-emerald-200'
                 }`}>
-                  {isAdmin ? 'Admin (Full Access)' : 'Staff (Sales & Billing)'}
+                  {isAdmin
+                    ? 'Admin (Full Access)'
+                    : `Staff${currentUser?.shiftTiming ? ` (${currentUser.shiftTiming})` : ' (Sales & Billing)'}`}
                 </span>
               </div>
             </div>

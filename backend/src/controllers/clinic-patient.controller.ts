@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db.js";
 
 
@@ -268,6 +268,12 @@ const formatPatient = (
   ageYears:
     patient.ageYears ?? null,
 
+  ageMonths:
+    patient.ageMonths ?? null,
+
+  ageUnit:
+    patient.ageUnit ?? "years",
+
   address:
     patient.address ?? "",
 
@@ -473,6 +479,8 @@ export const createClinicPatient = async (
       phone,
       gender,
       ageYears,
+      ageMonths,
+      ageUnit,
       address,
     } = req.body;
 
@@ -513,6 +521,16 @@ export const createClinicPatient = async (
       }
     }
 
+    let parsedMonths: number | null = null;
+    if (ageMonths !== undefined && ageMonths !== null && String(ageMonths).trim() !== "") {
+      const m = Number(ageMonths);
+      if (Number.isInteger(m) && m >= 0 && m <= 120) {
+        parsedMonths = m;
+      }
+    }
+
+    const cleanUnit = ageUnit === "months" || ageUnit === "days" ? ageUnit : "years";
+
     const patient =
       await prisma.clinicPatient.create({
         data: {
@@ -531,6 +549,12 @@ export const createClinicPatient = async (
 
           ageYears:
             parsedAge,
+
+          ageMonths:
+            parsedMonths,
+
+          ageUnit:
+            cleanUnit,
 
           address:
             normalizeOptionalString(
@@ -606,6 +630,8 @@ export const updateClinicPatient = async (
       phone,
       gender,
       ageYears,
+      ageMonths,
+      ageUnit,
       address,
     } = req.body;
 
@@ -614,6 +640,8 @@ export const updateClinicPatient = async (
       phone?: string | null;
       gender?: string | null;
       ageYears?: number | null;
+      ageMonths?: number | null;
+      ageUnit?: string | null;
       address?: string | null;
     } = {};
 
@@ -682,6 +710,21 @@ export const updateClinicPatient = async (
         updateData.ageYears =
           parsedAge;
       }
+    }
+
+    if (ageMonths !== undefined) {
+      if (ageMonths === null || String(ageMonths).trim() === "") {
+        updateData.ageMonths = null;
+      } else {
+        const m = Number(ageMonths);
+        if (Number.isInteger(m) && m >= 0 && m <= 120) {
+          updateData.ageMonths = m;
+        }
+      }
+    }
+
+    if (ageUnit !== undefined) {
+      updateData.ageUnit = ageUnit === "months" || ageUnit === "days" ? ageUnit : "years";
     }
 
     const updated =

@@ -1,14 +1,15 @@
 const configuredBaseUrl =
   import.meta.env.VITE_API_URL?.trim();
 
-const BASE_URL =
-  (
-    configuredBaseUrl ||
-    '/api'
-  ).replace(
-    /\/+$/,
-    ''
-  );
+let normalizedBaseUrl = configuredBaseUrl || '/api';
+if (configuredBaseUrl && !/^https?:\/\//i.test(configuredBaseUrl) && !configuredBaseUrl.startsWith('/')) {
+  normalizedBaseUrl = `https://${configuredBaseUrl}`;
+}
+if (normalizedBaseUrl.startsWith('http') && !normalizedBaseUrl.endsWith('/api') && !normalizedBaseUrl.includes('/api/')) {
+  normalizedBaseUrl = `${normalizedBaseUrl.replace(/\/+$/, '')}/api`;
+}
+
+const BASE_URL = normalizedBaseUrl.replace(/\/+$/, '');
 
 export class ApiError extends Error {
   status: number;

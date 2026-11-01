@@ -59,7 +59,7 @@ interface ClinicVisit {
 
   totalCharge: number;
 
-  status: 'open' | 'completed';
+  status: 'open' | 'completed' | 'cancelled' | 'voided';
   completedAt: string | null;
 }
 
@@ -713,13 +713,15 @@ export const ClinicReportsPanel: React.FC = () => {
 
 
       const statusLabel =
-        filters.status ===
-        'open'
+        filters.status === 'open'
           ? 'Open Visits'
-          : filters.status ===
-            'completed'
+          : filters.status === 'completed'
             ? 'Completed Visits'
-            : 'All Visits';
+            : filters.status === 'cancelled'
+              ? 'Cancelled Visits'
+              : filters.status === 'voided'
+                ? 'Voided Visits'
+                : 'All Visits';
 
 
       const rows =
@@ -766,10 +768,7 @@ export const ClinicReportsPanel: React.FC = () => {
 
   <td>
     ${escapeHtml(
-      visit.status ===
-      'open'
-        ? 'OPEN'
-        : 'COMPLETED'
+      String(visit.status).toUpperCase()
     )}
   </td>
 
@@ -783,8 +782,8 @@ export const ClinicReportsPanel: React.FC = () => {
 
   <td class="money">
     ${
-      visit.status ===
-      'completed'
+      (visit.status ===
+      'completed' || visit.status === 'voided')
         ? escapeHtml(
             money(
               visit.additionalCharge
@@ -803,14 +802,13 @@ export const ClinicReportsPanel: React.FC = () => {
 
   <td class="money">
     ${
-      visit.status ===
-      'completed'
-        ? escapeHtml(
-            money(
-              visit.totalCharge
-            )
-          )
-        : '<strong>Pending</strong>'
+      visit.status === 'completed'
+        ? escapeHtml(money(visit.totalCharge))
+        : visit.status === 'voided'
+          ? `<strong>VOIDED</strong><br />${escapeHtml(money(visit.totalCharge))}`
+          : visit.status === 'cancelled'
+            ? '<strong>CANCELLED</strong>'
+            : '<strong>Pending</strong>'
     }
   </td>
 </tr>`
@@ -1288,6 +1286,12 @@ export const ClinicReportsPanel: React.FC = () => {
 
               <option value="completed">
                 Completed
+              </option>
+              <option value="cancelled">
+                Cancelled
+              </option>
+              <option value="voided">
+                Voided
               </option>
             </select>
           </div>
@@ -1783,10 +1787,13 @@ export const ClinicReportsPanel: React.FC = () => {
 
                         <span
                           className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${
-                            visit.status ===
-                            'open'
+                            visit.status === 'open'
                               ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800'
+                              : visit.status === 'completed'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : visit.status === 'cancelled'
+                                  ? 'bg-slate-200 text-slate-700'
+                                  : 'bg-rose-100 text-rose-800'
                           }`}
                         >
                           {
@@ -1805,11 +1812,8 @@ export const ClinicReportsPanel: React.FC = () => {
 
 
                       <td className="px-4 py-4 text-right font-mono text-xs text-slate-700">
-                        {visit.status ===
-                        'completed'
-                          ? money(
-                              visit.additionalCharge
-                            )
+                        {visit.status === 'completed' || visit.status === 'voided'
+                          ? money(visit.additionalCharge)
                           : '—'}
                       </td>
 
@@ -1823,12 +1827,13 @@ export const ClinicReportsPanel: React.FC = () => {
 
 
                       <td className="px-5 py-4 text-right font-mono text-xs font-extrabold text-slate-900">
-                        {visit.status ===
-                        'completed'
-                          ? money(
-                              visit.totalCharge
-                            )
-                          : 'Pending'}
+                        {visit.status === 'completed'
+                          ? money(visit.totalCharge)
+                          : visit.status === 'voided'
+                            ? `Voided — ${money(visit.totalCharge)}`
+                            : visit.status === 'cancelled'
+                              ? 'Cancelled'
+                              : 'Pending'}
                       </td>
 
                     </tr>

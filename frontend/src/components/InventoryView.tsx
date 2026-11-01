@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Layers, 
   Search, 
@@ -22,7 +22,9 @@ import {
   X,
   Building,
   FileText,
-  CheckCircle2
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -34,6 +36,7 @@ import {
 } from '../utils/excelUtils';
 import { decimalInputValue, digitsOnlyUpTo, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import { RacksManagerModal } from './RacksManagerModal';
+import { localDateString } from '../utils/date';
 
 const MEDICINE_CATEGORIES: MedicineCategory[] = [
   'Tablet',
@@ -103,8 +106,11 @@ export const InventoryView: React.FC = () => {
   const [newDistributorName, setNewDistributorName] = useState('');
   const [newDistributorPhone, setNewDistributorPhone] = useState('');
   const [newDistributorPan, setNewDistributorPan] = useState('');
+  const [newDistributorCreditLimit, setNewDistributorCreditLimit] = useState<number | string>(200000);
+  const [newDistributorAddress, setNewDistributorAddress] = useState('Hetauda, Makwanpur');
+  const [newDistributorContactPerson, setNewDistributorContactPerson] = useState('');
   const [billInvoiceNumber, setBillInvoiceNumber] = useState('');
-  const [billDate, setBillDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [billDate, setBillDate] = useState(() => localDateString());
   const [billPaymentMode, setBillPaymentMode] = useState<'credit' | 'cash'>('credit');
   const [billDueDate, setBillDueDate] = useState('');
 
@@ -115,6 +121,8 @@ export const InventoryView: React.FC = () => {
   const [manualNewDistributorName, setManualNewDistributorName] = useState('');
   const [manualNewDistributorPhone, setManualNewDistributorPhone] = useState('');
   const [manualNewDistributorPan, setManualNewDistributorPan] = useState('');
+  const [manualNewDistributorCreditLimit, setManualNewDistributorCreditLimit] = useState<number | string>(200000);
+  const [manualNewDistributorAddress, setManualNewDistributorAddress] = useState('Hetauda, Makwanpur');
   const [formData, setFormData] = useState<Partial<Medicine>>({
     name: '',
     genericName: '',
@@ -132,7 +140,9 @@ export const InventoryView: React.FC = () => {
     rackLocation: 'Rack A-1',
     isVatApplicable: false,
     barcode: '',
-    notes: ''
+    notes: '',
+    saleStatus: 'SELLABLE',
+    safetyReason: ''
   });
 
   // Calculate bill totals dynamically (factoring in both full packs and loose tabs)
@@ -246,8 +256,8 @@ export const InventoryView: React.FC = () => {
       name: '',
       genericName: '',
       category: 'Tablet',
-      batchNumber: `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-      expiryDate: '2027-12-31',
+      batchNumber: '',
+      expiryDate: '',
       stockPacks: undefined,
       stockLooseUnits: undefined,
       unitsPerPack: undefined,
@@ -259,7 +269,9 @@ export const InventoryView: React.FC = () => {
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
       barcode: '',
-      notes: ''
+      notes: '',
+      saleStatus: 'SELLABLE',
+      safetyReason: ''
     });
     setShowEditModal(true);
   };
@@ -313,10 +325,21 @@ export const InventoryView: React.FC = () => {
       }
     }
 
+    if (!String(formData.batchNumber || '').trim()) {
+      showToast('Batch Number is required. It will not be auto-generated.', 'warning', 'Validation');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(formData.expiryDate || '').trim())) {
+      showToast('A valid Expiry Date is required.', 'warning', 'Validation');
+      return;
+    }
+
     const normalizedFormData = {
       ...formData,
       name: medicineName,
-      genericName
+      genericName,
+      batchNumber: String(formData.batchNumber).trim(),
+      expiryDate: String(formData.expiryDate).trim()
     };
 
     const requiredNumbers = [
@@ -344,13 +367,15 @@ export const InventoryView: React.FC = () => {
 
     if (manualDistributorMode === 'new' && manualNewDistributorName.trim()) {
       try {
+        const parsedCreditLimit = Number(manualNewDistributorCreditLimit);
+        const finalCreditLimit = !isNaN(parsedCreditLimit) && parsedCreditLimit >= 0 ? parsedCreditLimit : 200000;
         const createdDist = await addStockist({
           name: manualNewDistributorName.trim(),
           phone: manualNewDistributorPhone.trim() || '9800000000',
           panNumber: manualNewDistributorPan.trim() || '',
-          address: 'Makwanpur, Nepal',
+          address: manualNewDistributorAddress.trim() || 'Hetauda, Makwanpur',
           contactPerson: '',
-          creditLimit: 500000,
+          creditLimit: finalCreditLimit,
           email: ''
         });
         supplierId = createdDist.id;
@@ -394,13 +419,10 @@ export const InventoryView: React.FC = () => {
       setImportErrors(res.errors);
 
       if (res.success.length > 0) {
-        if (!billInvoiceNumber) {
-          setBillInvoiceNumber(`BILL-${Math.floor(1000 + Math.random() * 9000)}`);
-        }
         const today = new Date();
         const nextMonth = new Date(today);
         nextMonth.setDate(nextMonth.getDate() + 30);
-        setBillDueDate(nextMonth.toISOString().split('T')[0]);
+        setBillDueDate(localDateString(nextMonth));
 
         // Auto-detect supplier from sheet if present
         const sheetSuppliers = Array.from(new Set(res.success.map(item => item.supplierName?.trim()).filter(Boolean) as string[]));
@@ -416,6 +438,10 @@ export const InventoryView: React.FC = () => {
           } else {
             setBillDistributorMode('new');
             setNewDistributorName(detectedSupplier);
+            const detectedCredit = res.success.find(it => it.supplierCreditLimit && it.supplierCreditLimit > 0)?.supplierCreditLimit;
+            if (detectedCredit) {
+              setNewDistributorCreditLimit(detectedCredit);
+            }
           }
         } else if (!selectedDistributorId && stockists.length > 0) {
           setSelectedDistributorId(stockists[0].id);
@@ -436,6 +462,19 @@ export const InventoryView: React.FC = () => {
       setIsSubmittingImport(true);
 
       if (importType === 'bill') {
+        if (!billInvoiceNumber.trim()) {
+          showToast('Enter the actual wholesaler invoice number. The system will not fabricate one.', 'warning', 'Validation');
+          return;
+        }
+        const invalidTraceabilityRow = parsedImportItems.findIndex(item =>
+          !String(item.batchNumber || '').trim() ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(String(item.expiryDate || '').trim())
+        );
+        if (invalidTraceabilityRow >= 0) {
+          showToast(`Imported row ${invalidTraceabilityRow + 1} is missing a real batch number or expiry date. Correct the source file and import again.`, 'warning', 'Validation');
+          return;
+        }
+
         let finalStockistId = selectedDistributorId;
         let finalStockistName = '';
         let finalStockistPan = '';
@@ -446,13 +485,16 @@ export const InventoryView: React.FC = () => {
             setIsSubmittingImport(false);
             return;
           }
+          const parsedCreditLimit = Number(newDistributorCreditLimit);
+          const finalCreditLimit = !isNaN(parsedCreditLimit) && parsedCreditLimit >= 0 ? parsedCreditLimit : 200000;
+
           const created = await addStockist({
             name: newDistributorName.trim(),
             phone: newDistributorPhone.trim() || '9800000000',
             panNumber: newDistributorPan.trim() || '',
-            address: 'Makwanpur, Nepal',
-            contactPerson: '',
-            creditLimit: 500000,
+            address: newDistributorAddress.trim() || 'Hetauda, Makwanpur',
+            contactPerson: newDistributorContactPerson.trim() || '',
+            creditLimit: finalCreditLimit,
             email: ''
           });
           finalStockistId = created.id;
@@ -470,7 +512,7 @@ export const InventoryView: React.FC = () => {
           finalStockistPan = existing.panNumber || '';
         }
 
-        const invNum = billInvoiceNumber.trim() || `BILL-${Math.floor(1000 + Math.random() * 9000)}`;
+        const invNum = billInvoiceNumber.trim();
 
         const invoiceItems: StockistInvoiceItem[] = parsedImportItems.map((item, idx) => {
           const packs = Number(item.stockPacks) || 0;
@@ -485,8 +527,8 @@ export const InventoryView: React.FC = () => {
             medicineName: item.name,
             genericName: item.genericName || '',
             category: item.category || 'Tablet',
-            batchNumber: item.batchNumber || `BAT-${Math.floor(1000 + Math.random() * 9000)}`,
-            expiryDate: item.expiryDate || '2028-12-31',
+            batchNumber: item.batchNumber || '',
+            expiryDate: item.expiryDate || '',
             packQty: packs,
             looseUnits: loose,
             freePacks: 0,
@@ -957,50 +999,140 @@ export const InventoryView: React.FC = () => {
                     </div>
 
                     {billDistributorMode === 'existing' ? (
-                      <select
-                        value={selectedDistributorId}
-                        onChange={(e) => setSelectedDistributorId(e.target.value)}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
-                      >
-                        {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
-                        {stockists.map(s => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="space-y-2">
+                        <select
+                          value={selectedDistributorId}
+                          onChange={(e) => setSelectedDistributorId(e.target.value)}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
+                        >
+                          {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
+                          {stockists.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
+                            </option>
+                          ))}
+                        </select>
+                        {(() => {
+                          const selectedStockist = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
+                          if (!selectedStockist) return null;
+                          const availableCredit = Math.max(0, selectedStockist.creditLimit - selectedStockist.currentBalance);
+                          const isOverCredit = billPaymentMode === 'credit' && parsedImportItems.length > 0 && selectedStockist.creditLimit > 0 && billCalculations.grandTotal > availableCredit;
+                          return (
+                            <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-teal-50/70 border border-teal-200 text-xs">
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Credit Limit</span>
+                                  <span className="font-bold font-mono text-slate-800">Rs. {selectedStockist.creditLimit.toLocaleString()}</span>
+                                </div>
+                                <div className="h-6 w-px bg-teal-200" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Current Liability</span>
+                                  <span className={`font-bold font-mono ${selectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                                    Rs. {selectedStockist.currentBalance.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="h-6 w-px bg-teal-200" />
+                                <div>
+                                  <span className="text-[10px] text-slate-500 block">Available Credit</span>
+                                  <span className="font-bold font-mono text-teal-800">
+                                    Rs. {availableCredit.toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                              {isOverCredit && (
+                                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                                  ⚠️ Bill exceeds available credit!
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2 bg-white p-3 rounded-lg border border-slate-200">
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Distributor Name: *</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. ABC Pharma Distributors"
-                            value={newDistributorName}
-                            onChange={(e) => setNewDistributorName(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
-                          />
+                      <div className="space-y-2.5 bg-white p-3 rounded-lg border border-slate-200">
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Distributor Name: *</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. ABC Pharma Distributors"
+                              value={newDistributorName}
+                              onChange={(e) => setNewDistributorName(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Phone Number:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 9845012345"
+                              value={newDistributorPhone}
+                              onChange={(e) => setNewDistributorPhone(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">PAN Number:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 601234567"
+                              value={newDistributorPan}
+                              onChange={(e) => setNewDistributorPan(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">Phone Number:</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 9845012345"
-                            value={newDistributorPhone}
-                            onChange={(e) => setNewDistributorPhone(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
+
+                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                          <div>
+                            <label className="block text-[10px] font-bold text-teal-800 mb-1 flex items-center justify-between">
+                              <span>Credit Limit (NPR): *</span>
+                              <span className="text-[9px] text-teal-600 font-normal">Udharo Limit</span>
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              placeholder="e.g. 200000"
+                              value={newDistributorCreditLimit}
+                              onChange={(e) => setNewDistributorCreditLimit(e.target.value)}
+                              className="w-full border border-teal-300 bg-teal-50/40 rounded px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-teal-600 focus:outline-hidden"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Depot Address / Location:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Hetauda-5, Makwanpur"
+                              value={newDistributorAddress}
+                              onChange={(e) => setNewDistributorAddress(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 mb-1">Contact Person / Rep:</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Ram Shrestha"
+                              value={newDistributorContactPerson}
+                              onChange={(e) => setNewDistributorContactPerson(e.target.value)}
+                              className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                            />
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-1">PAN Number:</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 601234567"
-                            value={newDistributorPan}
-                            onChange={(e) => setNewDistributorPan(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
-                        </div>
+
+                        {billPaymentMode === 'credit' && (
+                          <div className="flex flex-wrap items-center justify-between gap-1 p-2 rounded bg-teal-50/80 border border-teal-200 text-[11px] text-teal-900">
+                            <span>
+                              Distributor will be registered with a credit limit of <strong>Rs. {Number(newDistributorCreditLimit || 0).toLocaleString()}</strong>.
+                            </span>
+                            {parsedImportItems.length > 0 && billCalculations.grandTotal > Number(newDistributorCreditLimit || 0) && (
+                              <span className="text-rose-700 font-bold">
+                                ⚠️ Bill (Rs. {billCalculations.grandTotal.toLocaleString()}) exceeds initial limit!
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -1094,7 +1226,7 @@ export const InventoryView: React.FC = () => {
                             </span>
                           </div>
                           <span className="text-[11px] font-semibold text-teal-800 font-mono">
-                            {billInvoiceNumber || 'BILL-AUTO'}
+                            {billInvoiceNumber || 'Invoice number required'}
                           </span>
                         </div>
                         <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-teal-200">
@@ -1366,15 +1498,29 @@ export const InventoryView: React.FC = () => {
                           className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
                         />
                       </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">PAN:</label>
-                        <input
-                          type="text"
-                          placeholder="PAN Number"
-                          value={manualNewDistributorPan}
-                          onChange={(e) => setManualNewDistributorPan(e.target.value)}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                        />
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                        <div>
+                          <label className="block text-[10px] font-bold text-teal-800 mb-0.5">Credit Limit (NPR):</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="1000"
+                            placeholder="e.g. 200000"
+                            value={manualNewDistributorCreditLimit}
+                            onChange={(e) => setManualNewDistributorCreditLimit(e.target.value)}
+                            className="w-full border border-teal-300 bg-teal-50/40 rounded px-2 py-1 text-xs font-mono font-bold text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Depot Address:</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Hetauda-5, Makwanpur"
+                            value={manualNewDistributorAddress}
+                            onChange={(e) => setManualNewDistributorAddress(e.target.value)}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1539,6 +1685,33 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
 
+                {editingMedicine && (
+                  <div className="col-span-2 p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-2">
+                    <div>
+                      <span className="font-bold text-xs text-slate-800 block">Batch Sale Safety Status:</span>
+                      <span className="text-[11px] text-slate-500">Quarantined and recalled batches remain in physical stock but are blocked from POS sale.</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={formData.saleStatus || formData.safetyStatus || 'SELLABLE'}
+                        onChange={(e) => setFormData({ ...formData, saleStatus: e.target.value as Medicine['saleStatus'] })}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-hidden"
+                      >
+                        <option value="SELLABLE">Sellable</option>
+                        <option value="QUARANTINED">Quarantined</option>
+                        <option value="RECALLED">Recalled</option>
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Reason / reference for status change"
+                        value={formData.safetyReason || ''}
+                        onChange={(e) => setFormData({ ...formData, safetyReason: e.target.value })}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:outline-hidden"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Statutory VAT Classification Toggle */}
                 <div className="col-span-full p-3 bg-slate-100 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1622,29 +1795,75 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
   onOpenVatInfo
 }) => {
   const { confirmDialog } = useDialog();
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 15;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [medicines.length]);
+
+  const totalPages = Math.max(1, Math.ceil(medicines.length / PAGE_SIZE));
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = Math.min(startIndex + PAGE_SIZE, medicines.length);
+
+  const paginatedMedicines = useMemo(() => {
+    return medicines.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [medicines, startIndex]);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-xs">
-        <thead className="bg-slate-50/70 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
-          <tr>
-            <th className="py-2.5 px-4">Brand &amp; Molecule</th>
-            <th className="py-2.5 px-3">Batch &amp; Expiry</th>
-            <th className="py-2.5 px-3">Rack</th>
-            <th className="py-2.5 px-3">Stock Available</th>
-            <th className="py-2.5 px-3 text-right">Cost (NPR)</th>
-            <th className="py-2.5 px-3 text-right">MRP (NPR)</th>
-            <th className="py-2.5 px-3 text-center">VAT Classification</th>
-            <th className="py-2.5 px-4 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {medicines.map(m => {
+    <div>
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/60 px-5 py-2.5">
+          <span className="text-xs font-semibold text-slate-500">
+            Showing {startIndex + 1}–{endIndex} of {medicines.length} medicines
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 mr-1">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50/70 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
+            <tr>
+              <th className="py-2.5 px-4">Brand &amp; Molecule</th>
+              <th className="py-2.5 px-3">Batch &amp; Expiry</th>
+              <th className="py-2.5 px-3">Rack</th>
+              <th className="py-2.5 px-3">Stock Available</th>
+              <th className="py-2.5 px-3 text-right">Cost (NPR)</th>
+              <th className="py-2.5 px-3 text-right">MRP (NPR)</th>
+              <th className="py-2.5 px-3 text-center">VAT Classification</th>
+              <th className="py-2.5 px-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {paginatedMedicines.map(m => {
             const isLowStock = m.stockPacks <= m.reorderLevel;
             const expTime = new Date(m.expiryDate).getTime();
             const nowTime = new Date().getTime();
-            const isNearExpiry = (expTime - nowTime) / (1000 * 60 * 60 * 24 * 30.4) <= 6;
-            const isExpired = expTime < nowTime;
+            const todayStart = new Date().setHours(0, 0, 0, 0);
+            const isNearExpiry = expTime > todayStart && (expTime - nowTime) / (1000 * 60 * 60 * 24 * 30.4) <= 6;
+            const isExpired = expTime <= todayStart;
+            const saleStatus = (m.saleStatus || m.safetyStatus || 'SELLABLE').toUpperCase();
+            const isSafetyBlocked = saleStatus !== 'SELLABLE' || m.isRecalled || m.isQuarantined;
             const loosePrice = m.unitsPerPack > 1 ? (m.mrpPrice / m.unitsPerPack).toFixed(2) : m.mrpPrice.toFixed(2);
 
             return (
@@ -1660,6 +1879,15 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
                     <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.2 rounded inline-block">
                       {m.category} • {m.unitsPerPack} u/pack
                     </span>
+                    {isSafetyBlocked && (
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded inline-block font-bold border ${
+                        saleStatus === 'RECALLED'
+                          ? 'text-rose-700 bg-rose-50 border-rose-200'
+                          : 'text-amber-800 bg-amber-50 border-amber-200'
+                      }`} title={m.safetyReason || `Batch is ${saleStatus.toLowerCase()}`}>
+                        {saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}
+                      </span>
+                    )}
                     {m.supplierName && (
                       <span className="text-[10px] text-teal-800 bg-teal-50 border border-teal-200 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5 font-medium" title={`Distributor: ${m.supplierName}`}>
                         🏢 {m.supplierName}
@@ -1779,6 +2007,41 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
           })}
         </tbody>
       </table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-5 py-3">
+          <div className="text-xs font-medium text-slate-600">
+            Showing <span className="font-bold text-slate-900">{startIndex + 1}</span> to{' '}
+            <span className="font-bold text-slate-900">{endIndex}</span> of{' '}
+            <span className="font-bold text-slate-900">{medicines.length}</span> medicines
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={currentPage <= 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Previous
+            </button>
+            <span className="px-2 text-xs font-bold text-slate-700">
+              {currentPage} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-2xs hover:bg-slate-100 disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

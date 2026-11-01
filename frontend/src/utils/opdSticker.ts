@@ -1,4 +1,4 @@
-﻿export interface OpdStickerVisit {
+export interface OpdStickerVisit {
   opdNumber: string;
 
   patient: {
@@ -20,6 +20,8 @@
   ageAtVisit:
     | number
     | null;
+  ageMonthsAtVisit?: number | null;
+  ageUnitAtVisit?: string | null;
 
   consultationFee?: number;
   totalCharge: number;
@@ -93,16 +95,22 @@ export const printOpdSticker = (
   }
 
 
-  const ageSex = [
-    visit.ageAtVisit !== null &&
-    visit.ageAtVisit !== undefined
-      ? String(
-          visit.ageAtVisit
-        )
-      : '',
+  let ageDisplay = '';
+  if (visit.ageUnitAtVisit === 'months' || (visit.ageMonthsAtVisit && (visit.ageAtVisit === 0 || visit.ageAtVisit === null))) {
+    ageDisplay = `${visit.ageMonthsAtVisit} M`;
+  } else if (visit.ageUnitAtVisit === 'days') {
+    ageDisplay = `${visit.ageMonthsAtVisit ?? visit.ageAtVisit} Days`;
+  } else if (visit.ageAtVisit !== null && visit.ageAtVisit !== undefined) {
+    if (visit.ageMonthsAtVisit && visit.ageMonthsAtVisit > 0) {
+      ageDisplay = `${visit.ageAtVisit} Y ${visit.ageMonthsAtVisit} M`;
+    } else {
+      ageDisplay = `${visit.ageAtVisit} Yrs`;
+    }
+  }
 
-    visit.patient.gender ||
-      '',
+  const ageSex = [
+    ageDisplay,
+    visit.patient.gender || '',
   ]
     .filter(Boolean)
     .join(' / ');

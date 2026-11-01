@@ -87,7 +87,8 @@ export const UserManagementView: React.FC = () => {
   const { 
     users, 
     currentUser, 
-    setCurrentUser, 
+    logout,
+    switchShift,
     addUser, 
     updateUser, 
     deleteUser, 
@@ -95,6 +96,7 @@ export const UserManagementView: React.FC = () => {
     changeStaffPassword 
   } = usePharmacy();
 
+  const [switchingUserId, setSwitchingUserId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingUser, setEditingUser] = useState<PharmacyUser | null>(null);
   const [shiftTimes, setShiftTimes] = useState(DEFAULT_SHIFT_TIMES);
@@ -128,10 +130,6 @@ export const UserManagementView: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [passwordFeedback, setPasswordFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // Switch User PIN modal state
-  const [switchPinInput, setSwitchPinInput] = useState<{ userId: string; pin: string } | null>(null);
-  const [pinError, setPinError] = useState<string | null>(null);
 
   const handleOpenAdd = () => {
     setEditingUser(null);
@@ -212,12 +210,15 @@ export const UserManagementView: React.FC = () => {
     const cleanPassword =
       formData.password.trim();
 
+    const isStrongPassword = (p: string) =>
+      p.length >= 8 && /[a-zA-Z]/.test(p) && /[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(p);
+
     if (
       !editingUser &&
-      cleanPassword.length < 6
+      !isStrongPassword(cleanPassword)
     ) {
       showToast(
-        'Password must be at least 6 characters long!',
+        'Password must be at least 8 characters and contain at least one letter and one number or symbol!',
         'warning',
         'Validation'
       );
@@ -227,10 +228,10 @@ export const UserManagementView: React.FC = () => {
     if (
       editingUser &&
       cleanPassword &&
-      cleanPassword.length < 6
+      !isStrongPassword(cleanPassword)
     ) {
       showToast(
-        'Password must be at least 6 characters long!',
+        'Password must be at least 8 characters and contain at least one letter and one number or symbol!',
         'warning',
         'Validation'
       );
@@ -331,11 +332,15 @@ export const UserManagementView: React.FC = () => {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (
+      newPassword.length < 8 ||
+      !/[a-zA-Z]/.test(newPassword) ||
+      !/[\d!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword)
+    ) {
       setPasswordFeedback({
         type: 'error',
         text:
-          'Password must be at least 6 characters long!'
+          'Password must be at least 8 characters and contain at least one letter and one number or symbol!'
       });
       return;
     }
@@ -378,37 +383,42 @@ export const UserManagementView: React.FC = () => {
     }
   };
 
-  const handleSwitchUser = (targetUser: PharmacyUser) => {
-    if (!currentUser) return;
-    if (targetUser.id === currentUser.id) return;
+  const handleSwitchUser = async (targetUser: PharmacyUser) => {
+    if (!currentUser || targetUser.id === currentUser.id) return;
     if (!targetUser.isActive) {
       showToast('This staff account is deactivated!', 'warning', 'Account Deactivated');
       return;
     }
 
-    if (targetUser.pinCode) {
-      setSwitchPinInput({ userId: targetUser.id, pin: '' });
-      setPinError(null);
-    } else {
-      setCurrentUser(targetUser);
+    const confirmed = await confirmDialog({
+      title: 'Switch Active Shift',
+      message: `Switch active session to "${targetUser.name}" (@${targetUser.username})? You will immediately be logged in as this staff member for POS billing.`,
+      confirmLabel: 'Switch Shift',
+      cancelLabel: 'Cancel',
+      type: 'primary',
+    });
+
+    if (!confirmed) return;
+
+    setSwitchingUserId(targetUser.id);
+    try {
+      const res = await switchShift(targetUser.id);
+      if (res.success) {
+        showToast(
+          `Switched shift to ${targetUser.name} (@${targetUser.username}).`,
+          'success',
+          'Shift Active'
+        );
+      } else {
+        showToast(
+          res.message || 'Failed to switch shift.',
+          'error',
+          'Shift Switch Failed'
+        );
+      }
+    } finally {
+      setSwitchingUserId(null);
     }
-  };
-
-  const handleVerifySwitchPin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!switchPinInput) return;
-
-    const target = users.find(u => u.id === switchPinInput.userId);
-    if (!target) return;
-
-    if (target.pinCode && switchPinInput.pin !== target.pinCode) {
-      setPinError('Incorrect 4-digit PIN! Please try again.');
-      return;
-    }
-
-    setCurrentUser(target);
-    setSwitchPinInput(null);
-    setPinError(null);
   };
 
   if (!isAdmin) {
@@ -574,10 +584,11 @@ export const UserManagementView: React.FC = () => {
                 <div className="flex gap-2">
                   {!isCurrent && (
                     <button
+                      disabled={switchingUserId === u.id}
                       onClick={() => handleSwitchUser(u)}
-                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer"
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-600 hover:text-teal-800 cursor-pointer disabled:opacity-50"
                     >
-                      Switch Shift
+                      {switchingUserId === u.id ? 'Switching...' : 'Switch Shift'}
                     </button>
                   )}
                   <button
@@ -727,7 +738,7 @@ export const UserManagementView: React.FC = () => {
                   <input
                     type={showPasswordText ? 'text' : 'password'}
                     required
-                    placeholder="Enter new staff password (min 6 chars)"
+                    placeholder="Enter new staff password (min 8 chars, letters & numbers)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-mono font-bold text-slate-900 pr-10 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
@@ -832,7 +843,7 @@ export const UserManagementView: React.FC = () => {
                     placeholder={
                       editingUser
                         ? "Leave blank to keep current password"
-                        : "Min 6 chars"
+                        : "Min 8 chars (letters & numbers)"
                     }
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}

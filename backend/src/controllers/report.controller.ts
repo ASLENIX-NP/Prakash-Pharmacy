@@ -1,4 +1,4 @@
-﻿import { Request, Response } from "express";
+import { Request, Response } from "express";
 import { prisma } from "../db.js";
 
 const toNumber = (value: unknown): number => {
@@ -14,7 +14,7 @@ export async function getVatReportSummary(
   res: Response
 ): Promise<void> {
   try {
-    const [bills, purchases, inventory] =
+    const [bills, purchases, inventory, salesReturns] =
       await Promise.all([
         prisma.bill.findMany({
           select: {
@@ -26,6 +26,7 @@ export async function getVatReportSummary(
               select: {
                 netItemPrice: true,
                 vatitemPrice: true,
+                hasVatSnapshot: true,
                 inventory: {
                   select: {
                     hasvat: true,
@@ -59,6 +60,29 @@ export async function getVatReportSummary(
             unitPerPack: true,
             costPrice: true,
             sellingPrice: true,
+          },
+        }),
+
+        prisma.salesReturn.findMany({
+          select: {
+            refundAmount: true,
+            items: {
+              select: {
+                refundAmount: true,
+                billItem: {
+                  select: {
+                    netItemPrice: true,
+                    vatitemPrice: true,
+                    hasVatSnapshot: true,
+                    inventory: {
+                      select: {
+                        hasvat: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
           },
         }),
       ]);
@@ -102,7 +126,10 @@ export async function getVatReportSummary(
          */
         const isTaxable =
           lineVat > 0 ||
-          Boolean(item.inventory.hasvat);
+          Boolean(
+            item.hasVatSnapshot ??
+            item.inventory.hasvat
+          );
 
         if (isTaxable) {
           taxableSalesBase +=
@@ -116,6 +143,40 @@ export async function getVatReportSummary(
         }
       }
     }
+
+    // Persisted credit notes reverse the sale amounts. Use the original
+    // bill-line VAT split so later inventory edits cannot rewrite history.
+    for (const salesReturn of salesReturns) {
+      netSales -= toNumber(salesReturn.refundAmount);
+
+      for (const item of salesReturn.items) {
+        const refund = toNumber(item.refundAmount);
+        const lineNet = toNumber(item.billItem.netItemPrice);
+        const lineVat = toNumber(item.billItem.vatitemPrice);
+        const isTaxable =
+          lineVat > 0 ||
+          Boolean(
+            item.billItem.hasVatSnapshot ??
+            item.billItem.inventory.hasvat
+          );
+
+        if (isTaxable && lineNet > 0) {
+          const vatRefund = Math.min(
+            refund,
+            refund * lineVat / lineNet
+          );
+          outputVat -= vatRefund;
+          taxableSalesBase -= Math.max(0, refund - vatRefund);
+        } else {
+          salesWithoutVat -= refund;
+        }
+      }
+    }
+
+    netSales = roundMoney(netSales);
+    outputVat = roundMoney(outputVat);
+    taxableSalesBase = roundMoney(taxableSalesBase);
+    salesWithoutVat = roundMoney(salesWithoutVat);
 
     const salesWithVat =
       taxableSalesBase + outputVat;
@@ -342,6 +403,104 @@ export async function getVatReportSummary(
       success: false,
       message:
         "Failed to calculate VAT report from database.",
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Full Data Backup
+// ---------------------------------------------------------------------------
+async function safeQuery<T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[Backup] Warning: Failed to query table "${name}":`, err instanceof Error ? err.message : err);
+    return fallback;
+  }
+}
+
+export async function getFullBackup(
+  _req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const [
+      inventory,
+      distributors,
+      purchaseInvoices,
+      bills,
+      salesReturns,
+      racks,
+      categories,
+      generics,
+      settings,
+      staff,
+      doctors,
+      clinicPatients,
+      clinicVisits,
+      stockAdjustmentLogs,
+      ledger,
+      distributorReturns,
+      inventorySafetyStatusLogs,
+      purchaseCancellationLogs,
+    ] = await Promise.all([
+      safeQuery("inventory", () => prisma.inventory.findMany(), []),
+      safeQuery("distributor", () => prisma.distributor.findMany(), []),
+      safeQuery("purchaseInvoice", () => prisma.purchaseInvoice.findMany({ include: { items: true } }), []),
+      safeQuery("bill", () => prisma.bill.findMany({ include: { items: true } }), []),
+      safeQuery("salesReturn", () => prisma.salesReturn.findMany({ include: { items: true } }), []),
+      safeQuery("rack", () => prisma.rack.findMany(), []),
+      safeQuery("category", () => prisma.category.findMany(), []),
+      safeQuery("generic", () => prisma.generic.findMany(), []),
+      safeQuery("pharmacySetting", () => prisma.pharmacySetting.findFirst(), null),
+      safeQuery("user", () => prisma.user.findMany({ select: { id: true, firstName: true, lastName: true, role: true, status: true, createdAt: true } }), []),
+      safeQuery("doctor", () => prisma.doctor.findMany(), []),
+      safeQuery("clinicPatient", () => prisma.clinicPatient.findMany(), []),
+      safeQuery("clinicVisit", () => prisma.clinicVisit.findMany(), []),
+      safeQuery("stockAdjustmentLog", () => prisma.stockAdjustmentLog.findMany(), []),
+      safeQuery("ledger", () => prisma.ledger.findMany(), []),
+      safeQuery("distributorReturn", () => prisma.distributorReturn.findMany(), []),
+      safeQuery("inventorySafetyStatusLog", () => prisma.inventorySafetyStatusLog.findMany(), []),
+      safeQuery("purchaseCancellationLog", () => prisma.purchaseCancellationLog.findMany(), []),
+    ]);
+
+    const backupData = {
+      exportedAt: new Date().toISOString(),
+      version: "1.1",
+      source: "Prakash Pharmacy ERP",
+      tables: {
+        inventory,
+        distributors,
+        purchaseInvoices,
+        bills,
+        salesReturns,
+        racks,
+        categories,
+        generics,
+        settings,
+        staff,
+        doctors,
+        clinicPatients,
+        clinicVisits,
+        stockAdjustmentLogs,
+        ledger,
+        distributorReturns,
+        inventorySafetyStatusLogs,
+        purchaseCancellationLogs,
+      },
+    };
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="prakash-pharmacy-backup-${new Date().toISOString().split("T")[0]}.json"`
+    );
+    res.status(200).json(backupData);
+  } catch (error) {
+    console.error("Backup error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate database backup.",
     });
   }
 }
