@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ImagePlus, Plus, Save, Search, Settings, Trash2, Upload, Warehouse } from 'lucide-react';
+import { Check, Download, ImagePlus, Plus, Save, Search, Settings, Trash2, Upload, Warehouse } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
@@ -31,7 +31,6 @@ export const SettingsView: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [logoError, setLogoError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [newRackName, setNewRackName] = useState('');
   const [newRackDescription, setNewRackDescription] = useState('');
   const [rackError, setRackError] = useState('');
