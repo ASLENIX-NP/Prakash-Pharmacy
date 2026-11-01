@@ -269,6 +269,14 @@ export const formatInventoryItem = (inv: any) => {
     notes:
       inv.notes ?? "",
 
+    saleStatus: inv.saleStatus ?? "SELLABLE",
+    safetyStatus: inv.saleStatus ?? "SELLABLE",
+    isRecalled: (inv.saleStatus ?? "SELLABLE") === "RECALLED",
+    isQuarantined: (inv.saleStatus ?? "SELLABLE") === "QUARANTINED",
+    safetyReason: inv.safetyReason ?? "",
+    safetyChangedAt: inv.safetyChangedAt ?? null,
+    safetyChangedBy: inv.safetyChangedBy ?? "",
+
     id: medicineCode, // Formatted ID e.g. "MED-001"
     medicineCode,
     medicineBrand: inv.medicineBrand,
@@ -866,9 +874,82 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       mrpPrice,
       hasvat,
       isVatApplicable,
+      saleStatus,
+      safetyStatus,
+      inventoryStatus,
+      status,
+      recalled,
+      quarantined,
+      isRecalled,
+      isQuarantined,
+      safetyReason,
+      statusReason,
+      recallReason,
+      quarantineReason,
+      reason,
     } = req.body;
 
     const updateData: any = {};
+
+    // Persistent batch safety state.
+    // Accept canonical application fields plus compatibility aliases used by
+    // external clients and production QA.
+    const requestedStatusRaw =
+      saleStatus ??
+      safetyStatus ??
+      inventoryStatus ??
+      status;
+
+    const recalledFlag =
+      isRecalled ??
+      recalled;
+
+    const quarantinedFlag =
+      isQuarantined ??
+      quarantined;
+
+    let requestedSafetyStatus: string | undefined;
+
+    // An explicit status takes precedence. This also makes requests such as
+    // { status: "recalled", recalled: true, quarantined: true } deterministic.
+    if (requestedStatusRaw !== undefined) {
+      requestedSafetyStatus =
+        String(requestedStatusRaw)
+          .trim()
+          .toUpperCase();
+    } else if (recalledFlag === true) {
+      requestedSafetyStatus = "RECALLED";
+    } else if (quarantinedFlag === true) {
+      requestedSafetyStatus = "QUARANTINED";
+    } else if (
+      recalledFlag === false ||
+      quarantinedFlag === false
+    ) {
+      requestedSafetyStatus = "SELLABLE";
+    }
+
+    const allowedSafetyStatuses = new Set(["SELLABLE", "QUARANTINED", "RECALLED"]);
+    if (requestedSafetyStatus && !allowedSafetyStatuses.has(requestedSafetyStatus)) {
+      res.status(400).json({ success: false, message: "Safety status must be SELLABLE, QUARANTINED, or RECALLED." });
+      return;
+    }
+
+    const requestedSafetyReason = String(
+      safetyReason ?? statusReason ?? recallReason ?? quarantineReason ?? reason ?? ""
+    ).trim();
+
+    if (requestedSafetyStatus && requestedSafetyStatus !== existing.saleStatus) {
+      updateData.saleStatus = requestedSafetyStatus;
+      updateData.safetyReason = requestedSafetyReason ||
+        (requestedSafetyStatus === "SELLABLE"
+          ? "Batch returned to sellable status"
+          : `Batch marked ${requestedSafetyStatus.toLowerCase()}`);
+      updateData.safetyChangedAt = new Date();
+      updateData.safetyChangedBy = String(
+        (req as any).user?.username ?? (req as any).user?.id ?? "authenticated-user"
+      );
+    }
+
 
     if (medicineBrand !== undefined || name !== undefined) {
       const b = (medicineBrand || name)?.trim();
@@ -1251,7 +1332,7 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
         throw new Error("DUPLICATE_INVENTORY_BATCH");
       }
 
-      return tx.inventory.update({
+      const updatedInventory = await tx.inventory.update({
         where: { id },
         data: updateData,
         include: {
@@ -1261,6 +1342,20 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
           distributor: true,
         },
       });
+
+      if (requestedSafetyStatus && requestedSafetyStatus !== existing.saleStatus) {
+        await tx.inventorySafetyStatusLog.create({
+          data: {
+            medicineId: id,
+            previousStatus: existing.saleStatus ?? "SELLABLE",
+            newStatus: requestedSafetyStatus,
+            reason: updateData.safetyReason,
+            recordedBy: updateData.safetyChangedBy,
+          },
+        });
+      }
+
+      return updatedInventory;
     });
 
     res.status(200).json({
@@ -1456,3 +1551,4 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
     });
   }
 };
+

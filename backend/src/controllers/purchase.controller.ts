@@ -52,6 +52,7 @@ export const formatPurchaseResponse = (purchase: any) => {
     vatAmount: Number(purchase.vatAmount || 0),
     grandTotal: Number(purchase.grandTotal || 0),
     notes: purchase.notes || "",
+    createdBy: purchase.createdBy || null,
     createdAt: (purchase.createdAt || dateObj).toISOString(),
     items: formattedItems,
   };
@@ -185,6 +186,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       notes,
       items,
     } = req.body;
+
+    const authUser = (req as any).user ?? {};
+    const recordedBy = String(authUser.username ?? authUser.id ?? "unknown");
 
     const cleanInvoiceNumber = String(invoiceNumber || "").trim();
     if (!cleanInvoiceNumber) {
@@ -386,6 +390,13 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         );
       }
 
+      if (String(distributor.status || "active").trim().toLowerCase() !== "active") {
+        throw new PurchaseValidationError(
+          "Selected distributor is inactive and cannot receive new purchase invoices.",
+          409
+        );
+      }
+
       const duplicate = await tx.purchaseInvoice.findFirst({
         where: {
           distributorId: targetDistributorId,
@@ -416,6 +427,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           vatAmount: calcVat,
           grandTotal: calcGrandTotal,
           notes: notes ? String(notes).trim() : null,
+          createdBy: recordedBy,
         },
       });
 
@@ -596,6 +608,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
             ledgerType: "purchase",
             referenceNo: cleanInvoiceNumber,
             description: `Purchase Bill #${cleanInvoiceNumber} (${normalizedItems.length} items, Mode: CREDIT)`,
+            recordedBy,
             debitAmount: 0,
             creditAmount: calcGrandTotal,
             balance: ledgerBalance,
@@ -615,6 +628,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
             ledgerType: "purchase",
             referenceNo: cleanInvoiceNumber,
             description: `Purchase Bill #${cleanInvoiceNumber} (Mode: CASH - Fully Settled)`,
+            recordedBy,
             debitAmount: calcGrandTotal,
             creditAmount: calcGrandTotal,
             balance: ledgerBalance,
@@ -685,6 +699,10 @@ export const deletePurchase = async (
 
       return;
     }
+
+    const authUser = (req as any).user ?? {};
+    const cancelledBy = String(authUser.username ?? authUser.id ?? "unknown");
+    const cancellationReason = String(req.body?.reason || "Purchase invoice cancelled").trim();
 
 
     const purchase =
@@ -1127,6 +1145,22 @@ export const deletePurchase = async (
                 ],
               },
             ],
+          },
+        });
+
+
+        const purchaseSnapshot = JSON.parse(JSON.stringify(purchase));
+
+        await tx.purchaseCancellationLog.create({
+          data: {
+            purchaseId: purchase.id,
+            invoiceNumber: purchase.invoiceNumber,
+            distributorId: purchase.distributorId,
+            paymentMode: purchase.paymentMode,
+            grandTotal: purchase.grandTotal,
+            reason: cancellationReason || null,
+            cancelledBy,
+            purchaseSnapshot,
           },
         });
 

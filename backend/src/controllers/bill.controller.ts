@@ -1006,7 +1006,8 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
 
             if (
               Number.isNaN(expiry.getTime()) ||
-              expiry < todayStart
+              expiry <= todayStart ||
+              String(batch.saleStatus ?? "SELLABLE").toUpperCase() !== "SELLABLE"
             ) {
               return false;
             }
@@ -1090,7 +1091,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
 
         if (totalAvailable < qty) {
           throw new BillValidationError(
-            `Insufficient non-expired stock for '${selectedInventory.medicineBrand}'. ` +
+            `Insufficient sellable, non-expired stock for '${selectedInventory.medicineBrand}'. ` +
             `Requested ${qty} ${
               isLoose
                 ? "unit(s)"
