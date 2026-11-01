@@ -102,7 +102,23 @@ export async function getVatReportSummary(
         : {};
     // ──────────────────────────────────────────────────────────────────────
 
-    const [bills, purchases, inventory, salesReturns] =
+    const distributorReturnDateWhere =
+      start || end
+        ? {
+            date: {
+              ...(start ? { gte: start } : {}),
+              ...(end ? { lte: end } : {}),
+            },
+          }
+        : {};
+
+    const [
+      bills,
+      purchases,
+      inventory,
+      salesReturns,
+      distributorReturns,
+    ] =
       await Promise.all([
         prisma.bill.findMany({
           where: billDateWhere,
@@ -175,6 +191,12 @@ export async function getVatReportSummary(
                 },
               },
             },
+          },
+        }),
+        prisma.distributorReturn.findMany({
+          where: distributorReturnDateWhere,
+          select: {
+            items: true,
           },
         }),
       ]);
@@ -340,6 +362,106 @@ export async function getVatReportSummary(
       taxablePurchaseBase =
         storedTaxablePurchaseBase;
     }
+
+    /*
+     * Supplier debit notes reverse purchase value and input VAT
+     * in the period in which the supplier return occurs.
+     *
+     * Only accounting-safe return rows created from an original
+     * PurchaseInvoiceItem contain netPurchaseBase. Older legacy
+     * rows are deliberately not reconstructed from current stock
+     * prices because that could rewrite historical VAT incorrectly.
+     */
+    for (const supplierReturn of distributorReturns) {
+      const returnedItems =
+        Array.isArray(
+          supplierReturn.items
+        )
+          ? supplierReturn.items
+          : [];
+
+      for (const rawItem of returnedItems) {
+        if (
+          !rawItem ||
+          typeof rawItem !== "object" ||
+          Array.isArray(rawItem)
+        ) {
+          continue;
+        }
+
+        const item =
+          rawItem as Record<
+            string,
+            unknown
+          >;
+
+        /*
+         * This field identifies a new accounting-safe supplier
+         * return produced from the historical purchase invoice.
+         */
+        if (
+          !Object.prototype.hasOwnProperty.call(
+            item,
+            "netPurchaseBase"
+          )
+        ) {
+          continue;
+        }
+
+        const returnedBase =
+          toNumber(
+            item.netPurchaseBase
+          );
+
+        const returnedVat =
+          toNumber(
+            item.vatAmount
+          );
+
+        const isTaxableReturn =
+          item.isVatApplicable === true ||
+          returnedVat > 0;
+
+        /*
+         * Reverse the net purchase amount represented by this
+         * debit-note row.
+         */
+        totalPurchases -=
+          returnedBase +
+          returnedVat;
+
+        if (isTaxableReturn) {
+          taxablePurchaseBase -=
+            returnedBase;
+
+          inputVat -=
+            returnedVat;
+        } else {
+          purchaseWithoutVat -=
+            returnedBase;
+        }
+      }
+    }
+
+    totalPurchases =
+      roundMoney(
+        totalPurchases
+      );
+
+    taxablePurchaseBase =
+      roundMoney(
+        taxablePurchaseBase
+      );
+
+    purchaseWithoutVat =
+      roundMoney(
+        purchaseWithoutVat
+      );
+
+    inputVat =
+      roundMoney(
+        inputVat
+      );
 
     const purchaseWithVat =
       taxablePurchaseBase + inputVat;

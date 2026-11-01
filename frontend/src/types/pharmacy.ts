@@ -97,6 +97,12 @@ export interface Stockist {
 
 export interface StockistInvoiceItem {
   id: string;
+
+  // Backend PurchaseInvoiceItem identifiers.
+  // Required for accounting-safe supplier returns.
+  purchaseItemId?: number;
+  inventoryId?: number;
+
   medicineId?: string;
   medicineName: string;
   genericName: string;
@@ -162,15 +168,41 @@ export type StockistReturnReason =
   | 'Other';
 
 export interface StockistReturnItem {
+  /*
+   * New returns must point to their original PurchaseInvoiceItem.
+   * Optional here only so historical/legacy return records can
+   * still be loaded from the database.
+   */
+  purchaseItemId?: number;
+  purchaseInvoiceId?: number;
+  purchaseInvoiceNumber?: string;
+  purchaseInvoiceDate?: string;
+
   medicineId: string;
   medicineName: string;
   batchNumber: string;
   expiryDate: string;
+
   packs: number;
   looseUnits: number;
   unitsPerPack: number;
-  unitCost: number; // per pack cost
+
+  /*
+   * Display/compatibility values.
+   * The backend is authoritative for the actual debit-note amount.
+   */
+  unitCost: number;
   totalReturnAmount: number;
+
+  originalCostPrice?: number;
+  discountPercent?: number;
+  effectiveNetCostPerPack?: number;
+
+  isVatApplicable?: boolean;
+  netPurchaseBase?: number;
+  taxableBase?: number;
+  vatAmount?: number;
+
   reason: StockistReturnReason;
 }
 
