@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
+import {
+  parseNepalDateBoundary,
+} from "../utils/nepal-time.js";
 
 
 /* =====================================================
@@ -84,40 +87,6 @@ const formatOpdNumber = (
   id: number
 ): string =>
   `OPD-${String(id).padStart(6, "0")}`;
-
-
-const parseDateBoundary = (
-  value: string,
-  endOfDay = false
-): Date | null => {
-  if (!value) {
-    return null;
-  }
-
-  let date: Date;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    date = new Date(
-      `${value}T${
-        endOfDay
-          ? "23:59:59.999"
-          : "00:00:00.000"
-      }`
-    );
-  } else {
-    date = new Date(value);
-  }
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return null;
-  }
-
-  return date;
-};
 
 
 const formatVisit = (
@@ -428,7 +397,7 @@ const buildVisitWhere = (
 
     if (fromRaw) {
       const from =
-        parseDateBoundary(
+        parseNepalDateBoundary(
           fromRaw,
           false
         );
@@ -446,7 +415,7 @@ const buildVisitWhere = (
 
     if (toRaw) {
       const to =
-        parseDateBoundary(
+        parseNepalDateBoundary(
           toRaw,
           true
         );

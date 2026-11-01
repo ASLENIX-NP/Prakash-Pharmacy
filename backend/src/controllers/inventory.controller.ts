@@ -7,6 +7,11 @@ import {
   formatGenericCode,
   parseIdParam,
 } from "../utils/id.helpers.js";
+import {
+  addNepalMonths,
+  parseNepalDateBoundary,
+  startOfNepalDay,
+} from "../utils/nepal-time.js";
 
 // Helper to format inventory database record into rich response
 
@@ -1475,9 +1480,14 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
       },
     });
 
-    const now = new Date();
-    const sixMonthsAhead = new Date();
-    sixMonthsAhead.setMonth(now.getMonth() + 6);
+    const todayStart =
+      startOfNepalDay();
+
+    const sixMonthsAhead =
+      addNepalMonths(
+        todayStart,
+        6
+      );
 
     let totalPacks = 0;
     let totalLoose = 0;
@@ -1503,9 +1513,14 @@ export const getInventorySummary = async (_req: Request, res: Response): Promise
 
       // Expiry check
       if (item.expiryDate) {
-        const expDate = new Date(item.expiryDate);
-        if (!isNaN(expDate.getTime())) {
-          if (expDate <= now) {
+        const expDate =
+          parseNepalDateBoundary(
+            item.expiryDate,
+            false
+          );
+
+        if (expDate) {
+          if (expDate <= todayStart) {
             expiredCount++;
           } else if (expDate <= sixMonthsAhead) {
             nearExpiryCount++;

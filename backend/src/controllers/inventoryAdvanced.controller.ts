@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { formatInventoryItem } from "./inventory.controller.js";
+import {
+  addNepalMonths,
+  parseNepalDateBoundary,
+  startOfNepalDay,
+} from "../utils/nepal-time.js";
 
 type AnyRecord = Record<string, any>;
 
@@ -322,10 +327,14 @@ export const getNearExpiryInventory = async (
       )
     );
 
-    const now = new Date();
+    const todayStart =
+      startOfNepalDay();
 
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() + months);
+    const cutoff =
+      addNepalMonths(
+        todayStart,
+        months
+      );
 
     const inventory = await prisma.inventory.findMany({
       include: {
@@ -340,13 +349,20 @@ export const getNearExpiryInventory = async (
 
     const data = inventory
       .filter((item) => {
-        const expiry = new Date(item.expiryDate);
+        const expiry =
+          parseNepalDateBoundary(
+            item.expiryDate,
+            false
+          );
 
-        if (Number.isNaN(expiry.getTime())) {
+        if (!expiry) {
           return false;
         }
 
-        return expiry > now && expiry <= cutoff;
+        return (
+          expiry > todayStart &&
+          expiry <= cutoff
+        );
       })
       .map(formatInventoryItem);
 
@@ -354,7 +370,7 @@ export const getNearExpiryInventory = async (
       success: true,
       months,
       count: data.length,
-      from: now.toISOString(),
+      from: todayStart.toISOString(),
       until: cutoff.toISOString(),
       data,
     });

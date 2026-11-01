@@ -2,6 +2,14 @@ import { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { AuthenticatedRequest } from "../middleware/auth.middleware.js";
 import { formatMedicineCode, parseIdParam } from "../utils/id.helpers.js";
+import {
+  addNepalDays,
+  formatNepalDateOnly,
+  formatNepalTimeOnly,
+  parseNepalDateBoundary,
+  startOfNepalDay,
+  startOfNepalMonth,
+} from "../utils/nepal-time.js";
 
 const roundMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
@@ -357,8 +365,8 @@ const buildAuthoritativeSaleFinancials = async (
 // Helper to format database bill row into rich frontend-compatible SaleInvoice
 export const formatBillResponse = (bill: any) => {
   const dateObj = new Date(bill.transactionDate);
-  const dateStr = dateObj.toISOString().split("T")[0];
-  const timeStr = dateObj.toTimeString().split(" ")[0];
+  const dateStr = formatNepalDateOnly(dateObj);
+  const timeStr = formatNepalTimeOnly(dateObj);
 
   const cashierDisplayName = bill.cashier
     ? `${bill.cashier.firstName} ${bill.cashier.lastName}`.trim()
@@ -862,25 +870,17 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       // FEFO = First Expiry, First Out.
       // The selected inventory row identifies the medicine, but stock is
       // always consumed from the earliest non-expired matching batch first.
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStart =
+        startOfNepalDay();
 
-      const parseExpiryForSale = (value: string): Date => {
-        const text = String(value ?? "").trim();
-
-        const ymd =
-          /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-
-        if (ymd) {
-          return new Date(
-            Number(ymd[1]),
-            Number(ymd[2]) - 1,
-            Number(ymd[3])
-          );
-        }
-
-        return new Date(text);
-      };
+      const parseExpiryForSale = (
+        value: string
+      ): Date =>
+        parseNepalDateBoundary(
+          value,
+          false
+        ) ??
+        new Date(Number.NaN);
 
       for (
         let itemIndex = 0;
@@ -1453,26 +1453,77 @@ export const getAllBills = async (req: Request, res: Response): Promise<void> =>
 
     // 2. Date Filtering
     const now = new Date();
+    const todayStart =
+      startOfNepalDay(now);
+
     if (dateFilter === "today") {
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      where.transactionDate = { gte: startOfDay };
+      where.transactionDate = {
+        gte: todayStart,
+      };
     } else if (dateFilter === "yesterday") {
-      const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      const yesterdayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      where.transactionDate = { gte: yesterdayStart, lt: yesterdayEnd };
+      const yesterdayStart =
+        addNepalDays(
+          todayStart,
+          -1
+        );
+
+      where.transactionDate = {
+        gte: yesterdayStart,
+        lt: todayStart,
+      };
     } else if (dateFilter === "7days") {
-      const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
-      where.transactionDate = { gte: sevenDaysAgo };
+      const sevenDaysAgo =
+        addNepalDays(
+          todayStart,
+          -7
+        );
+
+      where.transactionDate = {
+        gte: sevenDaysAgo,
+      };
     } else if (dateFilter === "month") {
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      where.transactionDate = { gte: startOfMonth };
+      where.transactionDate = {
+        gte: startOfNepalMonth(now),
+      };
     } else if (from || to) {
       where.transactionDate = {};
-      if (from) where.transactionDate.gte = new Date(String(from));
+
+      if (from) {
+        const fromDate =
+          parseNepalDateBoundary(
+            from,
+            false
+          );
+
+        if (!fromDate) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid from date.",
+          });
+          return;
+        }
+
+        where.transactionDate.gte =
+          fromDate;
+      }
+
       if (to) {
-        const toDate = new Date(String(to));
-        toDate.setHours(23, 59, 59, 999);
-        where.transactionDate.lte = toDate;
+        const toDate =
+          parseNepalDateBoundary(
+            to,
+            true
+          );
+
+        if (!toDate) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid to date.",
+          });
+          return;
+        }
+
+        where.transactionDate.lte =
+          toDate;
       }
     }
 
@@ -1656,8 +1707,8 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
       }),
     ]);
 
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStart =
+      startOfNepalDay();
 
     let totalRevenue = 0;
     let totalVat = 0;
