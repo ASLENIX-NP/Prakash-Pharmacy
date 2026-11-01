@@ -86,10 +86,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="dashboard-premium-kpis grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
 
         {/* Today's Revenue */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-revenue rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Today's Counter Revenue
@@ -121,7 +121,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Inventory Valuation */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-inventory rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Inventory Stock Valuation
@@ -158,7 +158,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Active Stock */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-stock rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Active Stock Quantities
@@ -196,7 +196,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* Payables */}
-        <div className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
+        <div className="premium-kpi-card premium-kpi-payables rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <p className="text-[12px] font-bold text-slate-600">
               Stockist Payables Balance
@@ -313,8 +313,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2 xl:items-stretch">
 
         {/* LOW STOCK */}
-        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <section className="premium-dashboard-panel premium-low-stock-panel flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="premium-panel-header flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
 
@@ -342,7 +342,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             {lowStockMedicines.slice(0, 6).map((m) => (
               <div
                 key={m.id}
-                className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                className="premium-alert-row grid grid-cols-[minmax(0,1fr)_120px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
               >
                 <div className="min-w-0">
                   <p className="truncate text-[13px] font-extrabold text-slate-900">
@@ -383,8 +383,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
         {/* EXPIRY WATCH */}
-        <section className="flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <section className="premium-dashboard-panel premium-expiry-panel flex w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:h-[365px]">
+          <div className="premium-panel-header flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div className="flex items-center gap-3">
               <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
 
@@ -417,7 +417,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
               return (
                 <div
                   key={m.id}
-                  className="grid grid-cols-[minmax(0,1fr)_190px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
+                  className="premium-alert-row grid grid-cols-[minmax(0,1fr)_190px_108px] items-center gap-5 px-5 py-4 hover:bg-slate-50/60"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-extrabold text-slate-900">
@@ -480,8 +480,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
       {/* Recent Counter Bills */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+      <div className="premium-bills-panel bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="premium-bills-header p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
             <FileText className="w-4 h-4 text-teal-700" />
             <span>Recent Completed Bills (Today)</span>
@@ -495,7 +495,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="premium-bills-table w-full text-left text-xs">
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
               <tr>
                 <th className="py-2.5 px-4">Time</th>
@@ -509,7 +509,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {salesInvoices.slice(0, 5).map(sale => (
-                <tr key={sale.id} className="hover:bg-slate-50/70">
+                <tr key={sale.id} className="premium-bill-row hover:bg-slate-50/70">
                   <td className="py-2.5 px-4 font-mono text-slate-500">{sale.time}</td>
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-900">{sale.invoiceNumber}</td>
                   <td className="py-2.5 px-3 font-semibold text-slate-800">{sale.customerName}</td>
