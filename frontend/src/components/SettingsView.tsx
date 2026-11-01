@@ -216,7 +216,7 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className={`mx-auto max-w-5xl space-y-5 ${hasUnsavedChanges ? 'pb-24' : 'pb-5'}`}>
+    <div className={`premium-settings-shell mx-auto max-w-6xl space-y-5 ${hasUnsavedChanges ? 'pb-24' : 'pb-5'}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -549,7 +549,7 @@ export const SettingsView: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-5 py-2.5 text-sm font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:opacity-60"
             >
               <Download className="h-4 w-4" />
-              {backupLoading ? 'Preparing Backup…' : 'Download Backup (JSON)'}
+              {backupLoading ? 'Preparing Backupâ€¦' : 'Download Backup (JSON)'}
             </button>
 
             {backupSuccess && (

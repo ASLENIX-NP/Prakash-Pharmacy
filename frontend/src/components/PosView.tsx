@@ -1,9 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Banknote,
+  CreditCard,
   Minus,
   Plus,
+  QrCode,
   Search,
   Trash2,
+  Wallet,
   X,
 } from 'lucide-react';
 
@@ -778,7 +782,7 @@ export const PosView: React.FC = () => {
   // ============================================================
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(400px,1fr)]">
+    <div className="premium-pos-shell grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(400px,1fr)]">
 
       {/* ======================================================
           LEFT SIDE
@@ -787,7 +791,7 @@ export const PosView: React.FC = () => {
       <div className="min-w-0 space-y-4">
 
         {/* MEDICINE SEARCH */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="premium-pos-card premium-pos-search rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-[16px] font-extrabold text-slate-900">
               Medicine Search
@@ -869,7 +873,7 @@ export const PosView: React.FC = () => {
 
 
         {/* STOCK RESULTS */}
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="premium-pos-card premium-pos-stock overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
             <h2 className="text-[15px] font-extrabold text-slate-900">
               Stock Results
@@ -884,7 +888,7 @@ export const PosView: React.FC = () => {
             </span>
           </div>
 
-          <div className="max-h-[430px] divide-y divide-slate-100 overflow-y-auto">
+          <div className="premium-pos-scroll max-h-[430px] divide-y divide-slate-100 overflow-y-auto">
 
             {searchResults.map(
               (medicine) => {
@@ -904,7 +908,7 @@ export const PosView: React.FC = () => {
                 return (
                   <div
                     key={medicine.id}
-                    className="grid grid-cols-[minmax(0,1fr)_170px_105px_130px] items-center gap-4 px-4 py-3 transition hover:bg-slate-50/60"
+                    className="premium-pos-stock-row grid grid-cols-[minmax(0,1fr)_170px_105px_130px] items-center gap-4 px-4 py-3 transition hover:bg-slate-50/60"
                   >
 
                     {/* MEDICINE */}
@@ -1071,7 +1075,7 @@ export const PosView: React.FC = () => {
 
             {searchResults.length ===
               0 && (
-              <div className="flex min-h-[120px] items-center justify-center px-6 text-center">
+              <div className="premium-pos-empty flex min-h-[120px] items-center justify-center px-6 text-center">
                 <p className="text-[14px] font-medium text-slate-400">
                   {searchQuery
                     ? `No available stock found for "${searchQuery}".`
@@ -1091,7 +1095,7 @@ export const PosView: React.FC = () => {
       <div className="min-w-0 space-y-4">
 
         {/* CUSTOMER DETAILS */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="premium-pos-card premium-pos-customer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-3">
             <h2 className="text-[16px] font-extrabold text-slate-900">
               Customer Details
@@ -1187,7 +1191,7 @@ export const PosView: React.FC = () => {
 
 
         {/* CURRENT CART */}
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="premium-pos-card premium-pos-cart overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
           {/* CART HEADER */}
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -1218,7 +1222,7 @@ export const PosView: React.FC = () => {
 
           {/* CART HEADINGS */}
           {cart.length > 0 && (
-            <div className="grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-400">
+            <div className="premium-pos-cart-headings grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-slate-400">
               <span>Medicine</span>
               <span className="text-center">
                 Qty
@@ -1235,13 +1239,13 @@ export const PosView: React.FC = () => {
 
 
           {/* CART ITEMS */}
-          <div className="max-h-[240px] divide-y divide-slate-100 overflow-y-auto">
+          <div className="premium-pos-scroll max-h-[240px] divide-y divide-slate-100 overflow-y-auto">
 
             {cart.map(
               (item, index) => (
                 <div
                   key={`${item.medicineId}-${item.isLooseUnit}`}
-                  className="grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] items-center gap-3 px-4 py-3"
+                  className="premium-pos-cart-row grid grid-cols-[minmax(0,1fr)_100px_80px_90px_24px] items-center gap-3 px-4 py-3"
                 >
 
                   {/* NAME */}
@@ -1355,7 +1359,7 @@ export const PosView: React.FC = () => {
             )}
 
             {cart.length === 0 && (
-              <div className="flex min-h-[105px] items-center justify-center px-6 text-center">
+              <div className="premium-pos-empty flex min-h-[105px] items-center justify-center px-6 text-center">
                 <p className="text-[13px] font-medium text-slate-400">
                   Your cart is empty. Add medicines from the stock results.
                 </p>
@@ -1368,7 +1372,7 @@ export const PosView: React.FC = () => {
               BILL SUMMARY
           =================================================== */}
 
-          <div className="border-t border-slate-200 bg-white px-4 py-4">
+          <div className="premium-pos-bill-summary border-t border-slate-200 bg-white px-4 py-4">
 
             <div className="space-y-2 text-[12px]">
 
@@ -1411,7 +1415,7 @@ export const PosView: React.FC = () => {
 
 
             {/* DISCOUNT */}
-            <div className="mt-3 border-t border-slate-100 pt-3">
+            <div className="premium-pos-discount mt-3 border-t border-slate-100 pt-3">
               <div className="flex items-center justify-between gap-3">
 
                 <span className="text-[12px] font-semibold text-slate-600">
@@ -1510,7 +1514,7 @@ export const PosView: React.FC = () => {
 
 
             {/* GRAND TOTAL */}
-            <div className="mt-3 flex items-center justify-between border-t-2 border-slate-300 pt-3">
+            <div className="premium-pos-grand-total mt-3 flex items-center justify-between border-t-2 border-slate-300 pt-3">
               <span className="text-[15px] font-black text-slate-900">
                 Grand Total
               </span>
@@ -1522,51 +1526,154 @@ export const PosView: React.FC = () => {
 
 
             {/* PAYMENT */}
-            <div className="mt-4">
-              <p className="mb-2 text-[12px] font-semibold text-slate-600">
-                Payment Mode
-              </p>
+            <div className="premium-pos-payment mt-4">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[12px] font-extrabold text-slate-700">
+                    Payment Mode
+                  </p>
+                  <p className="mt-0.5 text-[10px] font-medium text-slate-400">
+                    Choose how the customer is paying
+                  </p>
+                </div>
 
-              <div className="grid grid-cols-4 gap-2">
+                <span className="premium-payment-secure">
+                  Ready to bill
+                </span>
+              </div>
 
-                {[
-                  ['cash', 'Cash'],
-                  ['fonepay_qr', 'Fonepay QR'],
-                  ['card', 'Card'],
-                  ['credit', 'Credit (Udharo)'],
-                ].map(
-                  ([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() =>
-                        setPaymentMode(
-                          value as
-                            | 'cash'
-                            | 'fonepay_qr'
-                            | 'card'
-                            | 'credit'
-                        )
-                      }
-                      className={`min-h-[42px] rounded-lg border px-2 py-2 text-[11px] font-bold transition ${
-                        paymentMode ===
-                        value
-                          ? 'border-teal-700 bg-teal-700 text-white'
-                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  )
-                )}
+              <div className="premium-pos-payment-grid grid grid-cols-2 gap-2 sm:grid-cols-4">
 
+                <button
+                  type="button"
+                  aria-pressed={paymentMode === 'cash'}
+                  onClick={() => setPaymentMode('cash')}
+                  className={`premium-payment-option ${
+                    paymentMode === 'cash'
+                      ? 'is-selected'
+                      : ''
+                  }`}
+                >
+                  <span className="premium-payment-icon">
+                    <Banknote className="h-4 w-4" />
+                  </span>
+
+                  <span className="premium-payment-copy">
+                    <span className="premium-payment-title">
+                      Cash
+                    </span>
+                    <span className="premium-payment-subtitle">
+                      Counter
+                    </span>
+                  </span>
+                </button>
+
+
+                <button
+                  type="button"
+                  aria-pressed={paymentMode === 'fonepay_qr'}
+                  onClick={() => setPaymentMode('fonepay_qr')}
+                  className={`premium-payment-option ${
+                    paymentMode === 'fonepay_qr'
+                      ? 'is-selected'
+                      : ''
+                  }`}
+                >
+                  <span className="premium-payment-icon">
+                    <QrCode className="h-4 w-4" />
+                  </span>
+
+                  <span className="premium-payment-copy">
+                    <span className="premium-payment-title">
+                      Fonepay QR
+                    </span>
+                    <span className="premium-payment-subtitle">
+                      Scan & pay
+                    </span>
+                  </span>
+                </button>
+
+
+                <button
+                  type="button"
+                  aria-pressed={paymentMode === 'card'}
+                  onClick={() => setPaymentMode('card')}
+                  className={`premium-payment-option ${
+                    paymentMode === 'card'
+                      ? 'is-selected'
+                      : ''
+                  }`}
+                >
+                  <span className="premium-payment-icon">
+                    <CreditCard className="h-4 w-4" />
+                  </span>
+
+                  <span className="premium-payment-copy">
+                    <span className="premium-payment-title">
+                      Card
+                    </span>
+                    <span className="premium-payment-subtitle">
+                      POS terminal
+                    </span>
+                  </span>
+                </button>
+
+
+                <button
+                  type="button"
+                  aria-pressed={paymentMode === 'credit'}
+                  onClick={() => setPaymentMode('credit')}
+                  className={`premium-payment-option ${
+                    paymentMode === 'credit'
+                      ? 'is-selected'
+                      : ''
+                  }`}
+                >
+                  <span className="premium-payment-icon">
+                    <Wallet className="h-4 w-4" />
+                  </span>
+
+                  <span className="premium-payment-copy">
+                    <span className="premium-payment-title">
+                      Credit
+                    </span>
+                    <span className="premium-payment-subtitle">
+                      Udharo
+                    </span>
+                  </span>
+                </button>
+
+              </div>
+
+
+              <div
+                className="premium-pos-wallet-strip"
+                title="Visual wallet references only. Billing continues to use the existing payment modes."
+              >
+                <span className="premium-wallet-label">
+                  Digital wallets
+                </span>
+
+                <div className="premium-wallet-brands">
+                  <span className="premium-wallet-badge premium-wallet-esewa">
+                    eSewa
+                  </span>
+
+                  <span className="premium-wallet-badge premium-wallet-khalti">
+                    Khalti
+                  </span>
+
+                  <span className="premium-wallet-badge premium-wallet-fonepay">
+                    Fonepay
+                  </span>
+                </div>
               </div>
             </div>
 
 
             {/* CASH */}
             {paymentMode === 'cash' && (
-              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+              <div className="premium-pos-cash mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
 
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-slate-500">
@@ -1612,7 +1719,7 @@ export const PosView: React.FC = () => {
               onClick={() => {
                 void handleCompleteSale();
               }}
-              className="mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+              className="premium-pos-complete mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
             >
               {isCompletingSale
                 ? 'Completing Sale...'

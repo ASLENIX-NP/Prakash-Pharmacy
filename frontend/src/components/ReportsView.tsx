@@ -252,7 +252,7 @@ export const ReportsView: React.FC = () => {
     `Rs. ${value.toLocaleString('en-NP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
-    <div className="-mx-4 -my-5 space-y-5 bg-[#eef2f4] p-4 sm:-mx-6 sm:p-6 lg:-mx-7 lg:-my-7 lg:p-7">
+    <div className="premium-reports-shell -mx-4 -my-5 space-y-5 bg-[#eef2f4] p-4 sm:-mx-6 sm:p-6 lg:-mx-7 lg:-my-7 lg:p-7">
       {/* Header */}
       <div className="flex flex-col items-start justify-between gap-5 rounded-[24px] bg-[#103f4d] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:p-7">
         <div className="flex items-center gap-4">

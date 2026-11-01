@@ -441,7 +441,7 @@ export const UserManagementView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="premium-staff-shell space-y-5">
       {/* Top Banner */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>

@@ -327,8 +327,8 @@ export const PhysicalStockWorksheetView: React.FC = () => {
         : 'All items verified. Ready to submit.';
 
   return (
-    <div className="space-y-5 pb-3">
-      <section className="flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/[0.02]">
+    <div className="premium-audit-shell space-y-5 pb-3">
+      <section className="premium-audit-hero flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-950/[0.02]">
         <div className="flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-teal-50 text-teal-800 ring-1 ring-teal-100">
             <ClipboardCheck className="h-5 w-5" />
@@ -381,7 +381,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
 
       <section
         aria-live="polite"
-        className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+        className="premium-audit-status flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
       >
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
@@ -459,29 +459,29 @@ export const PhysicalStockWorksheetView: React.FC = () => {
 
       {activeSubTab === 'worksheet' ? (
         <>
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
+          <section className="premium-audit-kpis grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="premium-audit-kpi flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Items on worksheet</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">{medicines.length}</p>
               </div>
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-sm font-extrabold text-slate-700 ring-1 ring-slate-200">Rx</span>
             </div>
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
+            <div className="premium-audit-kpi flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Matching system</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-tight text-emerald-700">{matchingCount}</p>
               </div>
               <CheckCircle2 className="h-10 w-10 rounded-xl bg-emerald-50 p-2.5 text-emerald-700 ring-1 ring-emerald-100" />
             </div>
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
+            <div className="premium-audit-kpi flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">With variance</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-tight text-rose-700">{varianceCount}</p>
               </div>
               <ShieldAlert className="h-10 w-10 rounded-xl bg-rose-50 p-2.5 text-rose-700 ring-1 ring-rose-100" />
             </div>
-            <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
+            <div className="premium-audit-kpi flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Verified</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">{verifiedPercent}%</p>
@@ -499,7 +499,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
             </div>
           </section>
 
-          <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
+          <section className="premium-audit-filter space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-slate-950/[0.02]">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
                 <Layers className="h-4 w-4 text-teal-700" />
@@ -513,7 +513,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                   placeholder="Search medicine or batch"
                   value={searchQuery}
                   onChange={event => setSearchQuery(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-800 outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10"
+                  className="premium-audit-search w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-xs text-slate-800 outline-none transition focus:border-teal-600 focus:bg-white focus:ring-4 focus:ring-teal-600/10"
                 />
               </label>
             </div>
@@ -559,9 +559,9 @@ export const PhysicalStockWorksheetView: React.FC = () => {
             </div>
           )}
 
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-950/[0.02]">
+          <section className="premium-audit-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-950/[0.02]">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
+              <table className="premium-audit-table w-full min-w-[1120px] border-collapse text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-slate-100 text-[10px] uppercase tracking-[0.08em] text-slate-600">
                   <tr>
                     <th className="border-b border-slate-200 px-4 py-3.5">Medicine</th>
@@ -593,7 +593,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                     return (
                       <tr
                         key={medicine.id}
-                        className={`transition-colors ${
+                        className={`premium-audit-row transition-colors ${
                           isVerified
                             ? 'bg-emerald-50/50 hover:bg-emerald-50'
                             : 'hover:bg-slate-50/80'
@@ -777,7 +777,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
             </div>
           </section>
 
-          <section className="sticky bottom-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-7 lg:px-7">
+          <section className="premium-audit-footer sticky bottom-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-7 lg:px-7">
             <p className="flex items-center gap-2 text-xs font-semibold text-slate-600" role="status">
               <span className={`h-2 w-2 rounded-full ${
                 isSubmitting
@@ -824,7 +824,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
           </section>
         </>
       ) : (
-        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-950/[0.02]">
+        <section className="premium-audit-table-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ring-slate-950/[0.02]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
             <h3 className="flex items-center gap-2 text-sm font-extrabold text-slate-900">
               <span className="grid h-8 w-8 place-items-center rounded-lg bg-white text-teal-800 ring-1 ring-slate-200">

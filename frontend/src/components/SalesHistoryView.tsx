@@ -164,10 +164,10 @@ export const SalesHistoryView: React.FC = () => {
   const returnsEndIndex = Math.min(returnsStartIndex + PAGE_SIZE, filteredReturns.length);
 
   return (
-    <div className="space-y-5 pb-3">
+    <div className="premium-sales-shell space-y-5 pb-3">
 
       {/* View Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+      <div className="premium-sales-hero flex flex-wrap items-center justify-between gap-4 rounded-[22px] border border-slate-200 bg-white p-5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
         <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-teal-50 text-teal-800 ring-1 ring-teal-100">
             <FileText className="h-5 w-5" strokeWidth={2} />
@@ -194,7 +194,7 @@ export const SalesHistoryView: React.FC = () => {
       </div>
 
       {/* Register Tab Navigation */}
-      <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+      <div className="premium-sales-tabs flex gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
         <button
           type="button"
           onClick={() => setActiveTab('sales')}
@@ -224,7 +224,7 @@ export const SalesHistoryView: React.FC = () => {
 
       {/* Aggregate Stats Cards */}
       {activeTab === 'sales' ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             {
               label: 'Total Revenue',
@@ -257,7 +257,7 @@ export const SalesHistoryView: React.FC = () => {
           ].map((card) => (
             <div
               key={card.label}
-              className={`rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+              className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                 card.accent === 'teal'
                   ? 'border-teal-100 bg-teal-50/80'
                   : card.accent === 'emerald'
@@ -310,7 +310,7 @@ export const SalesHistoryView: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-[20px] border border-teal-100 bg-teal-50/80 p-4 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-white text-teal-700 ring-1 ring-teal-100">
@@ -378,7 +378,7 @@ export const SalesHistoryView: React.FC = () => {
       )}
 
       {/* Filter & Search Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white p-3 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+      <div className="premium-sales-filters flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white p-3 shadow-[0_1px_0_rgba(15,23,42,0.02)]">
         <div className="flex flex-wrap items-center gap-1.5">
           {[
             {
@@ -417,14 +417,14 @@ export const SalesHistoryView: React.FC = () => {
             }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:outline-none"
+            className="premium-sales-search w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-slate-300 focus:bg-white focus:outline-none"
           />
         </div>
       </div>
 
       {/* Main Table: Sales Invoices vs Customer Returns */}
       {activeTab === 'sales' ? (
-        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+        <div className="premium-sales-table-card overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/50 px-5 py-3">
             <span className="text-xs font-semibold text-slate-500">
               Showing {filteredSales.length === 0 ? '0' : `${salesStartIndex + 1}–${salesEndIndex}`} of {filteredSales.length} sales
@@ -454,7 +454,7 @@ export const SalesHistoryView: React.FC = () => {
             )}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-left text-xs">
+            <table className="premium-sales-table w-full min-w-[1100px] text-left text-xs">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Date &amp; Time</th>
@@ -594,7 +594,7 @@ export const SalesHistoryView: React.FC = () => {
         </div>
       ) : (
         /* Customer Returns & Credit Notes Table */
-        <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
+        <div className="premium-sales-table-card overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_1px_0_rgba(15,23,42,0.02)]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/50 px-5 py-3">
             <span className="text-xs font-semibold text-slate-500">
               Showing {filteredReturns.length === 0 ? '0' : `${returnsStartIndex + 1}–${returnsEndIndex}`} of {filteredReturns.length} credit notes
@@ -624,7 +624,7 @@ export const SalesHistoryView: React.FC = () => {
             )}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] text-left text-xs">
+            <table className="premium-sales-table w-full min-w-[1050px] text-left text-xs">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.08em]">Return Date &amp; Time</th>
