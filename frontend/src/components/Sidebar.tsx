@@ -3,6 +3,8 @@ import {
   ChevronDown,
   ChevronRight,
   LogOut,
+  Settings as SettingsIcon,
+  Users,
   X
 } from 'lucide-react';
 
@@ -281,47 +283,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* FIXED BOTTOM */}
       <div className="shrink-0 border-t border-slate-200 bg-white p-3">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+        <div
+          className={`rounded-[22px] border p-2.5 transition-all duration-200 ${
+            showProfileActions
+              ? 'border-slate-200 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.10)]'
+              : 'border-slate-200 bg-slate-50/80'
+          }`}
+        >
           <button
             type="button"
             aria-expanded={showProfileActions}
+            aria-controls="sidebar-profile-actions"
             onClick={() => setShowProfileActions((expanded) => !expanded)}
             className="flex w-full items-center gap-2.5 text-left"
           >
-            <div
-              className={`
-                flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white shadow-sm
-                ${
-                  isAdmin
-                    ? 'bg-gradient-to-br from-violet-600 to-purple-700'
-                    : 'bg-gradient-to-br from-teal-600 to-emerald-700'
-                }
-              `}
-            >
-              {firstLetter}
-            </div>
-
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-black tracking-[-0.01em] text-slate-950">
+              <p className="truncate text-sm font-bold tracking-[-0.02em] text-slate-900">
                 {currentUser?.name || 'User'}
               </p>
-
-              <p className="mt-0.5 truncate text-[9px] font-semibold text-slate-400">
-                @{currentUser?.username}
+              <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+                {isAdmin ? 'Administrator' : 'Staff'}
               </p>
-
-              <span
-                className={`
-                  mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.08em] shadow-sm
-                  ${
-                    isAdmin
-                      ? 'border-purple-200/70 bg-purple-50 text-purple-700'
-                      : 'border-emerald-200/70 bg-emerald-50 text-emerald-700'
-                  }
-                `}
-              >
-                {isAdmin ? 'Admin' : 'Staff'}
-              </span>
+            </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-900 ring-1 ring-indigo-200/70">
+              {firstLetter}
             </div>
             <ChevronDown
               className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${showProfileActions ? 'rotate-180' : ''}`}
@@ -330,40 +315,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           {showProfileActions && (
-            <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+            <div id="sidebar-profile-actions" className="mt-2 border-t border-slate-200 pt-2">
               {isAdmin && (
-                <>
+                <div className="space-y-0.5">
                   <button
                     type="button"
+                    aria-current={activeTab === 'users' ? 'page' : undefined}
                     onClick={() => handleNavigation('users')}
-                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                    className={`flex min-h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[13px] font-medium transition-colors ${
                       activeTab === 'users'
-                        ? 'bg-indigo-50 text-indigo-700'
-                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                        ? 'bg-indigo-50 text-slate-900'
+                        : 'text-slate-800 hover:bg-slate-50 hover:text-slate-950'
                     }`}
                   >
+                    <Users className="h-5 w-5 shrink-0 text-slate-500" strokeWidth={2} aria-hidden="true" />
                     Staff &amp; Password Control
                   </button>
                   <button
                     type="button"
+                    aria-current={activeTab === 'settings' ? 'page' : undefined}
                     onClick={() => handleNavigation('settings')}
-                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                    className={`flex min-h-10 w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-[13px] font-medium transition-colors ${
                       activeTab === 'settings'
-                        ? 'bg-fuchsia-50 text-fuchsia-700'
-                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                        ? 'bg-indigo-50 text-slate-900'
+                        : 'text-slate-800 hover:bg-slate-50 hover:text-slate-950'
                     }`}
                   >
+                    <SettingsIcon className="h-5 w-5 shrink-0 text-slate-500" strokeWidth={2} aria-hidden="true" />
                     Settings &amp; Racks
                   </button>
-                </>
+                </div>
               )}
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700"
+                className="mt-1.5 flex min-h-11 w-full items-center gap-2.5 rounded-full border-2 border-indigo-200 bg-white px-3.5 text-sm font-medium text-rose-500 transition-colors hover:border-indigo-300 hover:bg-rose-50/40 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1"
               >
-                <LogOut className="h-4 w-4" />
-                <span>Sign Out</span>
+                <LogOut className="h-4 w-4" strokeWidth={2} />
+                <span>Logout</span>
               </button>
             </div>
           )}

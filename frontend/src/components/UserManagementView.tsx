@@ -974,60 +974,6 @@ export const UserManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* Switch User PIN Modal */}
-      {switchPinInput && (
-        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-          <form 
-            onSubmit={handleVerifySwitchPin}
-            className="bg-white w-full max-w-sm max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 p-6 space-y-4 overflow-y-auto my-auto"
-          >
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-800 mx-auto flex items-center justify-center">
-                <KeyRound className="w-6 h-6" />
-              </div>
-              <h3 className="font-bold text-base text-slate-900">
-                Confirm Shift Switch
-              </h3>
-              <p className="text-xs text-slate-500">
-                Enter PIN for {users.find(u => u.id === switchPinInput.userId)?.name}
-              </p>
-            </div>
-
-            <div>
-              <input
-                type="password"
-                autoFocus
-                maxLength={4}
-                value={switchPinInput.pin}
-                onChange={(e) => setSwitchPinInput({ ...switchPinInput, pin: e.target.value })}
-                placeholder="••••"
-                className="w-full text-center text-2xl tracking-widest font-mono font-bold bg-slate-50 border border-slate-300 rounded-xl py-2 text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500"
-              />
-              {pinError && (
-                <p className="text-xs text-rose-600 text-center mt-1 font-semibold">
-                  {pinError}
-                </p>
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setSwitchPinInput(null)}
-                className="flex-1 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
-              >
-                Switch Cashier
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 };
