@@ -1,12 +1,13 @@
 ﻿import React, { useState } from 'react';
 import {
+  ChevronDown,
   ChevronRight,
   LogOut,
   X
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
-import prakashLogo from '../assets/prakash-logo.png';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 
 export type ActiveTab =
   | 'dashboard'
@@ -137,7 +138,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const visibleItems = menuItems.filter(
-    (item) => !item.adminOnly || isAdmin
+    (item) =>
+      item.id !== 'users' &&
+      item.id !== 'settings' &&
+      (!item.adminOnly || isAdmin)
   );
 
   const handleNavigation = (tab: ActiveTab) => {
@@ -149,8 +153,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showProfileActions, setShowProfileActions] = useState(false);
 
   const handleLogout = () => {
+    setShowProfileActions(false);
     setShowLogoutConfirm(true);
   };
 
@@ -179,9 +185,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="group flex min-w-0 items-center gap-3 rounded-2xl px-1.5 py-1.5 text-left transition-all duration-200 hover:bg-slate-50/80"
         >
           <img
-            src={prakashLogo}
-            alt="Prakash Pharmacy logo"
-            className="h-11 w-11 shrink-0 rounded-2xl border border-emerald-100/80 bg-white p-1 object-contain shadow-[0_8px_24px_rgba(15,118,110,0.12)] ring-4 ring-emerald-50/80 transition-transform duration-200 group-hover:scale-[1.03]"
+            src={settings.storeLogo || prakashLogo}
+            alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
+            className="h-11 w-11 shrink-0 rounded-2xl object-contain bg-white p-1 shadow-[0_8px_20px_rgba(16,185,129,0.12)]"
           />
 
           <div className="min-w-0">
@@ -274,21 +280,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* FIXED BOTTOM */}
-      <div className="shrink-0 border-t border-slate-200/80 bg-white/90 p-3 backdrop-blur-xl">
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-2xl border border-rose-200/90 bg-gradient-to-b from-white to-rose-50/70 px-3 py-2.5 text-[11px] font-extrabold text-rose-600 shadow-[0_5px_14px_rgba(225,29,72,0.05)] transition-all duration-200 hover:-translate-y-[1px] hover:border-rose-300 hover:bg-rose-50 hover:shadow-[0_8px_18px_rgba(225,29,72,0.09)]"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>Sign Out</span>
-        </button>
-
-        <div className="relative overflow-hidden rounded-[20px] border border-slate-200/90 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_60%,#f5f3ff_100%)] p-3.5 shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
-          <div className="flex items-center gap-2.5">
+      <div className="shrink-0 border-t border-slate-200 bg-white p-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+          <button
+            type="button"
+            aria-expanded={showProfileActions}
+            onClick={() => setShowProfileActions((expanded) => !expanded)}
+            className="flex w-full items-center gap-2.5 text-left"
+          >
             <div
               className={`
-                flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-sm font-black text-white shadow-[0_8px_18px_rgba(109,40,217,0.2)] ring-4 ring-white
+                flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black text-white shadow-sm
                 ${
                   isAdmin
                     ? 'bg-gradient-to-br from-violet-600 to-purple-700'
@@ -321,7 +323,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isAdmin ? 'Admin' : 'Staff'}
               </span>
             </div>
-          </div>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${showProfileActions ? 'rotate-180' : ''}`}
+              aria-hidden="true"
+            />
+          </button>
+
+          {showProfileActions && (
+            <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigation('users')}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                      activeTab === 'users'
+                        ? 'bg-indigo-50 text-indigo-700'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    }`}
+                  >
+                    Staff &amp; Password Control
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigation('settings')}
+                    className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-[11px] font-semibold transition-colors ${
+                      activeTab === 'settings'
+                        ? 'bg-fuchsia-50 text-fuchsia-700'
+                        : 'text-slate-600 hover:bg-white hover:text-slate-900'
+                    }`}
+                  >
+                    Settings &amp; Racks
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-[11px] font-bold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 hover:text-rose-700"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -354,22 +399,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ======================================================= */}
       {showLogoutConfirm && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-slate-950/45 p-2 sm:px-4 backdrop-blur-[2px] overflow-y-auto"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               cancelLogout();
             }
           }}
         >
-          <div className="w-full max-w-[400px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
+          <div className="my-auto max-h-[calc(100dvh-1rem)] w-full max-w-[400px] overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.25)]">
 
             {/* TOP */}
             <div className="px-7 pb-5 pt-7 text-center">
 
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
                 <img
-                  src={prakashLogo}
-                  alt="Prakash Pharmacy"
+                  src={settings.storeLogo || prakashLogo}
+                  alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
                   className="h-full w-full object-contain"
                 />
               </div>

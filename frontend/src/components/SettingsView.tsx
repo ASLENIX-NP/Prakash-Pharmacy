@@ -1,9 +1,23 @@
-import React, { useState } from 'react';
-import { Check, Download, Plus, Save, Search, Settings, Trash2, Warehouse } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, ImagePlus, Plus, Save, Search, Settings, Trash2, Upload, Warehouse } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 import { apiRequest } from '../services/api';
+
+const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
+function syncUnmodifiedSetting<K extends keyof PharmacySettings>(
+  current: PharmacySettings,
+  previous: PharmacySettings,
+  latest: PharmacySettings,
+  key: K,
+): PharmacySettings {
+  return current[key] === previous[key]
+    ? { ...current, [key]: latest[key] }
+    : current;
+}
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, racks, addRack, deduceRack } = usePharmacy();
@@ -12,9 +26,12 @@ export const SettingsView: React.FC = () => {
     ...settings,
     phoneNumber: normalizePhoneNumber(settings.phoneNumber),
   }));
+  const previousSettings = useRef(settings);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  const [logoError, setLogoError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [newRackName, setNewRackName] = useState('');
   const [newRackDescription, setNewRackDescription] = useState('');
   const [rackError, setRackError] = useState('');
@@ -24,7 +41,21 @@ export const SettingsView: React.FC = () => {
   const [backupError, setBackupError] = useState('');
   const [backupSuccess, setBackupSuccess] = useState(false);
 
-  const hasUnsavedChanges = JSON.stringify(formData) !== JSON.stringify(settings);
+  const hasUnsavedChanges = (Object.keys(formData) as (keyof PharmacySettings)[]).some(
+    (key) => formData[key] !== settings[key],
+  );
+
+  useEffect(() => {
+    const previous = previousSettings.current;
+    previousSettings.current = settings;
+
+    setFormData((current) =>
+      (Object.keys(settings) as (keyof PharmacySettings)[]).reduce(
+        (next, key) => syncUnmodifiedSetting(next, previous, settings, key),
+        current,
+      ),
+    );
+  }, [settings]);
 
   const fieldClass =
     'w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 transition-colors focus:border-teal-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/10';
@@ -45,8 +76,66 @@ export const SettingsView: React.FC = () => {
     return matchesSearch && matchesFilter;
   });
 
+  const handleLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    if (!ALLOWED_LOGO_TYPES.includes(file.type)) {
+      setLogoError('Choose a PNG, JPEG, or WebP image.');
+      return;
+    }
+
+    if (file.size > MAX_LOGO_SIZE_BYTES) {
+      setLogoError('Logo image must be 2 MB or smaller.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        setLogoError('Could not read the selected image. Please try again.');
+        return;
+      }
+
+      const storeLogo = reader.result;
+      setFormData((current) => ({ ...current, storeLogo }));
+      setLogoError('');
+      setSaveSuccess(false);
+    };
+    reader.onerror = () => {
+      setLogoError('Could not read the selected image. Please try again.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveLogo = async () => {
+    if (isSaving || formData.storeLogo === settings.storeLogo) {
+      return;
+    }
+
+    setLogoError('');
+    setIsSaving(true);
+    try {
+      await updateSettings({ storeLogo: formData.storeLogo });
+      setSaveSuccess(true);
+      window.setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (error) {
+      setLogoError(error instanceof Error ? error.message : 'Failed to save the store logo.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isSaving) {
+      return;
+    }
 
     if (!/^\d{9}$/.test(formData.panNumber.trim())) {
       setFormError('PAN must be exactly 9 digits.');
@@ -64,16 +153,13 @@ export const SettingsView: React.FC = () => {
     }
 
     setFormError('');
-    setSaveSuccess(false);
     setIsSaving(true);
-
     try {
       await updateSettings(formData);
       setSaveSuccess(true);
       window.setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
-      console.error('Failed to save pharmacy settings:', error);
-      setFormError('Settings could not be saved. Please retry.');
+      setFormError(error instanceof Error ? error.message : 'Failed to save settings.');
     } finally {
       setIsSaving(false);
     }
@@ -83,6 +169,7 @@ export const SettingsView: React.FC = () => {
     setFormData({ ...settings });
     setSaveSuccess(false);
     setFormError('');
+    setLogoError('');
   };
 
   const handleRackCreate = async () => {
@@ -130,7 +217,7 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-24">
+    <div className={`mx-auto max-w-5xl space-y-5 ${hasUnsavedChanges ? 'pb-24' : 'pb-5'}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -217,6 +304,80 @@ export const SettingsView: React.FC = () => {
                 className={fieldClass}
               />
             </div>
+          </div>
+        </section>
+
+        <section className={sectionCardClass}>
+          <div className="border-b border-slate-200 bg-slate-50/60 px-5 py-4">
+            <h3 className="text-base font-extrabold text-slate-900">Store logo</h3>
+            <p className="mt-1 text-xs text-slate-500">Upload the logo shown on your login page, header, and invoices.</p>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+              <div className="grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                {formData.storeLogo ? (
+                  <img
+                    src={formData.storeLogo}
+                    alt="Store logo preview"
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <ImagePlus className="h-7 w-7 text-slate-400" aria-hidden="true" />
+                )}
+              </div>
+              <div className="min-w-[220px] flex-1">
+                <p className="text-sm font-semibold text-slate-800">
+                  {formData.storeLogo ? 'Logo selected' : 'Add your pharmacy logo'}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">PNG, JPEG, or WebP. Maximum file size: 2 MB.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <label
+                    htmlFor="store-logo-upload"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-teal-700 bg-teal-700 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-teal-800"
+                  >
+                    <Upload className="h-4 w-4" aria-hidden="true" />
+                    Upload logo
+                  </label>
+                  <input
+                    id="store-logo-upload"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleLogoChange}
+                    className="sr-only"
+                  />
+                  {formData.storeLogo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData((current) => ({ ...current, storeLogo: '' }));
+                        setLogoError('');
+                        setSaveSuccess(false);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Remove logo
+                    </button>
+                  )}
+                </div>
+              </div>
+              {formData.storeLogo !== settings.storeLogo && (
+                <button
+                  type="button"
+                  onClick={handleSaveLogo}
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-2 rounded-lg border border-teal-700 bg-teal-700 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60"
+                >
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  {isSaving ? 'Saving...' : 'Save logo'}
+                </button>
+              )}
+            </div>
+            {logoError && (
+              <p className="mt-2 text-xs font-semibold text-rose-700" role="alert">
+                {logoError}
+              </p>
+            )}
           </div>
         </section>
 
@@ -310,7 +471,7 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="max-h-[395px] space-y-2.5 overflow-y-auto pr-1">
+            <div className="space-y-2.5">
               {filteredRacks.length > 0 ? (
                 filteredRacks.map((rack) => {
                   const isGeneralShelf = rack.name.toLowerCase() === 'general shelf';
@@ -423,6 +584,7 @@ export const SettingsView: React.FC = () => {
               <button
                 type="button"
                 onClick={handleDiscardChanges}
+                disabled={isSaving}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
               >
                 Discard
@@ -431,10 +593,10 @@ export const SettingsView: React.FC = () => {
                 type="submit"
                 form="pharmacy-profile-form"
                 disabled={isSaving}
-                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60"
               >
                 <Save className="h-4 w-4" />
-                {isSaving ? 'Saving…' : 'Save Settings'}
+                {isSaving ? 'Saving...' : 'Save Settings'}
               </button>
             </div>
           </div>

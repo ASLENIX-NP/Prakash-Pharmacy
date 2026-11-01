@@ -484,7 +484,7 @@ export const DoctorManagementPanel: React.FC = () => {
         }
         className={
           editingDoctor
-            ? 'fixed left-1/2 top-1/2 z-[80] max-h-[90vh] w-[calc(100%_-_2rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6'
+            ? 'fixed left-1/2 top-4 z-[80] max-h-[calc(100dvh-2rem)] w-[calc(100%_-_1rem)] max-w-5xl -translate-x-1/2 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl sm:left-1/2 sm:top-1/2 sm:max-h-[90vh] sm:w-[calc(100%_-_2rem)] sm:-translate-y-1/2 sm:p-6'
             : 'rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6'
         }
       >

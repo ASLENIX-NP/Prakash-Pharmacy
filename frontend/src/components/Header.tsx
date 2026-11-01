@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   Stethoscope,
-  Building2,
   Layers,
   ClipboardCheck,
   ShoppingCart,
@@ -20,6 +19,7 @@ import {
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 
 export type ActiveTab =
   | 'dashboard'
@@ -109,17 +109,11 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
       {/* Main Brand & Action Header */}
       <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-        {settings.storeLogo ? (
-          <img
-            src={settings.storeLogo}
-            alt={`${settings.storeName || 'Pharmacy'} logo`}
-            className="h-11 w-11 rounded-xl border border-slate-200 bg-white object-contain shadow-sm"
-          />
-        ) : (
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-teal-600 to-emerald-700 flex items-center justify-center text-white shadow-md shadow-teal-700/20">
-            <Building2 className="w-6 h-6" />
-          </div>
-        )}
+        <img
+          src={settings.storeLogo || prakashLogo}
+          alt={`${settings.storeName || 'Pharmacy'} logo`}
+          className="h-11 w-11 rounded-xl border border-slate-200 bg-white object-contain shadow-sm"
+        />
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight text-slate-900">

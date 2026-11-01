@@ -86,8 +86,8 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 p-2 sm:p-4 backdrop-blur-xs overflow-y-auto">
+      <div className="my-auto flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-slate-900 px-6 py-4 text-white">
           <div className="flex items-center gap-3">
@@ -112,7 +112,7 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
             {error && (
               <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
                 <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />

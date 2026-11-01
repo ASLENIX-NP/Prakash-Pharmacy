@@ -872,8 +872,8 @@ export const InventoryView: React.FC = () => {
 
       {/* Excel Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <FileSpreadsheet className="w-5 h-5 text-teal-400" />
@@ -1396,9 +1396,9 @@ export const InventoryView: React.FC = () => {
 
       {/* Add / Edit Medicine Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-8">
-            <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-xl max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col">
+            <div className="bg-slate-900 text-white px-4 sm:px-6 py-4 flex items-center justify-between shrink-0">
               <h3 className="font-bold text-base">
                 {editingMedicine ? 'Edit Medicine Details' : 'Register New Medicine to Inventory'}
               </h3>
@@ -1410,9 +1410,9 @@ export const InventoryView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveMedicine} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
+            <form onSubmit={handleSaveMedicine} className="p-4 sm:p-6 space-y-4 overflow-y-auto min-h-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="col-span-full">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Medicine Brand Name: *
                   </label>
@@ -1426,7 +1426,7 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
 
-                <div className="col-span-2">
+                <div className="col-span-full">
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Generic Salt / Molecule:
                   </label>
@@ -1440,7 +1440,7 @@ export const InventoryView: React.FC = () => {
                 </div>
 
                 {/* Distributor / Wholesaler Selection */}
-                <div className="col-span-2 bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                <div className="col-span-full bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                       <Building className="w-3.5 h-3.5 text-teal-600" />
@@ -1477,38 +1477,26 @@ export const InventoryView: React.FC = () => {
                       ))}
                     </select>
                   ) : (
-                    <div className="space-y-2 bg-white p-2.5 rounded-lg border border-slate-200">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Distributor Name: *</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Nepal Drug House"
-                            value={manualNewDistributorName}
-                            onChange={(e) => setManualNewDistributorName(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Phone:</label>
-                          <input
-                            type="text"
-                            placeholder="98xxxxxxxx"
-                            value={manualNewDistributorPhone}
-                            onChange={(e) => setManualNewDistributorPhone(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">PAN:</label>
-                          <input
-                            type="text"
-                            placeholder="PAN Number"
-                            value={manualNewDistributorPan}
-                            onChange={(e) => setManualNewDistributorPan(e.target.value)}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
-                          />
-                        </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Distributor Name: *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Nepal Drug House"
+                          value={manualNewDistributorName}
+                          onChange={(e) => setManualNewDistributorName(e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-600 mb-0.5">Phone:</label>
+                        <input
+                          type="text"
+                          placeholder="98xxxxxxxx"
+                          value={manualNewDistributorPhone}
+                          onChange={(e) => setManualNewDistributorPhone(e.target.value)}
+                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-mono text-slate-900"
+                        />
                       </div>
                       <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
                         <div>
@@ -1725,8 +1713,8 @@ export const InventoryView: React.FC = () => {
                 )}
 
                 {/* Statutory VAT Classification Toggle */}
-                <div className="col-span-2 p-3 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-between">
-                  <div>
+                <div className="col-span-full p-3 bg-slate-100 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="min-w-0">
                     <span className="font-bold text-xs text-slate-800 block">
                       Statutory VAT Classification (Nepal IRD):
                     </span>
@@ -1734,7 +1722,7 @@ export const InventoryView: React.FC = () => {
                       Essential medicines are 0% VAT Free. Antiseptic solutions, gels &amp; cosmetics are 13% VAT.
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
                       onClick={() => setFormData({ ...formData, isVatApplicable: false })}

@@ -11,7 +11,7 @@ export const TopInfoBar: React.FC = () => {
   const { settings } = usePharmacy();
 
   return (
-    <div className="relative z-50 flex min-h-[32px] w-full shrink-0 flex-wrap items-center justify-between gap-2 bg-slate-900 px-4 py-1.5 text-xs text-slate-100">
+    <div className="relative z-50 flex min-h-[32px] w-full shrink-0 flex-wrap items-center justify-between gap-2 bg-gradient-to-r from-indigo-950 via-blue-900 to-violet-950 px-4 py-1.5 text-xs text-slate-100">
       
       {/* LEFT SIDE */}
       <div className="flex flex-wrap items-center gap-4">

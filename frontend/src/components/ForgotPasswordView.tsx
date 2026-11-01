@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import prakashLogo from '../assets/prakash-logo.png';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 import {
   AlertCircle,
   ArrowLeft,
@@ -196,7 +196,7 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   };
 
   return (
-    <main className="relative min-h-[100svh] overflow-hidden bg-[#f3fbfc] font-sans text-slate-900">
+    <main className="relative h-full min-h-0 overflow-x-hidden overflow-y-auto bg-[#f3fbfc] font-sans text-slate-900">
       {/* Background decorations matching LoginView */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-44 top-24 h-[540px] w-[540px] rounded-full bg-sky-100/70 blur-3xl" />
@@ -219,14 +219,14 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
       </div>
 
       {/* Main card container */}
-      <section className="relative z-10 flex min-h-[100svh] flex-col items-center justify-center px-4 py-8 sm:px-6">
+      <section className="relative z-10 flex min-h-full flex-col items-center justify-center px-4 py-8 sm:px-6">
         <div className="w-full max-w-[470px] rounded-[32px] border border-slate-100 bg-white/95 p-7 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-md sm:p-10">
           {/* Header */}
           <header className="mb-6 text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-[22px] border border-emerald-100 bg-gradient-to-tr from-teal-50 to-emerald-50 p-2.5 shadow-sm">
               <img
-                src={prakashLogo}
-                alt="Prakash Pharmacy Logo"
+                src={settings.storeLogo || prakashLogo}
+                alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
                 className="h-full w-full object-contain"
               />
             </div>

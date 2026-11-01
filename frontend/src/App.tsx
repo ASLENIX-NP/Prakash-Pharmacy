@@ -132,7 +132,7 @@ const PharmacyAppContent: React.FC = () => {
   }
 
   return (
-    <div className="flex h-[100svh] flex-col overflow-hidden bg-slate-100 text-slate-900">
+    <div className="flex h-full flex-col overflow-hidden bg-slate-100 text-slate-900">
       <TopInfoBar />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">

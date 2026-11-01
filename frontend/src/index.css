@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
 @layer base {
   body {
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";

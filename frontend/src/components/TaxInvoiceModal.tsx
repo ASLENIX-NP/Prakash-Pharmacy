@@ -5,7 +5,6 @@ import {
   Download, 
   CheckCircle2, 
   ShieldCheck, 
-  Building2, 
   Phone, 
   Mail, 
   MapPin, 
@@ -16,6 +15,7 @@ import {
 import { SaleInvoice } from '../types/pharmacy';
 import { usePharmacy } from '../context/PharmacyContext';
 import NepaliDate from 'nepali-date-converter';
+import prakashLogo from '../assets/pharmacy-login-logo.png';
 
 interface TaxInvoiceModalProps {
   invoice: SaleInvoice | null;
@@ -93,9 +93,9 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:p-0 print:bg-white print:fixed print:inset-0">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:items-start print:overflow-visible print:p-0 print:bg-white print:fixed print:inset-0">
       <div 
-        className={`bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-4 transition-all flex flex-col max-h-[92vh] print:border-none print:shadow-none print:w-full print:m-0 print:max-h-none ${
+        className={`bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-4 transition-all flex flex-col max-h-[calc(100dvh-1rem)] print:border-none print:shadow-none print:w-full print:m-0 print:max-h-none ${
           format === 'thermal' ? 'w-full max-w-sm' : 'w-full max-w-2xl'
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -144,13 +144,11 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
           >
             {/* Pharmacy Branding Header */}
             <div className="text-center border-b-2 border-slate-900 pb-2.5 space-y-1">
-              {settings.storeLogo && (
-                <img
-                  src={settings.storeLogo}
-                  alt={`${settings.storeName || 'Pharmacy'} logo`}
-                  className="mx-auto mb-1 h-12 max-w-24 object-contain"
-                />
-              )}
+              <img
+                src={settings.storeLogo || prakashLogo}
+                alt={`${settings.storeName || 'Pharmacy'} logo`}
+                className="mx-auto mb-1 h-12 max-w-24 object-contain"
+              />
               <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
                 TAX INVOICE / VAT BILL (कर बीजक)
               </h2>

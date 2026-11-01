@@ -21,9 +21,9 @@ export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onCl
   const vatAmountUnit = medicine.isVatApplicable ? perUnitMrp - taxableBaseUnit : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in duration-150 overflow-y-auto">
       <div 
-        className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+        className="bg-white w-full max-w-lg max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -84,7 +84,8 @@ export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onCl
               <FileText className="w-3.5 h-3.5 text-slate-500" />
               <span>Full Pack vs. Loose Tablet Tax Breakdown (NPR)</span>
             </div>
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[36rem] text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
                 <tr>
                   <th className="py-2 px-3 text-left">Unit Type</th>
@@ -120,7 +121,8 @@ export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onCl
                   </tr>
                 )}
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
 
           {/* Statutory Explanation */}
