@@ -123,6 +123,12 @@ export const InventoryView: React.FC = () => {
   const [manualNewDistributorPan, setManualNewDistributorPan] = useState('');
   const [manualNewDistributorCreditLimit, setManualNewDistributorCreditLimit] = useState<number | string>(200000);
   const [manualNewDistributorAddress, setManualNewDistributorAddress] = useState('Hetauda, Makwanpur');
+
+  const [manualPurchaseInvoiceNumber, setManualPurchaseInvoiceNumber] = useState('');
+  const [manualPurchaseDate, setManualPurchaseDate] = useState(() => localDateString());
+  const [manualPurchasePaymentMode, setManualPurchasePaymentMode] = useState<'credit' | 'cash'>('credit');
+  const [manualPurchaseDueDate, setManualPurchaseDueDate] = useState('');
+
   const [formData, setFormData] = useState<Partial<Medicine>>({
     name: '',
     genericName: '',
@@ -252,6 +258,12 @@ export const InventoryView: React.FC = () => {
     setManualNewDistributorName('');
     setManualNewDistributorPhone('');
     setManualNewDistributorPan('');
+
+    setManualPurchaseInvoiceNumber('');
+    setManualPurchaseDate(localDateString());
+    setManualPurchasePaymentMode('credit');
+    setManualPurchaseDueDate('');
+
     setFormData({
       name: '',
       genericName: '',
@@ -367,31 +379,169 @@ export const InventoryView: React.FC = () => {
       return;
     }
 
-    let supplierId = formData.supplierId || '';
-    let supplierName = formData.supplierName || '';
+    const openingPacks =
+      Number(formData.stockPacks) || 0;
 
-    if (manualDistributorMode === 'new' && manualNewDistributorName.trim()) {
-      try {
-        const parsedCreditLimit = Number(manualNewDistributorCreditLimit);
-        const finalCreditLimit = !isNaN(parsedCreditLimit) && parsedCreditLimit >= 0 ? parsedCreditLimit : 200000;
-        const createdDist = await addStockist({
-          name: manualNewDistributorName.trim(),
-          phone: manualNewDistributorPhone.trim() || '9800000000',
-          panNumber: manualNewDistributorPan.trim() || '',
-          address: manualNewDistributorAddress.trim() || 'Hetauda, Makwanpur',
-          contactPerson: '',
-          creditLimit: finalCreditLimit,
-          email: ''
-        });
-        supplierId = createdDist.id;
-        supplierName = createdDist.name;
-      } catch (err: any) {
-        showToast(err.message || 'Failed to create new distributor', 'error', 'Distributor Error');
+    const openingLoose =
+      Number(formData.stockLooseUnits) || 0;
+
+    const openingUnitsPerPack =
+      Number(formData.unitsPerPack) || 1;
+
+    const openingStockUnits =
+      openingPacks *
+        openingUnitsPerPack +
+      openingLoose;
+
+
+    /*
+     * A NEW medicine with opening stock represents a real
+     * supplier purchase. Validate purchase accounting before
+     * creating a new distributor or changing inventory.
+     */
+    if (
+      !editingMedicine &&
+      openingStockUnits > 0
+    ) {
+      if (
+        !manualPurchaseInvoiceNumber.trim()
+      ) {
+        showToast(
+          'Wholesaler Invoice / Bill Number is required when adding opening stock.',
+          'warning',
+          'Purchase Accounting Required'
+        );
+
+        return;
+      }
+
+
+      if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+          manualPurchaseDate
+        )
+      ) {
+        showToast(
+          'A valid Purchase Date is required.',
+          'warning',
+          'Validation'
+        );
+
+        return;
+      }
+
+
+      if (
+        manualDistributorMode ===
+          'select' &&
+        !formData.supplierId
+      ) {
+        showToast(
+          'Select a Distributor / Wholesaler when adding opening stock.',
+          'warning',
+          'Purchase Accounting Required'
+        );
+
+        return;
+      }
+
+
+      if (
+        manualDistributorMode ===
+          'new' &&
+        !manualNewDistributorName.trim()
+      ) {
+        showToast(
+          'Enter the new Distributor / Wholesaler name.',
+          'warning',
+          'Purchase Accounting Required'
+        );
+
         return;
       }
     }
 
-    const isVat = Boolean(formData.isVatApplicable ?? (formData as any).hasvat);
+    const isVat = Boolean(
+      formData.isVatApplicable ??
+      (formData as any).hasvat
+    );
+
+    let supplierId =
+      formData.supplierId || '';
+
+    let supplierName =
+      formData.supplierName || '';
+
+    let supplierPan =
+      stockists.find(
+        stockist =>
+          stockist.id === supplierId
+      )?.panNumber || '';
+
+
+    if (
+      manualDistributorMode === 'new' &&
+      manualNewDistributorName.trim()
+    ) {
+      try {
+        const parsedCreditLimit =
+          Number(
+            manualNewDistributorCreditLimit
+          );
+
+        const finalCreditLimit =
+          !isNaN(parsedCreditLimit) &&
+          parsedCreditLimit >= 0
+            ? parsedCreditLimit
+            : 200000;
+
+        const createdDist =
+          await addStockist({
+            name:
+              manualNewDistributorName.trim(),
+
+            phone:
+              manualNewDistributorPhone.trim() ||
+              '9800000000',
+
+            panNumber:
+              manualNewDistributorPan.trim() ||
+              '',
+
+            address:
+              manualNewDistributorAddress.trim() ||
+              'Hetauda, Makwanpur',
+
+            contactPerson: '',
+
+            creditLimit:
+              finalCreditLimit,
+
+            email: ''
+          });
+
+        supplierId =
+          createdDist.id;
+
+        supplierName =
+          createdDist.name;
+
+        supplierPan =
+          createdDist.panNumber || '';
+
+      } catch (err: any) {
+        showToast(
+          err.message ||
+            'Failed to create new distributor',
+          'error',
+          'Distributor Error'
+        );
+
+        return;
+      }
+    }
+
+
     const finalPayload = {
       ...normalizedFormData,
       isVatApplicable: isVat,
@@ -400,16 +550,271 @@ export const InventoryView: React.FC = () => {
       supplierName
     };
 
+
+    /*
+     * Editing an existing medicine remains exactly as before.
+     * This change only affects creation of new opening stock.
+     */
     if (editingMedicine) {
       updateMedicine(
         editingMedicine.id,
         finalPayload
       );
-    } else {
-      addMedicine(
-        finalPayload as Omit<Medicine, 'id'>
-      );
+
+      setShowEditModal(false);
+
+      return;
     }
+
+
+    /*
+     * OPENING STOCK:
+     *
+     * Use the already hardened Purchase Invoice API.
+     *
+     * This single transaction creates/updates:
+     * - inventory
+     * - PurchaseInvoice
+     * - PurchaseInvoiceItem
+     * - stockist ledger
+     * - stockist balance
+     *
+     * It also preserves purchase history required for
+     * accounting-safe future supplier returns.
+     */
+    if (openingStockUnits > 0) {
+
+      const costPerPack =
+        Number(formData.costPrice) || 0;
+
+      const mrpPerPack =
+        Number(formData.mrpPrice) || 0;
+
+      const looseCost =
+        costPerPack /
+        openingUnitsPerPack;
+
+      const lineTotal =
+        Math.round(
+          (
+            openingPacks *
+              costPerPack +
+            openingLoose *
+              looseCost
+          ) * 100
+        ) / 100;
+
+
+      const isVatApplicable =
+        Boolean(
+          formData.isVatApplicable
+        );
+
+
+      const taxableAmount =
+        isVatApplicable
+          ? lineTotal
+          : 0;
+
+
+      const vatAmount =
+        isVatApplicable
+          ? Math.round(
+              taxableAmount *
+                0.13 *
+                100
+            ) / 100
+          : 0;
+
+
+      const grandTotal =
+        Math.round(
+          (
+            lineTotal +
+            vatAmount
+          ) * 100
+        ) / 100;
+
+
+      const invoiceItem:
+        StockistInvoiceItem = {
+
+        id:
+          `manual-${Date.now()}`,
+
+        medicineName,
+
+        genericName:
+          genericName ||
+          medicineName,
+
+        category:
+          formData.category ||
+          'Tablet',
+
+        batchNumber:
+          String(
+            formData.batchNumber
+          ).trim(),
+
+        expiryDate:
+          String(
+            formData.expiryDate
+          ).trim(),
+
+        packQty:
+          openingPacks,
+
+        looseUnits:
+          openingLoose,
+
+        freePacks:
+          0,
+
+        unitsPerPack:
+          openingUnitsPerPack,
+
+        costPrice:
+          costPerPack,
+
+        discountPercent:
+          0,
+
+        isVatApplicable,
+
+        mrpPrice:
+          mrpPerPack,
+
+        rackLocation:
+          String(
+            formData.rackLocation ||
+            'Unassigned'
+          ),
+
+        barcode:
+          formData.barcode?.trim() ||
+          undefined,
+
+        reorderLevel:
+          Number(
+            formData.reorderLevel
+          ) || 0,
+
+        inventoryNotes:
+          formData.notes?.trim() ||
+          undefined,
+
+        lineTotal
+      };
+
+
+      try {
+
+        const createdInvoice =
+          await addPurchaseInvoice({
+
+            invoiceNumber:
+              manualPurchaseInvoiceNumber
+                .trim(),
+
+            stockistId:
+              supplierId,
+
+            stockistName:
+              supplierName,
+
+            stockistPan:
+              supplierPan,
+
+            date:
+              manualPurchaseDate,
+
+            paymentMode:
+              manualPurchasePaymentMode,
+
+            dueDate:
+              manualPurchasePaymentMode ===
+                'credit' &&
+              manualPurchaseDueDate
+                ? manualPurchaseDueDate
+                : undefined,
+
+            items:
+              [invoiceItem],
+
+            subtotal:
+              lineTotal,
+
+            totalDiscount:
+              0,
+
+            taxableAmount,
+
+            vatAmount,
+
+            grandTotal,
+
+            paidAmount:
+              manualPurchasePaymentMode ===
+                'cash'
+                ? grandTotal
+                : 0,
+
+            paymentStatus:
+              manualPurchasePaymentMode ===
+                'cash'
+                ? 'paid'
+                : 'pending',
+
+            notes:
+              formData.notes?.trim()
+                ? `Single medicine inventory entry. ${formData.notes.trim()}`
+                : 'Single medicine inventory entry.'
+          });
+
+
+        showToast(
+          `Medicine added through Purchase Bill #${createdInvoice.invoiceNumber}. ${
+            manualPurchasePaymentMode ===
+              'credit'
+              ? 'Supplier payable balance updated.'
+              : 'Cash purchase recorded as fully settled.'
+          }`,
+          'success',
+          'Medicine & Purchase Saved'
+        );
+
+      } catch (err: any) {
+
+        showToast(
+          err instanceof Error
+            ? err.message
+            : 'Failed to save medicine purchase.',
+          'error',
+          'Purchase Error'
+        );
+
+        return;
+      }
+
+
+      setShowEditModal(false);
+
+      return;
+    }
+
+
+    /*
+     * Zero-stock registration is still allowed.
+     * It is only a catalog/inventory record and therefore
+     * has no supplier accounting transaction.
+     */
+    addMedicine(
+      finalPayload as Omit<
+        Medicine,
+        'id'
+      >
+    );
 
     setShowEditModal(false);
   };
@@ -1533,6 +1938,136 @@ export const InventoryView: React.FC = () => {
                     </div>
                   )}
                 </div>
+
+                {!editingMedicine && (
+                  <div className="col-span-full bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-3">
+
+                    <div>
+                      <div className="text-xs font-bold text-amber-900">
+                        Opening Stock Purchase Accounting
+                      </div>
+
+                      <div className="text-[11px] text-amber-800 mt-0.5">
+                        Used when opening stock is greater than zero. Credit increases the wholesaler payable balance; cash is recorded as fully settled.
+                      </div>
+                    </div>
+
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                          Wholesaler Invoice / Bill No:
+                        </label>
+
+                        <input
+                          type="text"
+                          placeholder="e.g. INV-2083-145"
+                          value={manualPurchaseInvoiceNumber}
+                          onChange={(e) =>
+                            setManualPurchaseInvoiceNumber(
+                              e.target.value
+                            )
+                          }
+                          className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono font-semibold text-slate-900 focus:outline-hidden"
+                        />
+                      </div>
+
+
+                      <div>
+                        <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                          Purchase Date:
+                        </label>
+
+                        <input
+                          type="date"
+                          value={manualPurchaseDate}
+                          onChange={(e) =>
+                            setManualPurchaseDate(
+                              e.target.value
+                            )
+                          }
+                          className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-hidden"
+                        />
+                      </div>
+
+                    </div>
+
+
+                    <div>
+
+                      <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                        Payment Mode:
+                      </label>
+
+
+                      <div className="grid grid-cols-2 gap-2">
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setManualPurchasePaymentMode(
+                              'credit'
+                            )
+                          }
+                          className={`py-2 rounded-lg text-xs font-bold ${
+                            manualPurchasePaymentMode ===
+                              'credit'
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          Credit (Udharo)
+                        </button>
+
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setManualPurchasePaymentMode(
+                              'cash'
+                            )
+                          }
+                          className={`py-2 rounded-lg text-xs font-bold ${
+                            manualPurchasePaymentMode ===
+                              'cash'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-white border border-slate-300 text-slate-700'
+                          }`}
+                        >
+                          Cash (Nagadi)
+                        </button>
+
+                      </div>
+
+                    </div>
+
+
+                    {manualPurchasePaymentMode === 'credit' && (
+
+                      <div>
+
+                        <label className="block text-[10px] font-semibold text-slate-700 mb-1">
+                          Due Date (optional):
+                        </label>
+
+                        <input
+                          type="date"
+                          value={manualPurchaseDueDate}
+                          onChange={(e) =>
+                            setManualPurchaseDueDate(
+                              e.target.value
+                            )
+                          }
+                          className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-hidden"
+                        />
+
+                      </div>
+
+                    )}
+
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Category:</label>

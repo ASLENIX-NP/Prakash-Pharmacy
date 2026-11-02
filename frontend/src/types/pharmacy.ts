@@ -119,6 +119,13 @@ export interface StockistInvoiceItem {
   isVatApplicable: boolean;
   mrpPrice: number;
   rackLocation: string;
+
+  // Optional inventory metadata used when a purchase creates
+  // a brand-new inventory medicine.
+  barcode?: string;
+  reorderLevel?: number;
+  inventoryNotes?: string;
+
   lineTotal: number;
 }
 

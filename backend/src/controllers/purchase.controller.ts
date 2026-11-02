@@ -331,6 +331,24 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         "isVatApplicable"
       );
 
+      const reorderLevel = Number(
+        item.reorderLevel ??
+        item.packAlertLevel ??
+        15
+      );
+
+      const barcode =
+        item.barcode === undefined ||
+        item.barcode === null
+          ? null
+          : String(item.barcode).trim() || null;
+
+      const inventoryNotes =
+        item.inventoryNotes === undefined ||
+        item.inventoryNotes === null
+          ? null
+          : String(item.inventoryNotes).trim() || null;
+
       if (
         !Number.isInteger(packQty) || packQty < 0 ||
         !Number.isInteger(looseUnits) || looseUnits < 0 ||
@@ -365,6 +383,16 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           `MRP / selling price for '${medicineName}' must be zero or positive.`
         );
       }
+
+      if (
+        !Number.isInteger(reorderLevel) ||
+        reorderLevel < 0
+      ) {
+        throw new PurchaseValidationError(
+          `Reorder level for '${medicineName}' must be a non-negative whole number.`
+        );
+      }
+
       if (
         !Number.isFinite(discountPercent) ||
         discountPercent < 0 ||
@@ -406,6 +434,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         genericName: String(item.genericName || medicineName).trim(),
         categoryName: String(item.category || item.categoryName || "Tablet").trim(),
         rackLocation: String(item.rackLocation || "General Shelf").trim(),
+        barcode,
+        reorderLevel,
+        inventoryNotes,
       };
     });
 
@@ -510,6 +541,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           genericName,
           categoryName,
           rackLocation,
+          barcode,
+          reorderLevel,
+          inventoryNotes,
         } = item;
         const totalPacksReceived = packQty + freePacks;
 
@@ -619,11 +653,14 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
               unitPerPack: unitsPerPack,
               packInStock: totalPacksReceived,
               unitInStock: looseUnits,
-              packAlertLevel: 15,
+              packAlertLevel: reorderLevel,
               costPrice,
               sellingPrice: mrpPrice,
               hasvat: isVatApplicable,
-              notes: `Purchased via Inward Invoice #${cleanInvoiceNumber}`,
+              barcode,
+              notes:
+                inventoryNotes ||
+                `Purchased via Inward Invoice #${cleanInvoiceNumber}`,
             },
           });
           linkedInventoryId = created.id;
