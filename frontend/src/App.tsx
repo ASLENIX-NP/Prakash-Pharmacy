@@ -89,6 +89,7 @@ const PharmacyAppContent: React.FC = () => {
     setActiveInvoiceToPrint,
 
     settings,
+    updateMedicine,
   } = usePharmacy();
 
   const [activeTab, setActiveTab] =
@@ -308,6 +309,10 @@ const PharmacyAppContent: React.FC = () => {
         onClose={() =>
           setActiveVatInfoMedicine(null)
         }
+        onUpdateVat={(med, newVat) => {
+          updateMedicine(med.id, { isVatApplicable: newVat, hasvat: newVat });
+          setActiveVatInfoMedicine({ ...med, isVatApplicable: newVat, hasvat: newVat });
+        }}
       />
 
       <PhysicalStockAuditModal

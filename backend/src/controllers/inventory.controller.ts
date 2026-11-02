@@ -1227,7 +1227,12 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
     if (hasvat !== undefined || isVatApplicable !== undefined) {
-      const parsedVat = parseInventoryBoolean(hasvat ?? isVatApplicable);
+      // Prioritize whichever field differs from existing, or isVatApplicable if both are passed from frontend
+      const rawVat =
+        isVatApplicable !== undefined && (hasvat === undefined || isVatApplicable !== existing.hasvat)
+          ? isVatApplicable
+          : (hasvat ?? isVatApplicable);
+      const parsedVat = parseInventoryBoolean(rawVat);
       if (parsedVat === null) {
         res.status(400).json({ success: false, message: "VAT applicability must be true or false." });
         return;
@@ -1426,27 +1431,40 @@ export const deleteInventory = async (req: Request, res: Response): Promise<void
     if (existing.packInStock > 0 || existing.unitInStock > 0) {
       res.status(409).json({
         success: false,
-        message: `Cannot delete '${existing.medicineBrand}' while physical stock remains. Adjust stock to zero through the audited Physical Stock Adjustment workflow first.`,
+        message: `Cannot delete '${existing.medicineBrand}' while physical stock remains (${existing.packInStock} packs, ${existing.unitInStock} units). Adjust stock to zero through Physical Stock Adjustment first.`,
       });
       return;
     }
 
-    const historicalLinks =
+    const commercialHistory =
       existing._count.billItems +
       existing._count.purchaseInvoiceItems +
-      existing._count.salesReturnItems +
-      existing._count.stockAdjustmentLogs;
+      existing._count.salesReturnItems;
 
-    if (historicalLinks > 0) {
+    if (commercialHistory > 0) {
+      const records: string[] = [];
+      if (existing._count.billItems > 0) records.push(`${existing._count.billItems} customer sales bill(s)`);
+      if (existing._count.purchaseInvoiceItems > 0) records.push(`${existing._count.purchaseInvoiceItems} supplier purchase bill(s)`);
+      if (existing._count.salesReturnItems > 0) records.push(`${existing._count.salesReturnItems} customer return voucher(s)`);
+
       res.status(409).json({
         success: false,
-        message: `Cannot delete '${existing.medicineBrand}' because it has historical sales, purchase, return, or stock-audit records. Keep the zero-stock record for audit integrity.`,
+        message: `Cannot delete '${existing.medicineBrand}' because it is permanently linked to completed fiscal transactions (${records.join(', ')}). Under Nepal IRD tax law (Section 51), historical sales and purchase records must be preserved for tax audit integrity. If you want to stop selling this medicine, set its status to 'Recalled' or keep stock at 0.`,
       });
       return;
     }
 
-    await prisma.inventory.delete({
-      where: { id },
+    // Clean up internal non-commercial audit logs before deleting this unused inventory item
+    await prisma.$transaction(async (tx) => {
+      await tx.stockAdjustmentLog.deleteMany({
+        where: { medicineId: id },
+      });
+      await tx.inventorySafetyStatusLog.deleteMany({
+        where: { medicineId: id },
+      });
+      await tx.inventory.delete({
+        where: { id },
+      });
     });
 
     res.status(200).json({

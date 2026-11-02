@@ -283,7 +283,12 @@ export const InventoryView: React.FC = () => {
     setManualNewDistributorName('');
     setManualNewDistributorPhone('');
     setManualNewDistributorPan('');
-    setFormData({ ...m });
+    const vatVal = Boolean(m.isVatApplicable ?? (m as any).hasvat);
+    setFormData({
+      ...m,
+      isVatApplicable: vatVal,
+      hasvat: vatVal
+    });
     setShowEditModal(true);
   };
 
@@ -386,8 +391,11 @@ export const InventoryView: React.FC = () => {
       }
     }
 
+    const isVat = Boolean(formData.isVatApplicable ?? (formData as any).hasvat);
     const finalPayload = {
       ...normalizedFormData,
+      isVatApplicable: isVat,
+      hasvat: isVat,
       supplierId,
       supplierName
     };
@@ -1725,7 +1733,7 @@ export const InventoryView: React.FC = () => {
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, isVatApplicable: false })}
+                      onClick={() => setFormData({ ...formData, isVatApplicable: false, hasvat: false } as any)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                         !formData.isVatApplicable
                           ? 'bg-emerald-700 text-white shadow-xs'
@@ -1736,7 +1744,7 @@ export const InventoryView: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setFormData({ ...formData, isVatApplicable: true })}
+                      onClick={() => setFormData({ ...formData, isVatApplicable: true, hasvat: true } as any)}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                         formData.isVatApplicable
                           ? 'bg-blue-700 text-white shadow-xs'
@@ -1984,9 +1992,21 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
                     <button
                       type="button"
                       onClick={async () => {
+                        const hasStock = (m.stockPacks || 0) > 0 || (m.stockLooseUnits || 0) > 0;
+                        if (hasStock) {
+                          await confirmDialog({
+                            title: `Physical Stock Remaining: ${m.name}`,
+                            message: `Cannot delete "${m.name}" while physical stock remains (${m.stockPacks || 0} packs, ${m.stockLooseUnits || 0} loose units).\n\nUnder pharmacy stock controls, adjust stock to zero first through Physical Stock Adjustment.`,
+                            confirmLabel: 'Understood',
+                            cancelLabel: 'Close',
+                            type: 'warning',
+                          });
+                          return;
+                        }
+
                         const confirmed = await confirmDialog({
                           title: `Delete ${m.name}`,
-                          message: `Are you sure you want to permanently delete "${m.name}" (Batch: ${m.batchNumber}) from inventory?`,
+                          message: `Are you sure you want to permanently delete "${m.name}" (Batch: ${m.batchNumber}) from inventory?\n\nNote: If this medicine was billed in historical customer sales or supplier purchase bills, Nepal IRD tax law preserves the audit record and prevents deletion.`,
                           confirmLabel: 'Delete Medicine',
                           cancelLabel: 'Keep Item',
                           type: 'danger',

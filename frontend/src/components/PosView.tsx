@@ -529,6 +529,8 @@ export const PosView: React.FC = () => {
     let vatExemptSubtotal = 0;
     let taxableBaseSubtotal = 0;
     let vatAmount = 0;
+    const vatTaxableItemsDetail: { name: string; vat: number; taxBase: number }[] = [];
+    const vatExemptNames: string[] = [];
 
     cart.forEach((item, index) => {
       const lineGross =
@@ -578,9 +580,19 @@ export const PosView: React.FC = () => {
 
         vatAmount +=
           lineVat;
+
+        vatTaxableItemsDetail.push({
+          name: `${item.medicineName} (${item.isLooseUnit ? 'Tab' : 'Pack'})`,
+          vat: lineVat,
+          taxBase: lineTaxBase,
+        });
       } else {
         vatExemptSubtotal +=
           lineNet;
+
+        if (!vatExemptNames.includes(item.medicineName)) {
+          vatExemptNames.push(item.medicineName);
+        }
       }
     });
 
@@ -612,6 +624,10 @@ export const PosView: React.FC = () => {
       discountAmount,
       grandTotal,
       changeGiven,
+      vatExemptCount: cart.filter((i) => !i.isVatApplicable).length,
+      vatTaxableCount: vatTaxableItemsDetail.length,
+      vatTaxableItemsDetail,
+      vatExemptNames,
     };
   }, [
     cart,
@@ -646,6 +662,26 @@ export const PosView: React.FC = () => {
     if (customerPan && !/^\d{9}$/.test(customerPan)) {
       showToast('Buyer PAN must contain exactly 9 digits.', 'warning', 'Validation');
       return;
+    }
+
+    if (paymentMode === 'cash' && totals.grandTotal > 0) {
+      if (!cashTendered || Number(cashTendered) <= 0) {
+        showToast(
+          'Please enter the cash tendered amount received from the customer before completing the bill.',
+          'warning',
+          'Cash Tendered Required'
+        );
+        return;
+      }
+
+      if (Number(cashTendered) < totals.grandTotal) {
+        showToast(
+          `Cash tendered (Rs. ${Number(cashTendered).toFixed(2)}) is less than total bill (Rs. ${totals.grandTotal.toFixed(2)}).`,
+          'warning',
+          'Insufficient Cash'
+        );
+        return;
+      }
     }
 
     try {
@@ -713,8 +749,7 @@ export const PosView: React.FC = () => {
 
         cashTendered:
           paymentMode === 'cash'
-            ? cashTendered ||
-              totals.grandTotal
+            ? cashTendered
             : totals.grandTotal,
 
         changeGiven:
@@ -913,35 +948,31 @@ export const PosView: React.FC = () => {
 
                     {/* MEDICINE */}
                     <div className="min-w-0">
-                      <p className="truncate text-[14px] font-extrabold text-slate-900">
-                        {medicine.name}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="truncate text-[14px] font-extrabold text-slate-900">
+                          {medicine.name}
+                        </p>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border shrink-0 ${
+                            medicine.isVatApplicable
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}
+                        >
+                          {medicine.isVatApplicable ? '13% VAT' : 'VAT Free'}
+                        </span>
+                      </div>
 
                       <p className="mt-1 truncate text-[11px] text-slate-500">
                         {medicine.genericName}
                         <span className="mx-1.5 text-slate-300">
-                          â€¢
+                          •
                         </span>
                         Batch {medicine.batchNumber}
                         <span className="mx-1.5 text-slate-300">
-                          â€¢
+                          •
                         </span>
                         Rack {medicine.rackLocation}
-                        <span className="mx-1.5 text-slate-300">
-                          â€¢
-                        </span>
-
-                        <span
-                          className={
-                            medicine.isVatApplicable
-                              ? 'text-blue-600'
-                              : 'text-emerald-600'
-                          }
-                        >
-                          {medicine.isVatApplicable
-                            ? '13% VAT'
-                            : 'VAT Exempt'}
-                        </span>
                       </p>
                     </div>
 
@@ -1254,7 +1285,7 @@ export const PosView: React.FC = () => {
                       {item.medicineName}
                     </p>
 
-                    <div className="mt-1 flex items-center gap-1.5">
+                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                       <button
                         type="button"
                         onClick={() =>
@@ -1271,6 +1302,21 @@ export const PosView: React.FC = () => {
                       >
                         {item.isLooseUnit ? 'Tab (Loose)' : 'Packet'}
                       </button>
+
+                      <span
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold border shrink-0 ${
+                          item.isVatApplicable
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        }`}
+                        title={
+                          item.isVatApplicable
+                            ? `13% VAT Applicable (Base: Rs. ${(item.taxBase || 0).toFixed(2)}, VAT: Rs. ${(item.vatAmount || 0).toFixed(2)})`
+                            : 'Statutory 0% VAT Free'
+                        }
+                      >
+                        {item.isVatApplicable ? '13% VAT' : 'VAT Free'}
+                      </span>
 
                       <span className="text-[10px] font-mono text-slate-400">
                         {item.batchNumber}
@@ -1336,8 +1382,24 @@ export const PosView: React.FC = () => {
 
 
                   {/* TOTAL */}
-                  <div className="text-right font-mono text-[12px] font-black text-slate-900">
-                    {item.lineTotal.toFixed(2)}
+                  <div className="text-right">
+                    <span className="font-mono text-[12px] font-black text-slate-900 block">
+                      {item.lineTotal.toFixed(2)}
+                    </span>
+                    <span
+                      className={`block font-mono text-[9px] font-bold ${
+                        item.isVatApplicable ? 'text-blue-600' : 'text-emerald-600'
+                      }`}
+                      title={
+                        item.isVatApplicable
+                          ? `13% VAT portion: Rs. ${(item.vatAmount || 0).toFixed(2)}`
+                          : 'VAT Free (0% Tax)'
+                      }
+                    >
+                      {item.isVatApplicable
+                        ? `VAT: ${(item.vatAmount || 0).toFixed(2)}`
+                        : '0% Tax'}
+                    </span>
                   </div>
 
 
@@ -1385,8 +1447,22 @@ export const PosView: React.FC = () => {
               </div>
 
 
-              <div className="flex items-center justify-between text-slate-500">
-                <span>VAT Exempt</span>
+              <div className="flex items-start justify-between text-slate-500">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span>VAT Exempt</span>
+                    {totals.vatExemptCount > 0 && (
+                      <span className="rounded-full bg-emerald-50 px-1.5 py-0.2 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+                        {totals.vatExemptCount} item{totals.vatExemptCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                  {totals.vatExemptNames.length > 0 && (
+                    <p className="text-[10px] text-slate-400 mt-0.5 max-w-[210px] truncate" title={totals.vatExemptNames.join(', ')}>
+                      {totals.vatExemptNames.join(', ')}
+                    </p>
+                  )}
+                </div>
 
                 <span className="font-mono font-semibold text-slate-700">
                   Rs. {totals.vatExemptSubtotal.toFixed(2)}
@@ -1395,7 +1471,7 @@ export const PosView: React.FC = () => {
 
 
               <div className="flex items-center justify-between text-slate-500">
-                <span>Taxable Amount</span>
+                <span>Taxable Amount (Base)</span>
 
                 <span className="font-mono font-semibold text-slate-700">
                   Rs. {totals.taxableBaseSubtotal.toFixed(2)}
@@ -1403,10 +1479,34 @@ export const PosView: React.FC = () => {
               </div>
 
 
-              <div className="flex items-center justify-between text-slate-500">
-                <span>VAT (13%)</span>
+              <div className={`flex items-start justify-between rounded-lg transition-colors ${
+                totals.vatAmount > 0
+                  ? 'bg-blue-50/70 p-2 border border-blue-200 text-blue-900'
+                  : 'text-slate-500'
+              }`}>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={totals.vatAmount > 0 ? 'font-bold text-blue-700' : ''}>
+                      VAT (13%)
+                    </span>
+                    {totals.vatTaxableCount > 0 && (
+                      <span className="rounded-full bg-blue-100 px-1.5 py-0.2 text-[9px] font-bold text-blue-800 border border-blue-200">
+                        {totals.vatTaxableCount} taxable item{totals.vatTaxableCount === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                  {totals.vatTaxableItemsDetail.length > 0 && (
+                    <div className="mt-1 space-y-0.5">
+                      {totals.vatTaxableItemsDetail.map((detail, idx) => (
+                        <p key={idx} className="text-[10.5px] text-blue-700 font-medium">
+                          • {detail.name}: <span className="font-mono font-bold">Rs. {detail.vat.toFixed(2)}</span>
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                <span className="font-mono font-semibold text-slate-700">
+                <span className={`font-mono font-semibold ${totals.vatAmount > 0 ? 'font-bold text-blue-700' : 'text-slate-700'}`}>
                   Rs. {totals.vatAmount.toFixed(2)}
                 </span>
               </div>
@@ -1673,58 +1773,129 @@ export const PosView: React.FC = () => {
 
             {/* CASH */}
             {paymentMode === 'cash' && (
-              <div className="premium-pos-cash mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+              <div className="premium-pos-cash mt-4 space-y-2 border-t border-slate-100 pt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">
+                      Cash Tendered (Rs.) <span className="text-rose-500 font-bold">*</span>
+                    </label>
 
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">
-                    Cash Tendered (Rs.)
-                  </label>
+                    <input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={cashTendered || ''}
+                      placeholder={`Min Rs. ${totals.grandTotal.toFixed(0)}`}
+                      onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                      onChange={(event) =>
+                        setCashTendered(parseIntegerInput(event.target.value, 8) ?? 0)
+                      }
+                      className={`h-9 w-full rounded-lg border px-3 font-mono text-[13px] font-bold outline-none transition ${
+                        !cashTendered
+                          ? 'border-amber-300 focus:border-amber-500 bg-amber-50/20'
+                          : cashTendered < totals.grandTotal
+                            ? 'border-rose-300 focus:border-rose-500 bg-rose-50/20 text-rose-800'
+                            : 'border-slate-200 focus:border-teal-400 bg-white text-slate-900'
+                      }`}
+                    />
+                  </div>
 
-                  <input
-                    type="number"
-                    min="0"
-                    inputMode="numeric"
-                    value={cashTendered || ''}
-                    placeholder="0"
-                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(event) =>
-                      setCashTendered(parseIntegerInput(event.target.value, 8) ?? 0)
-                    }
-                    className="h-9 w-full rounded-lg border border-slate-200 px-3 font-mono text-[13px] font-bold outline-none focus:border-teal-400"
-                  />
-                </div>
+                  <div>
+                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">
+                      Change to Return
+                    </label>
 
-
-                <div>
-                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">
-                    Change to Return
-                  </label>
-
-                  <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[14px] font-black text-emerald-700">
-                    Rs. {totals.changeGiven.toFixed(2)}
+                    <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[14px] font-black text-emerald-700">
+                      Rs. {totals.changeGiven.toFixed(2)}
+                    </div>
                   </div>
                 </div>
 
+                {/* Quick Cash Buttons & Feedback */}
+                <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setCashTendered(totals.grandTotal)}
+                      className="px-2 py-1 rounded text-[10.5px] font-bold bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 transition cursor-pointer"
+                    >
+                      Exact (Rs. {totals.grandTotal.toFixed(2)})
+                    </button>
+                    {totals.grandTotal < 500 && (
+                      <button
+                        type="button"
+                        onClick={() => setCashTendered(500)}
+                        className="px-2 py-1 rounded text-[10.5px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                      >
+                        Rs. 500
+                      </button>
+                    )}
+                    {totals.grandTotal < 1000 && (
+                      <button
+                        type="button"
+                        onClick={() => setCashTendered(1000)}
+                        className="px-2 py-1 rounded text-[10.5px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+                      >
+                        Rs. 1000
+                      </button>
+                    )}
+                  </div>
+
+                  {!cashTendered ? (
+                    <span className="text-[10px] text-amber-700 font-semibold">
+                      * Cash tendered required
+                    </span>
+                  ) : cashTendered < totals.grandTotal ? (
+                    <span className="text-[10px] text-rose-600 font-bold">
+                      Short by Rs. {(totals.grandTotal - cashTendered).toFixed(2)}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             )}
 
 
             {/* COMPLETE */}
-            <button
-              type="button"
-              disabled={
+            {(() => {
+              const isCashMissing =
+                paymentMode === 'cash' &&
+                totals.grandTotal > 0 &&
+                (!cashTendered || cashTendered <= 0);
+
+              const isCashShort =
+                paymentMode === 'cash' &&
+                totals.grandTotal > 0 &&
+                !!cashTendered &&
+                cashTendered < totals.grandTotal;
+
+              const isCompleteDisabled =
                 cart.length === 0 ||
-                isCompletingSale
+                isCompletingSale ||
+                isCashMissing ||
+                isCashShort;
+
+              let buttonLabel = 'Complete Bill & Print VAT Invoice';
+              if (isCompletingSale) {
+                buttonLabel = 'Completing Sale...';
+              } else if (isCashMissing) {
+                buttonLabel = 'Enter Cash Tendered to Complete';
+              } else if (isCashShort) {
+                buttonLabel = `Need Rs. ${(totals.grandTotal - cashTendered).toFixed(2)} More Cash`;
               }
-              onClick={() => {
-                void handleCompleteSale();
-              }}
-              className="premium-pos-complete mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-            >
-              {isCompletingSale
-                ? 'Completing Sale...'
-                : 'Complete Bill & Print VAT Invoice'}
-            </button>
+
+              return (
+                <button
+                  type="button"
+                  disabled={isCompleteDisabled}
+                  onClick={() => {
+                    void handleCompleteSale();
+                  }}
+                  className="premium-pos-complete mt-4 h-[50px] w-full rounded-xl bg-teal-700 px-4 text-[15px] font-extrabold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 cursor-pointer"
+                >
+                  {buttonLabel}
+                </button>
+              );
+            })()}
 
           </div>
         </section>

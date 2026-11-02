@@ -690,6 +690,17 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       );
     }
 
+    if (finalPaymentMethod === "cash" && authoritativeFinancials.grandTotal > 0) {
+      const rawCash = cashTendered ?? amountReceived;
+      if (rawCash === undefined || rawCash === null || rawCash === "" || Number(rawCash) <= 0) {
+        res.status(400).json({
+          success: false,
+          message: "Cash tendered amount must be entered for cash payments.",
+        });
+        return;
+      }
+    }
+
     const requestedReceived =
       Number(
         cashTendered ??

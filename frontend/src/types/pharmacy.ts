@@ -33,6 +33,7 @@ export interface Medicine {
   reorderLevel: number; // Low stock threshold (in packs)
   rackLocation: string; // e.g. "Rack A-1", "Syrup Bay 2", "Cold Storage"
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
+  hasvat?: boolean; // backend compatibility alias
   barcode?: string;
   notes?: string;
   saleStatus?: MedicineSaleStatus;

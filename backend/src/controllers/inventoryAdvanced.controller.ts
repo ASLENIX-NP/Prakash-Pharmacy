@@ -928,8 +928,12 @@ export const bulkImportInventory = async (
           }
 
           if (hasVat) {
+            const rawVat =
+              item.isVatApplicable !== undefined && (item.hasvat === undefined || item.isVatApplicable !== existing.hasvat)
+                ? item.isVatApplicable
+                : (item.hasvat ?? item.isVatApplicable);
             updateData.hasvat = toBoolean(
-              item.hasvat ?? item.isVatApplicable,
+              rawVat,
               existing.hasvat
             );
           }

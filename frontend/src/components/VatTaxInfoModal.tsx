@@ -5,9 +5,10 @@ import { Medicine } from '../types/pharmacy';
 interface VatTaxInfoModalProps {
   medicine: Medicine | null;
   onClose: () => void;
+  onUpdateVat?: (medicine: Medicine, isVatApplicable: boolean) => void;
 }
 
-export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onClose }) => {
+export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onClose, onUpdateVat }) => {
   if (!medicine) return null;
 
   const perUnitMrp = medicine.unitsPerPack > 1 ? medicine.mrpPrice / medicine.unitsPerPack : medicine.mrpPrice;
@@ -144,10 +145,23 @@ export const VatTaxInfoModal: React.FC<VatTaxInfoModalProps> = ({ medicine, onCl
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex justify-end">
+        <div className="bg-slate-50 px-6 py-3 border-t border-slate-200 flex items-center justify-between gap-2">
+          {onUpdateVat ? (
+            <button
+              type="button"
+              onClick={() => onUpdateVat(medicine, !medicine.isVatApplicable)}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer ${
+                medicine.isVatApplicable
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              <span>{medicine.isVatApplicable ? 'Switch to VAT Free (0%)' : 'Switch to 13% VAT'}</span>
+            </button>
+          ) : <div />}
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs"
+            className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
           >
             Close Information
           </button>

@@ -1700,11 +1700,20 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const previousMedicine =
       medicines.find(medicine => medicine.id === id);
 
+    const sanitizedUpdates: any = { ...updates };
+    if (sanitizedUpdates.isVatApplicable !== undefined) {
+      sanitizedUpdates.hasvat = Boolean(sanitizedUpdates.isVatApplicable);
+      sanitizedUpdates.isVatApplicable = Boolean(sanitizedUpdates.isVatApplicable);
+    } else if (sanitizedUpdates.hasvat !== undefined) {
+      sanitizedUpdates.isVatApplicable = Boolean(sanitizedUpdates.hasvat);
+      sanitizedUpdates.hasvat = Boolean(sanitizedUpdates.hasvat);
+    }
+
     // Existing synchronous local behaviour remains intact.
     setMedicines(prev =>
       prev.map(medicine =>
         medicine.id === id
-          ? { ...medicine, ...updates }
+          ? { ...medicine, ...sanitizedUpdates }
           : medicine
       )
     );
@@ -1721,7 +1730,7 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       data: Medicine;
     }>(`/inventory/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify(updates),
+      body: JSON.stringify(sanitizedUpdates),
     })
       .then(res => {
         setMedicines(prev =>
@@ -1730,17 +1739,27 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               return medicine;
             }
 
+            const updatedData = res.data;
+            const finalIsVat = Boolean(
+              updatedData.isVatApplicable ??
+              (updatedData as any).hasvat ??
+              sanitizedUpdates.isVatApplicable ??
+              medicine.isVatApplicable
+            );
+
             return {
               ...medicine,
-              ...res.data,
+              ...updatedData,
+              isVatApplicable: finalIsVat,
+              hasvat: finalIsVat,
 
               supplierId:
-                res.data.supplierId ||
+                updatedData.supplierId ||
                 medicine.supplierId ||
                 '',
 
               supplierName:
-                res.data.supplierName ||
+                updatedData.supplierName ||
                 medicine.supplierName ||
                 ''
             } as Medicine;
