@@ -1,7 +1,10 @@
 /**
  * Updates the browser tab favicon dynamically and reliably across all browsers.
- * If imageSrc is a large Data URL, it creates a crisp 64x64 canvas thumbnail so
- * the base64 payload is < 4KB (browsers silently reject large/multi-MB data URL favicons).
+ *
+ * It automatically trims empty transparent margins so the actual logo emblem
+ * fills 95% of the favicon canvas rather than appearing tiny in the tab.
+ * It also compresses the result into a high-DPI 64x64 PNG (~2KB-4KB) so browsers
+ * immediately accept and render it without hitting data URL size limits.
  */
 export function setBrowserFavicon(imageSrc?: string | null): void {
   if (typeof document === 'undefined') return;
@@ -10,7 +13,7 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
   const rawSrc = imageSrc && imageSrc.trim() ? imageSrc.trim() : defaultFavicon;
 
   const replaceFaviconLinks = (href: string) => {
-    // Remove all existing icon links to force browser tab to repaint
+    // Remove all existing icon links to force browser tab to repaint immediately
     const existing = document.querySelectorAll<HTMLLinkElement>(
       "link[rel*='icon'], link[rel='apple-touch-icon']"
     );
@@ -40,47 +43,98 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
     document.head.appendChild(apple);
   };
 
-  // If not a base64 data URL, set directly
-  if (!rawSrc.startsWith('data:image')) {
-    replaceFaviconLinks(rawSrc);
-    return;
-  }
-
-  // When given a base64 Data URL, resize it on a 64x64 canvas.
-  // Full-size uploaded photos are 500KB-2MB, which browsers reject as favicon hrefs.
-  // The 64x64 canvas thumbnail is only ~2KB-4KB and renders instantly in browser tabs.
   const img = new Image();
   img.crossOrigin = 'anonymous';
+
   img.onload = () => {
     try {
-      const size = 64;
+      const naturalW = img.naturalWidth || img.width;
+      const naturalH = img.naturalHeight || img.height;
+
+      // Render onto an analysis canvas to detect the bounding box of the actual emblem
+      const scanCanvas = document.createElement('canvas');
+      const maxScan = 512;
+      const scanScale = Math.min(1, maxScan / Math.max(naturalW, naturalH));
+      const scanW = Math.max(1, Math.round(naturalW * scanScale));
+      const scanH = Math.max(1, Math.round(naturalH * scanScale));
+
+      scanCanvas.width = scanW;
+      scanCanvas.height = scanH;
+      const scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+
+      if (!scanCtx) {
+        replaceFaviconLinks(rawSrc);
+        return;
+      }
+
+      scanCtx.drawImage(img, 0, 0, scanW, scanH);
+      const imgData = scanCtx.getImageData(0, 0, scanW, scanH);
+      const data = imgData.data;
+
+      let minX = scanW;
+      let maxX = 0;
+      let minY = scanH;
+      let maxY = 0;
+      let foundContent = false;
+
+      // Scan for non-transparent pixels (alpha > 15)
+      for (let y = 0; y < scanH; y++) {
+        for (let x = 0; x < scanW; x++) {
+          const idx = (y * scanW + x) * 4;
+          const alpha = data[idx + 3];
+          if (alpha > 15) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+            foundContent = true;
+          }
+        }
+      }
+
+      // Convert back to original coordinate space
+      const cropX = foundContent ? Math.floor(minX / scanScale) : 0;
+      const cropY = foundContent ? Math.floor(minY / scanScale) : 0;
+      const cropW = foundContent
+        ? Math.min(naturalW - cropX, Math.ceil((maxX - minX + 1) / scanScale))
+        : naturalW;
+      const cropH = foundContent
+        ? Math.min(naturalH - cropY, Math.ceil((maxY - minY + 1) / scanScale))
+        : naturalH;
+
+      // Draw the cropped emblem onto a 64x64 canvas, maximizing size with 2px padding
+      const iconSize = 64;
       const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = iconSize;
+      canvas.height = iconSize;
       const ctx = canvas.getContext('2d');
+
       if (!ctx) {
         replaceFaviconLinks(rawSrc);
         return;
       }
 
-      ctx.clearRect(0, 0, size, size);
+      ctx.clearRect(0, 0, iconSize, iconSize);
 
-      // Fit maintaining aspect ratio
-      const scale = Math.min(size / img.width, size / img.height);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      const x = (size - w) / 2;
-      const y = (size - h) / 2;
+      // Maximize the emblem size inside the 64x64 square
+      const targetBox = iconSize - 4; // 60px visible area
+      const scale = Math.min(targetBox / cropW, targetBox / cropH);
+      const drawW = cropW * scale;
+      const drawH = cropH * scale;
+      const drawX = (iconSize - drawW) / 2;
+      const drawY = (iconSize - drawH) / 2;
 
-      ctx.drawImage(img, 0, 0, img.width, img.height, x, y, w, h);
+      ctx.drawImage(img, cropX, cropY, cropW, cropH, drawX, drawY, drawW, drawH);
       const thumbnailDataUrl = canvas.toDataURL('image/png');
       replaceFaviconLinks(thumbnailDataUrl);
     } catch {
       replaceFaviconLinks(rawSrc);
     }
   };
+
   img.onerror = () => {
     replaceFaviconLinks(defaultFavicon);
   };
+
   img.src = rawSrc;
 }
