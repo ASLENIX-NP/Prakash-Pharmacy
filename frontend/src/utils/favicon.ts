@@ -124,7 +124,7 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
         ? Math.min(naturalH - cropY, Math.ceil((maxY - minY + 1) / scanScale))
         : naturalH;
 
-      // Draw the cropped emblem onto a 64x64 canvas, maximizing size with 2px padding
+      // Draw the cropped emblem onto a 64x64 canvas with solid white background
       const iconSize = 64;
       const canvas = document.createElement('canvas');
       canvas.width = iconSize;
@@ -138,8 +138,12 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
 
       ctx.clearRect(0, 0, iconSize, iconSize);
 
-      // Maximize the emblem size inside the 64x64 square
-      const targetBox = iconSize - 4; // 60px visible area
+      // Fill solid crisp white background so the logo is clearly visible on any browser theme
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, iconSize, iconSize);
+
+      // Maximize the emblem size inside the 64x64 square with clean 4px padding
+      const targetBox = iconSize - 8; // 56px emblem inside 64px square
       const scale = Math.min(targetBox / cropW, targetBox / cropH);
       const drawW = cropW * scale;
       const drawH = cropH * scale;
