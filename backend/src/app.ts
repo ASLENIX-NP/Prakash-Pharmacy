@@ -80,7 +80,8 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: '3mb' }));
+app.use("/api/settings", express.json({ limit: "7mb" }));
+app.use(express.json({ limit: "3mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
