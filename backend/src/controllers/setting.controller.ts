@@ -129,6 +129,14 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
       }
     }
 
+    if (ddaLicenceNumber !== undefined) {
+      const cleanDdaLicenceNumber = String(ddaLicenceNumber).trim();
+      if (cleanDdaLicenceNumber && !/^\d{1,20}$/.test(cleanDdaLicenceNumber)) {
+        res.status(400).json({ success: false, message: "DDA Licence Number must contain no more than 20 numeric digits." });
+        return;
+      }
+    }
+
     if (fiscalYear !== undefined) {
       const cleanFiscal = String(fiscalYear).trim();
       if (cleanFiscal && !/^\d{4}\/\d{2}$/.test(cleanFiscal)) {

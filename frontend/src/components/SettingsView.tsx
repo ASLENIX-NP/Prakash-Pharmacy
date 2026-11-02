@@ -216,7 +216,7 @@ export const SettingsView: React.FC = () => {
   };
 
   return (
-    <div className="premium-settings-shell mx-auto max-w-6xl space-y-5 pb-5">
+    <div className={`premium-settings-shell mx-auto max-w-6xl space-y-5 ${hasUnsavedChanges ? 'pb-24' : 'pb-5'}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -280,6 +280,18 @@ export const SettingsView: React.FC = () => {
                 inputMode="numeric"
                 value={formData.phoneNumber}
                 onChange={(e) => setFormData({ ...formData, phoneNumber: normalizePhoneNumber(e.target.value) })}
+                className={fieldClass}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-xs font-semibold text-slate-700">DDA Licence Number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={20}
+                value={formData.ddaLicenceNumber}
+                onChange={(e) => setFormData({ ...formData, ddaLicenceNumber: digitsOnlyUpTo(e.target.value, 20) })}
                 className={fieldClass}
               />
             </div>
@@ -526,6 +538,35 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
         </section>
+
+        {hasUnsavedChanges && (
+          <div
+            className="fixed bottom-0 left-0 right-0 z-20 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:px-6 lg:left-[255px]"
+            aria-live="polite"
+          >
+            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
+              Unsaved changes
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleDiscardChanges}
+                disabled={isSaving}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
+              >
+                Discard
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60"
+              >
+                <Save className="h-4 w-4" />
+                {isSaving ? 'Saving...' : 'Save Settings'}
+              </button>
+            </div>
+          </div>
+        )}
       </form>
 
       {/* Data Backup */}
@@ -539,7 +580,6 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
         </div>
-
         <div className="px-6 py-5">
           <div className="flex flex-wrap items-center gap-4">
             <button
@@ -572,33 +612,6 @@ export const SettingsView: React.FC = () => {
           </p>
         </div>
       </section>
-
-      {hasUnsavedChanges && (
-        <div className={`${sectionCardClass} flex flex-wrap items-center justify-between gap-3 p-4 sm:px-5`} aria-live="polite">
-          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">
-            Unsaved changes
-          </span>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleDiscardChanges}
-              disabled={isSaving}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50"
-            >
-              Discard
-            </button>
-            <button
-              type="submit"
-              form="pharmacy-profile-form"
-              disabled={isSaving}
-              className="flex items-center gap-2 rounded-xl border border-teal-700 bg-teal-700 px-4 py-2 text-xs font-bold text-white transition-colors hover:border-teal-800 hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60"
-            >
-              <Save className="h-4 w-4" />
-              {isSaving ? 'Saving...' : 'Save Settings'}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
