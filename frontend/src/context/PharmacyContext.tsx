@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { apiRequest } from '../services/api';
+import { setBrowserFavicon } from '../utils/favicon';
 import {
   Medicine,
   StockAdjustmentLog,
@@ -472,6 +473,11 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const [settings, setSettings] = useState<PharmacySettings>(readStoredSettings);
   const settingsUpdateVersion = useRef(0);
+
+  // Synchronize browser tab favicon with store logo
+  useEffect(() => {
+    setBrowserFavicon(settings.storeLogo);
+  }, [settings.storeLogo]);
 
   // Modal states
   const [activeVatInfoMedicine, setActiveVatInfoMedicine] = useState<Medicine | null>(null);

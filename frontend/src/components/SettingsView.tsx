@@ -4,6 +4,7 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 import { apiRequest } from '../services/api';
+import { setBrowserFavicon } from '../utils/favicon';
 
 const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -102,6 +103,7 @@ export const SettingsView: React.FC = () => {
 
       const storeLogo = reader.result;
       setFormData((current) => ({ ...current, storeLogo }));
+      setBrowserFavicon(storeLogo);
       setLogoError('');
       setSaveSuccess(false);
     };
@@ -120,6 +122,7 @@ export const SettingsView: React.FC = () => {
     setIsSaving(true);
     try {
       await updateSettings({ storeLogo: formData.storeLogo });
+      setBrowserFavicon(formData.storeLogo);
       setSaveSuccess(true);
       window.setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
@@ -349,6 +352,7 @@ export const SettingsView: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setFormData((current) => ({ ...current, storeLogo: '' }));
+                        setBrowserFavicon('/favicon.png');
                         setLogoError('');
                         setSaveSuccess(false);
                       }}
