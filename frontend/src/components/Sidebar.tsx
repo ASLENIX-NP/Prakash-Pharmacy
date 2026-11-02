@@ -190,7 +190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <img
             src={settings.storeLogo || prakashLogo}
             alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
-            className="h-11 w-11 shrink-0 rounded-2xl object-contain bg-white p-1 shadow-[0_8px_20px_rgba(16,185,129,0.12)]"
+            className="h-12 w-12 shrink-0 rounded-2xl bg-white object-cover shadow-[0_8px_20px_rgba(16,185,129,0.12)]"
           />
 
           <div className="min-w-0">
