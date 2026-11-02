@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
 
+const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024;
+
 export const formatSettingResponse = (s: any) => ({
   storeName: s.storeName || "",
   address: s.address || "",
@@ -125,6 +127,26 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
       const cleanPan = String(panNumber).trim();
       if (cleanPan && !/^\d{9}$/.test(cleanPan)) {
         res.status(400).json({ success: false, message: "Permanent Account Number (PAN) must be exactly 9 numeric digits." });
+        return;
+      }
+    }
+
+    if (storeLogo !== undefined && storeLogo !== null && storeLogo !== "") {
+      if (typeof storeLogo !== "string") {
+        res.status(400).json({ success: false, message: "Store logo must be a valid image." });
+        return;
+      }
+
+      const logoData = storeLogo.trim();
+      const base64Match = logoData.match(/^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/]*={0,2})$/);
+      const encodedLogo = base64Match?.[1];
+      if (encodedLogo === undefined) {
+        res.status(400).json({ success: false, message: "Store logo must be a valid PNG, JPEG, or WebP image." });
+        return;
+      }
+
+      if (Buffer.from(encodedLogo, "base64").byteLength > MAX_LOGO_SIZE_BYTES) {
+        res.status(400).json({ success: false, message: "Logo image must be 5 MB or smaller." });
         return;
       }
     }

@@ -5,7 +5,7 @@ import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 import { apiRequest } from '../services/api';
 
-const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 function syncUnmodifiedSetting<K extends keyof PharmacySettings>(
@@ -89,7 +89,7 @@ export const SettingsView: React.FC = () => {
     }
 
     if (file.size > MAX_LOGO_SIZE_BYTES) {
-      setLogoError('Logo image must be 2 MB or smaller.');
+      setLogoError('Logo image must be 5 MB or smaller.');
       return;
     }
 
