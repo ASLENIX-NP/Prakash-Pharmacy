@@ -44,7 +44,9 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
   };
 
   const img = new Image();
-  img.crossOrigin = 'anonymous';
+  if (rawSrc.startsWith('http://') || rawSrc.startsWith('https://')) {
+    img.crossOrigin = 'anonymous';
+  }
 
   img.onload = () => {
     try {
@@ -77,12 +79,32 @@ export function setBrowserFavicon(imageSrc?: string | null): void {
       let maxY = 0;
       let foundContent = false;
 
-      // Scan for non-transparent pixels (alpha > 15)
+      // Check if image corners are opaque white (common in JPEGs without alpha)
+      const isCornerWhite = (idx: number) => {
+        return data[idx] > 240 && data[idx + 1] > 240 && data[idx + 2] > 240 && data[idx + 3] > 200;
+      };
+      const hasWhiteBg =
+        isCornerWhite(0) &&
+        isCornerWhite((scanW - 1) * 4) &&
+        isCornerWhite(((scanH - 1) * scanW) * 4);
+
+      // Scan for visible content pixels
       for (let y = 0; y < scanH; y++) {
         for (let x = 0; x < scanW; x++) {
           const idx = (y * scanW + x) * 4;
           const alpha = data[idx + 3];
-          if (alpha > 15) {
+
+          let isPixelContent = false;
+          if (hasWhiteBg) {
+            // Content is anything not near-white
+            const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+            isPixelContent = alpha > 15 && !(r > 240 && g > 240 && b > 240);
+          } else {
+            // Content is anything not transparent
+            isPixelContent = alpha > 15;
+          }
+
+          if (isPixelContent) {
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
