@@ -313,6 +313,43 @@ export const NewOpdPanel: React.FC = () => {
     };
 
 
+  /*
+   * LIVE_PATIENT_SEARCH_DEBOUNCE
+   *
+   * Patient search updates automatically while typing.
+   * Existing searchPatients() remains the single API/search path.
+   */
+  useEffect(() => {
+    const query =
+      patientSearch.trim();
+
+    if (selectedPatient) {
+      return;
+    }
+
+    /*
+     * Avoid API requests for empty or one-character searches.
+     */
+    if (query.length < 2) {
+      setPatientResults([]);
+      setHasSearchedPatients(false);
+
+      return;
+    }
+
+    const timer =
+      window.setTimeout(() => {
+        void searchPatients();
+      }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    patientSearch,
+    selectedPatient
+  ]);
+
   const selectPatient = (
     patient: ClinicPatient
   ) => {
@@ -853,7 +890,7 @@ export const NewOpdPanel: React.FC = () => {
                   onClick={
                     openNewPatientForm
                   }
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700 hover:bg-teal-100"
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-teal-700 bg-teal-700 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm transition-colors hover:bg-teal-800 hover:border-teal-800"
                 >
                   <UserPlus className="h-3.5 w-3.5" />
                   Register New Patient
@@ -891,7 +928,7 @@ export const NewOpdPanel: React.FC = () => {
                           void searchPatients();
                         }
                       }}
-                      placeholder="Name, phone, or CL-000001"
+                      placeholder="Start typing name, phone, or Clinic No..."
                       className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
                     />
                   </div>
