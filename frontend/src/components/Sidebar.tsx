@@ -148,6 +148,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const handleNavigation = (tab: ActiveTab) => {
     setActiveTab(tab);
+    setShowProfileActions(false);
 
     if (onMobileClose) {
       onMobileClose();
