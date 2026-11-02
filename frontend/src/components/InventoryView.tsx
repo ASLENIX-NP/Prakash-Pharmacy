@@ -2136,10 +2136,16 @@ export const InventoryView: React.FC = () => {
                     step="1"
                     inputMode="numeric"
                     required
+                    disabled={Boolean(editingMedicine)}
+                    title={
+                      editingMedicine
+                        ? 'Stock quantity is managed through Stock Count / Physical Stock Adjustment.'
+                        : undefined
+                    }
                     value={formData.stockPacks ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, stockPacks: parseIntegerInput(e.target.value, 6) })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
                   />
                 </div>
 
@@ -2151,10 +2157,16 @@ export const InventoryView: React.FC = () => {
                     step="1"
                     inputMode="numeric"
                     required
+                    disabled={Boolean(editingMedicine)}
+                    title={
+                      editingMedicine
+                        ? 'Stock quantity is managed through Stock Count / Physical Stock Adjustment.'
+                        : undefined
+                    }
                     value={formData.stockLooseUnits ?? ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, stockLooseUnits: parseIntegerInput(e.target.value, 6) })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
                   />
                 </div>
 
