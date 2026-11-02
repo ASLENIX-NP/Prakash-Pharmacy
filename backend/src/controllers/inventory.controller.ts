@@ -1436,26 +1436,29 @@ export const deleteInventory = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    const commercialHistory =
+    const customerCommercialHistory =
       existing._count.billItems +
-      existing._count.purchaseInvoiceItems +
       existing._count.salesReturnItems;
 
-    if (commercialHistory > 0) {
+    if (customerCommercialHistory > 0) {
       const records: string[] = [];
       if (existing._count.billItems > 0) records.push(`${existing._count.billItems} customer sales bill(s)`);
-      if (existing._count.purchaseInvoiceItems > 0) records.push(`${existing._count.purchaseInvoiceItems} supplier purchase bill(s)`);
       if (existing._count.salesReturnItems > 0) records.push(`${existing._count.salesReturnItems} customer return voucher(s)`);
 
       res.status(409).json({
         success: false,
-        message: `Cannot delete '${existing.medicineBrand}' because it is permanently linked to completed fiscal transactions (${records.join(', ')}). Under Nepal IRD tax law (Section 51), historical sales and purchase records must be preserved for tax audit integrity. If you want to stop selling this medicine, set its status to 'Recalled' or keep stock at 0.`,
+        message: `Cannot delete '${existing.medicineBrand}' because it is permanently linked to completed customer tax transactions (${records.join(', ')}). Under Nepal IRD tax law (Section 51), historical customer sales and tax invoices must be preserved for tax audit integrity. If you want to stop selling this medicine, set its status to 'Recalled' or keep stock at 0.`,
       });
       return;
     }
 
-    // Clean up internal non-commercial audit logs before deleting this unused inventory item
+    // Clean up internal non-commercial audit logs and unlink supplier purchase items before deleting this unused inventory item
     await prisma.$transaction(async (tx) => {
+      // Unlink from supplier purchase invoices so distributor ledgers and VAT purchase register remain 100% intact with their line snapshots
+      await tx.purchaseInvoiceItem.updateMany({
+        where: { inventoryId: id },
+        data: { inventoryId: null },
+      });
       await tx.stockAdjustmentLog.deleteMany({
         where: { medicineId: id },
       });

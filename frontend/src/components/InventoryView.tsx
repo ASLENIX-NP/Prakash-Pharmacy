@@ -2541,7 +2541,7 @@ const MedicineTable: React.FC<MedicineTableProps> = ({
 
                         const confirmed = await confirmDialog({
                           title: `Delete ${m.name}`,
-                          message: `Are you sure you want to permanently delete "${m.name}" (Batch: ${m.batchNumber}) from inventory?\n\nNote: If this medicine was billed in historical customer sales or supplier purchase bills, Nepal IRD tax law preserves the audit record and prevents deletion.`,
+                          message: `Are you sure you want to permanently delete "${m.name}" (Batch: ${m.batchNumber}) from inventory?\n\nNote: If this medicine was billed to customers on tax invoices, Nepal IRD tax law preserves the audit record and prevents deletion.`,
                           confirmLabel: 'Delete Medicine',
                           cancelLabel: 'Keep Item',
                           type: 'danger',
