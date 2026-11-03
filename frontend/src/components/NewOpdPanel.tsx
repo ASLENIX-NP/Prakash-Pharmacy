@@ -536,10 +536,9 @@ export const NewOpdPanel: React.FC = () => {
 
     if (doctor) {
       setTotalCharge(
-        String(
-          doctor.defaultConsultationFee ??
-            0
-        )
+        Number(doctor.defaultConsultationFee) > 0
+          ? String(doctor.defaultConsultationFee)
+          : ''
       );
     } else {
       setTotalCharge('');
@@ -1455,7 +1454,6 @@ export const NewOpdPanel: React.FC = () => {
                         event.target.value
                       )
                     }
-                    placeholder="0.00"
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm font-bold text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
                   />
 

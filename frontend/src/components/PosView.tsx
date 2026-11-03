@@ -1682,7 +1682,6 @@ export const PosView: React.FC = () => {
                     min="0"
                     inputMode="numeric"
                     value={cashTendered || ''}
-                    placeholder="0"
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) =>
                       setCashTendered(parseIntegerInput(event.target.value, 8) ?? 0)

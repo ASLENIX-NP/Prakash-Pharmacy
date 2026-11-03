@@ -190,9 +190,9 @@ export const DoctorManagementPanel: React.FC = () => {
       qualification: doctor.qualification,
       nmcNumber: doctor.nmcNumber,
       defaultConsultationFee:
-        String(
-          doctor.defaultConsultationFee ?? 0
-        ),
+        Number(doctor.defaultConsultationFee) > 0
+          ? String(doctor.defaultConsultationFee)
+          : '',
     });
 
     setError('');
@@ -634,9 +634,7 @@ export const DoctorManagementPanel: React.FC = () => {
                 type="number"
                 min="0"
                 step="0.01"
-                value={
-                  form.defaultConsultationFee
-                }
+                value={form.defaultConsultationFee}
                 onChange={(event) =>
                   setForm(
                     (previous) => ({
@@ -646,7 +644,6 @@ export const DoctorManagementPanel: React.FC = () => {
                     })
                   )
                 }
-                placeholder="0"
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none transition focus:border-teal-500 focus:bg-white"
               />
             </div>

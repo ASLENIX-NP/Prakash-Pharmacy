@@ -1399,7 +1399,7 @@ export const StockistManagementView: React.FC = () => {
                         <input
                           type="number"
                           min="0"
-                          value={item.packQty}
+                          value={item.packQty || ''}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                           onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
                           className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
@@ -1410,8 +1410,7 @@ export const StockistManagementView: React.FC = () => {
                         <input
                           type="number"
                           min="0"
-                          placeholder="0"
-                          value={item.looseUnits || 0}
+                          value={item.looseUnits || ''}
                           onChange={(e) => handleUpdateInvoiceItem(idx, { looseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-indigo-700 font-bold"
                           title="Loose tabs/units outside full packs"
@@ -1422,7 +1421,7 @@ export const StockistManagementView: React.FC = () => {
                         <input
                           type="number"
                           min="0"
-                          value={item.freePacks}
+                          value={item.freePacks || ''}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
 onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
@@ -1434,7 +1433,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseInte
                           type="number"
                           step="0.01"
                           min="0"
-                          value={item.costPrice}
+                          value={item.costPrice || ''}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
 onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
@@ -1447,7 +1446,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.t
                           step="0.1"
                           min="0"
                           max="100"
-                          value={item.discountPercent}
+                          value={item.discountPercent || ''}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
 onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-right"
@@ -1459,7 +1458,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseDecimalInp
                           type="number"
                           step="0.01"
                           min="0"
-                          value={item.mrpPrice}
+                          value={item.mrpPrice || ''}
                           onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
 onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
                           className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right font-bold text-slate-800"
@@ -2339,7 +2338,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   min="0"
                   step="1000"
                   required
-                  value={editStockistData.creditLimit}
+                  value={editStockistData.creditLimit || ''}
                   onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                   onChange={(e) => {
                     const parsed = parseIntegerInput(e.target.value, 10) ?? 0;
