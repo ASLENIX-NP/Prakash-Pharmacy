@@ -311,7 +311,7 @@ export const OpdRecordsPanel: React.FC = () => {
     completionAdditionalCharge,
     setCompletionAdditionalCharge,
   ] =
-    useState('0');
+    useState('');
 
 
   const [
@@ -828,22 +828,15 @@ export const OpdRecordsPanel: React.FC = () => {
     setError('');
     setSuccess('');
 
+    const consultationFee = Number(visit.consultationFee ?? 0);
+    const additionalCharge = Number(visit.additionalCharge ?? 0);
+
     setCompletionConsultationFee(
-      String(
-        Number(
-          visit.consultationFee ||
-            0
-        )
-      )
+      consultationFee > 0 ? String(consultationFee) : ''
     );
 
     setCompletionAdditionalCharge(
-      String(
-        Number(
-          visit.additionalCharge ||
-            0
-        )
-      )
+      additionalCharge > 0 ? String(additionalCharge) : ''
     );
 
     setCompletionNote(
@@ -1549,9 +1542,7 @@ export const OpdRecordsPanel: React.FC = () => {
                     type="number"
                     min="0"
                     step="0.01"
-                    value={
-                      completionConsultationFee
-                    }
+                    value={completionConsultationFee}
                     onChange={(
                       event
                     ) =>
@@ -1577,9 +1568,7 @@ export const OpdRecordsPanel: React.FC = () => {
                     type="number"
                     min="0"
                     step="0.01"
-                    value={
-                      completionAdditionalCharge
-                    }
+                    value={completionAdditionalCharge}
                     onChange={(
                       event
                     ) =>
@@ -1587,7 +1576,6 @@ export const OpdRecordsPanel: React.FC = () => {
                         event.target.value
                       )
                     }
-                    placeholder="0.00"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 font-mono text-sm font-bold outline-none focus:border-teal-500"
                   />
 

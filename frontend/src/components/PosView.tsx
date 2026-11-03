@@ -1770,12 +1770,25 @@ export const PosView: React.FC = () => {
 
             {/* CASH */}
             {paymentMode === 'cash' && (
-              <div className="premium-pos-cash mt-4 space-y-2 border-t border-slate-100 pt-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-[11px] font-semibold text-slate-500">
-                      Cash Tendered (Rs.) <span className="text-rose-500 font-bold">*</span>
-                    </label>
+              <div className="premium-pos-cash mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-500">
+                    Cash Tendered (Rs.)
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    value={cashTendered || ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    onChange={(event) =>
+                      setCashTendered(parseIntegerInput(event.target.value, 8) ?? 0)
+                    }
+                    className="h-9 w-full rounded-lg border border-slate-200 px-3 font-mono text-[13px] font-bold outline-none focus:border-teal-400"
+                  />
+                </div>
 
                     <input
                       type="number"

@@ -2121,7 +2121,7 @@ export const InventoryView: React.FC = () => {
                     step="1"
                     inputMode="numeric"
                     required
-                    value={formData.unitsPerPack ?? ''}
+                    value={formData.unitsPerPack || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, unitsPerPack: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
@@ -2136,13 +2136,7 @@ export const InventoryView: React.FC = () => {
                     step="1"
                     inputMode="numeric"
                     required
-                    disabled={Boolean(editingMedicine)}
-                    title={
-                      editingMedicine
-                        ? 'Stock quantity is managed through Stock Count / Physical Stock Adjustment.'
-                        : undefined
-                    }
-                    value={formData.stockPacks ?? ''}
+                    value={formData.stockPacks || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, stockPacks: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
@@ -2157,13 +2151,7 @@ export const InventoryView: React.FC = () => {
                     step="1"
                     inputMode="numeric"
                     required
-                    disabled={Boolean(editingMedicine)}
-                    title={
-                      editingMedicine
-                        ? 'Stock quantity is managed through Stock Count / Physical Stock Adjustment.'
-                        : undefined
-                    }
-                    value={formData.stockLooseUnits ?? ''}
+                    value={formData.stockLooseUnits || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, stockLooseUnits: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
@@ -2177,7 +2165,7 @@ export const InventoryView: React.FC = () => {
                     step="0.01"
                     min="0"
                     required
-                    value={formData.costPrice ?? ''}
+                    value={formData.costPrice || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
                     onChange={(e) => setFormData({ ...formData, costPrice: parseDecimalInput(e.target.value, 2) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
@@ -2191,7 +2179,7 @@ export const InventoryView: React.FC = () => {
                     step="0.01"
                     min="0"
                     required
-                    value={formData.mrpPrice ?? ''}
+                    value={formData.mrpPrice || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
                     onChange={(e) => setFormData({ ...formData, mrpPrice: parseDecimalInput(e.target.value, 2) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
@@ -2233,7 +2221,7 @@ export const InventoryView: React.FC = () => {
                     type="number"
                     min="1"
                     required
-                    value={formData.reorderLevel ?? ''}
+                    value={formData.reorderLevel || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setFormData({ ...formData, reorderLevel: parseIntegerInput(e.target.value, 6) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"

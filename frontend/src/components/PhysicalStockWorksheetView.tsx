@@ -650,7 +650,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                               step="1"
                               inputMode="numeric"
                               aria-label={`Counted packs for ${medicine.name}`}
-                              value={count.packs}
+                              value={count.packs || ''}
                               onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                               onChange={event =>
                                 updateCount(medicine, {
@@ -677,7 +677,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                             step="1"
                             inputMode="numeric"
                             aria-label={`Loose units counted for ${medicine.name}`}
-                            value={count.loose}
+                            value={count.loose || ''}
                             onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                             onChange={event =>
                               updateCount(medicine, {

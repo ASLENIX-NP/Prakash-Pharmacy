@@ -313,7 +313,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     min="0"
                     step="1"
                     inputMode="numeric"
-                    value={deltaPacks}
+                    value={deltaPacks || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setDeltaPacks(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
@@ -327,7 +327,7 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     type="number"
                     min="0"
                     inputMode="numeric"
-                    value={deltaLoose}
+                    value={deltaLoose || ''}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(e) => setDeltaLoose(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
