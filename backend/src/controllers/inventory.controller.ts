@@ -271,6 +271,9 @@ export const formatInventoryItem = (inv: any) => {
     barcode:
       inv.barcode ?? "",
 
+    prescriptionRequired:
+      Boolean(inv.prescriptionRequired),
+
     notes:
       inv.notes ?? "",
 
@@ -538,6 +541,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       mrpPrice, // alias
       hasvat,
       isVatApplicable, // alias
+      prescriptionRequired,
     } = req.body;
 
     const brand = (medicineBrand || name)?.trim();
@@ -721,6 +725,10 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       hasvat ?? isVatApplicable ?? false
     );
 
+    const finalPrescriptionRequired = parseInventoryBoolean(
+      prescriptionRequired ?? false
+    );
+
     if (!Number.isInteger(finalUnitPerPack) || finalUnitPerPack <= 0) {
       res.status(400).json({ success: false, message: "Units per pack must be a positive whole number." });
       return;
@@ -754,6 +762,14 @@ export const createInventory = async (req: Request, res: Response): Promise<void
     }
     if (finalHasVat === null) {
       res.status(400).json({ success: false, message: "VAT applicability must be true or false." });
+      return;
+    }
+
+    if (finalPrescriptionRequired === null) {
+      res.status(400).json({
+        success: false,
+        message: "Prescription requirement must be true or false.",
+      });
       return;
     }
 
@@ -793,6 +809,7 @@ export const createInventory = async (req: Request, res: Response): Promise<void
           costPrice: finalCostPrice,
           sellingPrice: finalSellingPrice,
           hasvat: finalHasVat,
+          prescriptionRequired: finalPrescriptionRequired,
         },
         include: {
           generic: true,
@@ -879,6 +896,7 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       mrpPrice,
       hasvat,
       isVatApplicable,
+      prescriptionRequired,
       saleStatus,
       safetyStatus,
       inventoryStatus,
@@ -1240,6 +1258,22 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       updateData.hasvat = parsedVat;
     }
 
+
+    if (prescriptionRequired !== undefined) {
+      const parsedPrescriptionRequired =
+        parseInventoryBoolean(prescriptionRequired);
+
+      if (parsedPrescriptionRequired === null) {
+        res.status(400).json({
+          success: false,
+          message: "Prescription requirement must be true or false.",
+        });
+        return;
+      }
+
+      updateData.prescriptionRequired =
+        parsedPrescriptionRequired;
+    }
 
     const candidateBrandForDuplicateCheck =
       String(

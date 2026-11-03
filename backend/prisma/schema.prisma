@@ -97,6 +97,9 @@ model Inventory {
   // Statutory VAT
   hasvat Boolean @default(false) @map("hasvat")
 
+  // Whether dispensing this medicine requires a doctor's prescription.
+  prescriptionRequired Boolean @default(false) @map("prescription_required")
+
   // Optional medicine metadata
   barcode String? @map("barcode")
   notes   String? @map("notes")
