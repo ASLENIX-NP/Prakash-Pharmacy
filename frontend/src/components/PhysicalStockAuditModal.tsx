@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useLayoutEffect } from 'react';
 import { 
   X, 
   ClipboardCheck, 
@@ -36,8 +36,8 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
   const { submitStockAdjustment, currentUser } = usePharmacy();
 
   const [mode, setMode] = useState<AuditAdjustmentType>('reconcile');
-  const [countedPacks, setCountedPacks] = useState<number>(0);
-  const [countedLoose, setCountedLoose] = useState<number>(0);
+  const [countedPacks, setCountedPacks] = useState('');
+  const [countedLoose, setCountedLoose] = useState('');
   const [deltaPacks, setDeltaPacks] = useState<number>(0);
   const [deltaLoose, setDeltaLoose] = useState<number>(0);
   const [reason, setReason] = useState<AuditReason>('Physical Count Audit');
@@ -45,20 +45,22 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (medicine) {
-      setCountedPacks(medicine.stockPacks);
-      setCountedLoose(medicine.stockLooseUnits);
+      setCountedPacks('');
+      setCountedLoose('');
       setDeltaPacks(0);
       setDeltaLoose(0);
       setReason(mode === 'deduce' ? 'Damaged / Broken Strip' : mode === 'add' ? 'Found Unrecorded Stock / Bonus' : 'Physical Count Audit');
       setNotes('');
     }
-  }, [medicine, mode]);
+  }, [medicine?.id, medicine?.stockPacks, medicine?.stockLooseUnits, mode]);
 
   if (!medicine) return null;
 
   const currentTotalUnits = (medicine.stockPacks * medicine.unitsPerPack) + medicine.stockLooseUnits;
+  const countedPacksValue = parseIntegerInput(countedPacks, 6) ?? 0;
+  const countedLooseValue = parseIntegerInput(countedLoose, 6) ?? 0;
 
   // Calculate projected new units and net variance
   let projectedTotalUnits = currentTotalUnits;
@@ -66,8 +68,8 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
   let projectedLoose = medicine.stockLooseUnits;
 
   if (mode === 'reconcile') {
-    projectedPacks = Math.max(0, countedPacks || 0);
-    projectedLoose = Math.max(0, countedLoose || 0);
+    projectedPacks = countedPacksValue;
+    projectedLoose = countedLooseValue;
     projectedTotalUnits = (projectedPacks * medicine.unitsPerPack) + projectedLoose;
   } else if (mode === 'add') {
     const addP = Math.max(0, deltaPacks || 0);
@@ -90,14 +92,23 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
     if (isSubmitting) return;
 
     setSubmitError('');
+    if (mode === 'reconcile' && (!countedPacks || !countedLoose)) {
+      setSubmitError('Enter both the counted packs and loose units. Enter 0 if none are on the shelf.');
+      return;
+    }
+    if (mode === 'reconcile' && countedLooseValue >= medicine.unitsPerPack) {
+      setSubmitError(`Loose units must be fewer than the pack size (${medicine.unitsPerPack}).`);
+      return;
+    }
+
     setIsSubmitting(true);
     if (mode === 'reconcile') {
       try {
         await submitStockAdjustment({
           medicineId: medicine.id,
           type: 'reconcile',
-          countedPacks,
-          countedLoose,
+          countedPacks: countedPacksValue,
+          countedLoose: countedLooseValue,
           reason,
           notes: notes || 'Shelf Physical Count Audit',
         });
@@ -259,13 +270,11 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     Full Counted Packs:
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    step="1"
+                    type="text"
                     inputMode="numeric"
                     value={countedPacks}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setCountedPacks(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
+                    onChange={(e) => setCountedPacks(digitsOnlyUpTo(e.target.value, 6))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>
@@ -274,13 +283,11 @@ export const PhysicalStockAuditModal: React.FC<PhysicalStockAuditModalProps> = (
                     Loose Tablets / Units:
                   </label>
                   <input
-                    type="number"
-                    min="0"
-                    max={medicine.unitsPerPack - 1}
+                    type="text"
                     inputMode="numeric"
                     value={countedLoose}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setCountedLoose(Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0))}
+                    onChange={(e) => setCountedLoose(digitsOnlyUpTo(e.target.value, 6))}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold text-slate-900 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                   />
                 </div>
