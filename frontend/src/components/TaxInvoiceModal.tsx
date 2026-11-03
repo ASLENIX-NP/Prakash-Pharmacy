@@ -148,7 +148,9 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                 src={settings.storeLogo || prakashLogo}
                 alt={`${settings.storeName || 'Pharmacy'} logo`}
                 className={`mx-auto mb-1 object-contain ${
-                  format === 'thermal' ? 'h-12 max-w-24' : 'h-40 max-w-64'
+                  format === 'thermal'
+                    ? 'h-12 max-w-24'
+                    : 'h-40 max-w-64 scale-110'
                 }`}
               />
               <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
