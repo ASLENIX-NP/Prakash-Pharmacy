@@ -90,6 +90,25 @@ export const PosView: React.FC = () => {
   const [cashTendered, setCashTendered] =
     useState<number>(0);
 
+  const prescriptionMedicinesInCart = useMemo(() => {
+    const names = new Set<string>();
+
+    cart.forEach((item) => {
+      const medicine = medicines.find(
+        (candidate) => candidate.id === item.medicineId
+      );
+
+      if (medicine?.prescriptionRequired) {
+        names.add(medicine.name);
+      }
+    });
+
+    return Array.from(names);
+  }, [cart, medicines]);
+
+  const requiresPrescription =
+    prescriptionMedicinesInCart.length > 0;
+
   // ============================================================
   // SEARCH RESULTS
   // ============================================================
@@ -664,6 +683,15 @@ export const PosView: React.FC = () => {
       return;
     }
 
+    if (requiresPrescription && !doctorName.trim()) {
+      showToast(
+        `Prescribing doctor is required for: ${prescriptionMedicinesInCart.join(', ')}.`,
+        'warning',
+        'Doctor Required'
+      );
+      return;
+    }
+
     if (paymentMode === 'cash' && totals.grandTotal > 0) {
       if (!cashTendered || Number(cashTendered) <= 0) {
         showToast(
@@ -833,7 +861,7 @@ export const PosView: React.FC = () => {
             </h2>
 
             <span className="text-[12px] font-medium text-slate-400">
-              Barcode scanner ready
+              Search by medicine details
             </span>
           </div>
 
@@ -844,7 +872,7 @@ export const PosView: React.FC = () => {
               type="text"
               autoFocus
               value={searchQuery}
-              placeholder="Search medicine, generic, barcode, batch or rack..."
+              placeholder="Search medicine, generic, batch or rack..."
               onChange={(event) => {
                 setSearchQuery(
                   event.target.value
@@ -966,11 +994,11 @@ export const PosView: React.FC = () => {
                       <p className="mt-1 truncate text-[11px] text-slate-500">
                         {medicine.genericName}
                         <span className="mx-1.5 text-slate-300">
-                          •
+                          â€¢
                         </span>
                         Batch {medicine.batchNumber}
                         <span className="mx-1.5 text-slate-300">
-                          •
+                          â€¢
                         </span>
                         Rack {medicine.rackLocation}
                       </p>
@@ -992,11 +1020,11 @@ export const PosView: React.FC = () => {
                         {' + '}
                         {medicine.stockLooseUnits} units
                         {isSafetyBlocked
-                          ? ` · ${saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}`
+                          ? ` Â· ${saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}`
                           : isExpired
-                            ? ' · Expired'
+                            ? ' Â· Expired'
                             : isLowStock
-                              ? ' · Low'
+                              ? ' Â· Low'
                               : ''}
                       </p>
 
@@ -1015,7 +1043,7 @@ export const PosView: React.FC = () => {
                       <p className="mt-0.5 text-[10px] font-medium text-slate-500">
                         {medicine.unitsPerPack > 1 ? (
                           <>
-                            Pack Â· <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
+                            Pack Ã‚Â· <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
                           </>
                         ) : (
                           'MRP / pack'
@@ -1180,11 +1208,12 @@ export const PosView: React.FC = () => {
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">
-                Prescribing Doctor
+                Prescribing Doctor {requiresPrescription ? '(required)' : '(optional)'}
               </label>
 
               <input
                 type="text"
+                required={requiresPrescription}
                 value={doctorName}
                 placeholder="Dr. Name (Hetauda Hosp)"
                 onChange={(event) =>
@@ -1194,6 +1223,12 @@ export const PosView: React.FC = () => {
                 }
                 className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
               />
+
+              {requiresPrescription && (
+                <p className="mt-1 text-[10px] font-semibold text-amber-700">
+                  Required for: {prescriptionMedicinesInCart.join(', ')}
+                </p>
+              )}
             </div>
 
 
@@ -1499,7 +1534,7 @@ export const PosView: React.FC = () => {
                     <div className="mt-1 space-y-0.5">
                       {totals.vatTaxableItemsDetail.map((detail, idx) => (
                         <p key={idx} className="text-[10.5px] text-blue-700 font-medium">
-                          • {detail.name}: <span className="font-mono font-bold">Rs. {detail.vat.toFixed(2)}</span>
+                          â€¢ {detail.name}: <span className="font-mono font-bold">Rs. {detail.vat.toFixed(2)}</span>
                         </p>
                       ))}
                     </div>
@@ -1878,15 +1913,22 @@ export const PosView: React.FC = () => {
                 !!cashTendered &&
                 cashTendered < totals.grandTotal;
 
+              const isDoctorMissing =
+                requiresPrescription &&
+                !doctorName.trim();
+
               const isCompleteDisabled =
                 cart.length === 0 ||
                 isCompletingSale ||
                 isCashMissing ||
-                isCashShort;
+                isCashShort ||
+                isDoctorMissing;
 
               let buttonLabel = 'Complete Bill & Print VAT Invoice';
               if (isCompletingSale) {
                 buttonLabel = 'Completing Sale...';
+              } else if (isDoctorMissing) {
+                buttonLabel = 'Enter Prescribing Doctor to Complete';
               } else if (isCashMissing) {
                 buttonLabel = 'Enter Cash Tendered to Complete';
               } else if (isCashShort) {

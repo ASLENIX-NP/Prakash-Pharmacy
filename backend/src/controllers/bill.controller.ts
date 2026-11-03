@@ -606,6 +606,19 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
 
     const cleanCustomerPhone = customerPhone ? String(customerPhone).trim() : "";
     const cleanCustomerPan = customerPan ? String(customerPan).trim() : "";
+    const cleanDoctorName =
+      doctorName === undefined || doctorName === null
+        ? ""
+        : String(doctorName).trim();
+
+    const cleanPrescribingDoctorAlias =
+      prescribingDoctor === undefined || prescribingDoctor === null
+        ? ""
+        : String(prescribingDoctor).trim();
+
+    const cleanPrescribingDoctor =
+      cleanDoctorName || cleanPrescribingDoctorAlias;
+
     if (cleanCustomerPhone && !/^\d{7,10}$/.test(cleanCustomerPhone)) {
       res.status(400).json({ success: false, message: "Customer phone number must contain between 7 and 10 digits." });
       return;
@@ -788,6 +801,48 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         }
       }
 
+      // Prescription requirements are read from PostgreSQL only.
+      // This check intentionally happens after the idempotent replay return.
+      const checkoutInventoryIds = Array.from(
+        new Set(
+          authoritativeFinancials.items.map(
+            (item) => item.inventoryId
+          )
+        )
+      );
+
+      const prescriptionRows =
+        checkoutInventoryIds.length > 0
+          ? await tx.inventory.findMany({
+              where: {
+                id: { in: checkoutInventoryIds },
+                prescriptionRequired: true,
+              },
+              select: {
+                medicineBrand: true,
+              },
+            })
+          : [];
+
+      const prescriptionMedicineNames =
+        Array.from(
+          new Set(
+            prescriptionRows.map(
+              (row) => row.medicineBrand
+            )
+          )
+        );
+
+      if (
+        prescriptionMedicineNames.length > 0 &&
+        !cleanPrescribingDoctor
+      ) {
+        throw new BillValidationError(
+          `Prescribing doctor is required for prescription medicine(s): ${prescriptionMedicineNames.join(', ')}.`,
+          400
+        );
+      }
+
       let finalInvoiceNumber = requestedInvoiceNumber;
 
       if (finalInvoiceNumber) {
@@ -857,7 +912,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           customerName: customerName ? String(customerName).trim() : "Counter Patient",
           customerPhone: cleanCustomerPhone || null,
           customerPan: cleanCustomerPan || null,
-          prescribingDoctor: (doctorName || prescribingDoctor) ? String(doctorName || prescribingDoctor).trim() : null,
+          prescribingDoctor: cleanPrescribingDoctor || null,
           paymentMethod: finalPaymentMethod,
           paymentStatus: "paid",
           subTotal:
@@ -1062,9 +1117,13 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           const vatMismatch =
             Boolean(batch.hasvat) !== Boolean(selectedInventory.hasvat);
 
-          if (priceMismatch || vatMismatch) {
+          const prescriptionMismatch =
+            Boolean(batch.prescriptionRequired) !==
+            Boolean(selectedInventory.prescriptionRequired);
+
+          if (priceMismatch || vatMismatch || prescriptionMismatch) {
             throw new BillValidationError(
-              `FEFO batch '${batch.batchNumber}' for '${selectedInventory.medicineBrand}' has a different selling price or VAT classification. Reconcile batch pricing/tax before checkout.`,
+              `FEFO batch '${batch.batchNumber}' for '${selectedInventory.medicineBrand}' has a different selling price, VAT, or prescription classification. Reconcile batch metadata before checkout.`,
               409
             );
           }
