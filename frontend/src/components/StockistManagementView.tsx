@@ -1886,7 +1886,6 @@ export const StockistManagementView: React.FC = () => {
                     <th className="py-2.5 px-2">Batch #</th>
                     <th className="py-2.5 px-2">Expiry</th>
                     <th className="py-2.5 px-2 text-center">Packs</th>
-                    <th className="py-2.5 px-2 text-center">Loose Tabs</th>
                     <th className="py-2.5 px-2 text-center">Free/Bonus</th>
                     <th className="py-2.5 px-2">Cost/Pack</th>
                     <th className="py-2.5 px-2">Disc %</th>
