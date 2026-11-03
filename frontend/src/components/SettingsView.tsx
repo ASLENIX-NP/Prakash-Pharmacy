@@ -4,6 +4,7 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { PharmacySettings } from '../types/pharmacy';
 import { digitsOnlyUpTo, isValidEmail, normalizePhoneNumber } from '../utils/inputValidation';
 import { apiRequest } from '../services/api';
+import { setBrowserFavicon } from '../utils/favicon';
 
 const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -94,7 +95,7 @@ export const SettingsView: React.FC = () => {
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       if (typeof reader.result !== 'string') {
         setLogoError('Could not read the selected image. Please try again.');
         return;
@@ -102,8 +103,20 @@ export const SettingsView: React.FC = () => {
 
       const storeLogo = reader.result;
       setFormData((current) => ({ ...current, storeLogo }));
+      setBrowserFavicon(storeLogo);
       setLogoError('');
-      setSaveSuccess(false);
+
+      // Auto-save immediately so the uploaded logo is applied to the favicon and settings
+      setIsSaving(true);
+      try {
+        await updateSettings({ storeLogo });
+        setSaveSuccess(true);
+        window.setTimeout(() => setSaveSuccess(false), 3000);
+      } catch (error) {
+        setLogoError(error instanceof Error ? error.message : 'Failed to save the store logo.');
+      } finally {
+        setIsSaving(false);
+      }
     };
     reader.onerror = () => {
       setLogoError('Could not read the selected image. Please try again.');
@@ -120,6 +133,7 @@ export const SettingsView: React.FC = () => {
     setIsSaving(true);
     try {
       await updateSettings({ storeLogo: formData.storeLogo });
+      setBrowserFavicon(formData.storeLogo);
       setSaveSuccess(true);
       window.setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
@@ -359,12 +373,23 @@ export const SettingsView: React.FC = () => {
                   {formData.storeLogo && (
                     <button
                       type="button"
-                      onClick={() => {
+                      disabled={isSaving}
+                      onClick={async () => {
                         setFormData((current) => ({ ...current, storeLogo: '' }));
+                        setBrowserFavicon('/favicon.png');
                         setLogoError('');
-                        setSaveSuccess(false);
+                        setIsSaving(true);
+                        try {
+                          await updateSettings({ storeLogo: '' });
+                          setSaveSuccess(true);
+                          window.setTimeout(() => setSaveSuccess(false), 3000);
+                        } catch (err) {
+                          setLogoError(err instanceof Error ? err.message : 'Failed to remove logo.');
+                        } finally {
+                          setIsSaving(false);
+                        }
                       }}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-60"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
                       Remove logo

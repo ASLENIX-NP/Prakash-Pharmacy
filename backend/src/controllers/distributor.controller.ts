@@ -1,6 +1,10 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
 import { formatDistributorCode, parseIdParam } from "../utils/id.helpers.js";
+import {
+  formatNepalDateOnly,
+  parseNepalDateBoundary,
+} from "../utils/nepal-time.js";
 
 type AnyRecord = Record<string, any>;
 
@@ -518,7 +522,7 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
         ledgerEntry: {
           id: String(result.ledgerEntry.id),
           stockistId: formatDistributorCode(id),
-          date: result.ledgerEntry.dateOfCreation.toISOString().split("T")[0],
+          date: formatNepalDateOnly(result.ledgerEntry.dateOfCreation),
           refType: "payment_made",
           refNumber: cleanRef,
           description,
@@ -551,7 +555,7 @@ export const getDistributorReturns = async (_req: Request, res: Response): Promi
         debitNoteNumber: entry.debitNoteNumber,
         stockistId: formatDistributorCode(entry.distributorId),
         stockistName: entry.distributor.name,
-        date: entry.date.toISOString().split("T")[0],
+        date: formatNepalDateOnly(entry.date),
         items: Array.isArray(entry.items) ? entry.items : [],
         totalAmount: Number(entry.totalAmount),
         notes: entry.notes || "",
@@ -589,15 +593,26 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
     }
 
     let cleanDate = new Date();
-    if (date !== undefined && date !== null && String(date).trim() !== "") {
-      const rawDate = String(date).trim();
-      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
-        ? new Date(`${rawDate}T12:00:00`)
-        : new Date(rawDate);
 
-      if (Number.isNaN(parsed.getTime())) {
-        throw new DistributorValidationError("Return date is invalid.");
+    if (
+      date !== undefined &&
+      date !== null &&
+      String(date).trim() !== ""
+    ) {
+      const rawDate = String(date).trim();
+
+      const parsed =
+        parseNepalDateBoundary(
+          rawDate,
+          false
+        );
+
+      if (!parsed) {
+        throw new DistributorValidationError(
+          "Return date is invalid."
+        );
       }
+
       cleanDate = parsed;
     }
 
@@ -629,7 +644,160 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
         );
       }
 
-      const seenInventoryIds = new Set<number>();
+      /*
+       * Serialize monetary returns against the same historical
+       * PurchaseInvoiceItem.
+       *
+       * Without this transaction-scoped advisory lock, two requests
+       * could read the same previous-return history concurrently and
+       * both believe the original paid quantity was still available.
+       *
+       * Locks are acquired in ID order to avoid lock-order deadlocks
+       * when one debit note contains several purchase rows.
+       */
+      const purchaseItemLockIds =
+        Array.from(
+          new Set<number>(
+            items
+              .map(
+                (returnItem: AnyRecord) =>
+                  Number(
+                    returnItem?.purchaseItemId
+                  )
+              )
+              .filter(
+                (purchaseItemId: number) =>
+                  Number.isInteger(
+                    purchaseItemId
+                  ) &&
+                  purchaseItemId > 0
+              )
+          )
+        ).sort(
+          (a, b) => a - b
+        );
+
+      for (
+        const purchaseItemLockId
+        of purchaseItemLockIds
+      ) {
+        /*
+         * pg_advisory_xact_lock returns PostgreSQL void.
+         * Use $executeRaw so Prisma does not try to deserialize
+         * that void result through the raw-query result mapper.
+         */
+        await tx.$executeRaw`
+          SELECT pg_advisory_xact_lock(
+            73421::int,
+            ${purchaseItemLockId}::int
+          )
+        `;
+      }
+
+      /*
+       * Read previous supplier returns so the same original
+       * PurchaseInvoiceItem cannot be credited beyond its paid
+       * purchased quantity.
+       */
+      const previousReturns =
+        await tx.distributorReturn.findMany({
+          where: {
+            distributorId: id,
+          },
+          select: {
+            items: true,
+          },
+        });
+
+      const returnedUnitsByPurchaseItem =
+        new Map<number, number>();
+
+      /*
+       * Older return records may not have purchaseItemId.
+       * If an old return exists for the same medicine/batch,
+       * block another monetary return until that history is reviewed.
+       */
+      const legacyReturnBatchKeys =
+        new Set<string>();
+
+      for (const previousReturn of previousReturns) {
+        const previousItems =
+          Array.isArray(previousReturn.items)
+            ? previousReturn.items as AnyRecord[]
+            : [];
+
+        for (const previousItem of previousItems) {
+          const previousPurchaseItemId =
+            Number(
+              previousItem?.purchaseItemId
+            );
+
+          const previousPacks =
+            Number(
+              previousItem?.packs ?? 0
+            );
+
+          const previousLoose =
+            Number(
+              previousItem?.looseUnits ?? 0
+            );
+
+          const previousUnitsPerPack =
+            Number(
+              previousItem?.unitsPerPack ?? 0
+            );
+
+          if (
+            Number.isInteger(previousPurchaseItemId) &&
+            previousPurchaseItemId > 0 &&
+            Number.isInteger(previousUnitsPerPack) &&
+            previousUnitsPerPack > 0
+          ) {
+            const previousUnits =
+              Math.max(
+                0,
+                previousPacks *
+                  previousUnitsPerPack +
+                  previousLoose
+              );
+
+            returnedUnitsByPurchaseItem.set(
+              previousPurchaseItemId,
+              (
+                returnedUnitsByPurchaseItem.get(
+                  previousPurchaseItemId
+                ) || 0
+              ) + previousUnits
+            );
+
+            continue;
+          }
+
+          const legacyMedicineId =
+            Number(
+              previousItem?.medicineId
+            );
+
+          const legacyBatch =
+            String(
+              previousItem?.batchNumber || ""
+            )
+              .trim()
+              .toLowerCase();
+
+          if (
+            Number.isInteger(legacyMedicineId) &&
+            legacyMedicineId > 0 &&
+            legacyBatch
+          ) {
+            legacyReturnBatchKeys.add(
+              `${legacyMedicineId}:${legacyBatch}`
+            );
+          }
+        }
+      }
+
+      const seenPurchaseItemIds = new Set<number>();
       const processedItems: AnyRecord[] = [];
       let authoritativeTotal = 0;
 
@@ -670,12 +838,88 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           );
         }
 
-        if (seenInventoryIds.has(med.id)) {
+        const purchaseItemId =
+          Number(item?.purchaseItemId);
+
+        if (
+          !Number.isInteger(purchaseItemId) ||
+          purchaseItemId <= 0
+        ) {
           throw new DistributorValidationError(
-            `Medicine '${med.medicineBrand}' appears more than once in this return. Combine it into one row.`
+            `Return row ${index + 1}: select the original purchase invoice for '${med.medicineBrand}'.`
           );
         }
-        seenInventoryIds.add(med.id);
+
+        if (
+          seenPurchaseItemIds.has(
+            purchaseItemId
+          )
+        ) {
+          throw new DistributorValidationError(
+            `The same original purchase item appears more than once in this return. Combine it into one row.`
+          );
+        }
+
+        const purchaseItem =
+          await tx.purchaseInvoiceItem.findUnique({
+            where: {
+              id: purchaseItemId,
+            },
+            include: {
+              invoice: {
+                select: {
+                  id: true,
+                  invoiceNumber: true,
+                  distributorId: true,
+                  purchaseDate: true,
+                  paymentMode: true,
+                },
+              },
+            },
+          });
+
+        if (!purchaseItem) {
+          throw new DistributorValidationError(
+            `Return row ${index + 1}: original purchase item was not found.`,
+            404
+          );
+        }
+
+        if (
+          purchaseItem.invoice.distributorId !== id
+        ) {
+          throw new DistributorValidationError(
+            `Purchase invoice #${purchaseItem.invoice.invoiceNumber} does not belong to the selected distributor.`,
+            409
+          );
+        }
+
+        if (
+          purchaseItem.inventoryId !== med.id
+        ) {
+          throw new DistributorValidationError(
+            `Purchase invoice #${purchaseItem.invoice.invoiceNumber} is not linked to '${med.medicineBrand}' batch ${med.batchNumber}.`,
+            409
+          );
+        }
+
+        if (
+          String(purchaseItem.batchNumber)
+            .trim()
+            .toLowerCase() !==
+          String(med.batchNumber)
+            .trim()
+            .toLowerCase()
+        ) {
+          throw new DistributorValidationError(
+            `Purchase invoice #${purchaseItem.invoice.invoiceNumber} has a different batch from '${med.medicineBrand}'.`,
+            409
+          );
+        }
+
+        seenPurchaseItemIds.add(
+          purchaseItemId
+        );
 
         const packsToDeduct = Number(item?.packs ?? 0);
         const looseToDeduct = Number(item?.looseUnits ?? 0);
@@ -691,7 +935,32 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           );
         }
 
-        const unitsPerPack = Math.max(1, med.unitPerPack || 1);
+        const inventoryUnitsPerPack =
+          Math.max(
+            1,
+            Number(med.unitPerPack) || 1
+          );
+
+        const purchaseUnitsPerPack =
+          Math.max(
+            1,
+            Number(
+              purchaseItem.unitsPerPack
+            ) || 1
+          );
+
+        if (
+          inventoryUnitsPerPack !==
+          purchaseUnitsPerPack
+        ) {
+          throw new DistributorValidationError(
+            `Units-per-pack mismatch for '${med.medicineBrand}' between current inventory and purchase invoice #${purchaseItem.invoice.invoiceNumber}.`,
+            409
+          );
+        }
+
+        const unitsPerPack =
+          purchaseUnitsPerPack;
         if (looseToDeduct >= unitsPerPack) {
           throw new DistributorValidationError(
             `Loose return quantity for '${med.medicineBrand}' must be less than ${unitsPerPack}. Convert full units into packs.`
@@ -703,6 +972,74 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
         if (deductTotalUnits <= 0) {
           throw new DistributorValidationError(
             `Return quantity for '${med.medicineBrand}' must be greater than zero.`
+          );
+        }
+
+        /*
+         * Only PAID purchase quantity is eligible for a monetary
+         * supplier debit note.
+         *
+         * Free/bonus packs increased physical stock but did not
+         * contribute to the purchase line financial value.
+         */
+        const purchasedPaidUnits =
+          Number(
+            purchaseItem.packQty
+          ) *
+            unitsPerPack +
+          Number(
+            purchaseItem.looseUnits || 0
+          );
+
+        if (
+          !Number.isInteger(
+            purchasedPaidUnits
+          ) ||
+          purchasedPaidUnits <= 0
+        ) {
+          throw new DistributorValidationError(
+            `Purchase invoice #${purchaseItem.invoice.invoiceNumber} has no paid quantity available for a monetary supplier return.`,
+            409
+          );
+        }
+
+        const legacyBatchKey =
+          `${med.id}:${String(
+            med.batchNumber
+          )
+            .trim()
+            .toLowerCase()}`;
+
+        if (
+          legacyReturnBatchKeys.has(
+            legacyBatchKey
+          )
+        ) {
+          throw new DistributorValidationError(
+            `An older supplier return exists for '${med.medicineBrand}' batch ${med.batchNumber} without an original purchase-invoice link. Review the historical debit note before making another monetary return for this batch.`,
+            409
+          );
+        }
+
+        const alreadyReturnedUnits =
+          returnedUnitsByPurchaseItem.get(
+            purchaseItemId
+          ) || 0;
+
+        const remainingReturnableUnits =
+          Math.max(
+            0,
+            purchasedPaidUnits -
+              alreadyReturnedUnits
+          );
+
+        if (
+          deductTotalUnits >
+          remainingReturnableUnits
+        ) {
+          throw new DistributorValidationError(
+            `Return quantity exceeds the remaining paid quantity from purchase invoice #${purchaseItem.invoice.invoiceNumber}. Remaining returnable quantity: ${remainingReturnableUnits} unit(s).`,
+            409
           );
         }
 
@@ -766,36 +1103,226 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           },
         });
 
-        const costPerPack = Number(med.costPrice);
-        if (!Number.isFinite(costPerPack) || costPerPack < 0) {
+        /*
+         * Supplier return valuation comes only from the ORIGINAL
+         * PurchaseInvoiceItem.
+         *
+         * lineTotal = historical purchase value after trade discount
+         * and before VAT.
+         *
+         * Current Inventory.costPrice and browser-supplied cost are
+         * deliberately ignored.
+         */
+        const purchaseLineBase =
+          Number(
+            purchaseItem.lineTotal
+          );
+
+        const originalCostPerPack =
+          Number(
+            purchaseItem.costPrice
+          );
+
+        const discountPercent =
+          Number(
+            purchaseItem.discountPercent || 0
+          );
+
+        if (
+          !Number.isFinite(
+            purchaseLineBase
+          ) ||
+          purchaseLineBase < 0 ||
+          !Number.isFinite(
+            originalCostPerPack
+          ) ||
+          originalCostPerPack < 0
+        ) {
           throw new DistributorValidationError(
-            `Medicine '${med.medicineBrand}' has an invalid stored cost price.`,
+            `Purchase invoice #${purchaseItem.invoice.invoiceNumber} contains invalid historical purchase values.`,
             409
           );
         }
 
-        const lineAmount = roundMoney(
-          packsToDeduct * costPerPack +
-            looseToDeduct * (costPerPack / unitsPerPack)
-        );
-        authoritativeTotal = roundMoney(authoritativeTotal + lineAmount);
+        /*
+         * Original VAT belonging to this purchase line.
+         */
+        const originalLineVat =
+          purchaseItem.isVatApplicable
+            ? roundMoney(
+                purchaseLineBase * 0.13
+              )
+            : 0;
+
+        const cumulativeReturnedUnits =
+          alreadyReturnedUnits +
+          deductTotalUnits;
+
+        /*
+         * Cumulative allocation avoids paise-rounding drift when
+         * several partial returns are made against the same
+         * PurchaseInvoiceItem.
+         */
+        const previousAllocatedBase =
+          roundMoney(
+            purchaseLineBase *
+              alreadyReturnedUnits /
+              purchasedPaidUnits
+          );
+
+        const cumulativeAllocatedBase =
+          roundMoney(
+            purchaseLineBase *
+              cumulativeReturnedUnits /
+              purchasedPaidUnits
+          );
+
+        const returnNetBase =
+          roundMoney(
+            cumulativeAllocatedBase -
+              previousAllocatedBase
+          );
+
+        const previousAllocatedVat =
+          purchaseItem.isVatApplicable
+            ? roundMoney(
+                originalLineVat *
+                  alreadyReturnedUnits /
+                  purchasedPaidUnits
+              )
+            : 0;
+
+        const cumulativeAllocatedVat =
+          purchaseItem.isVatApplicable
+            ? roundMoney(
+                originalLineVat *
+                  cumulativeReturnedUnits /
+                  purchasedPaidUnits
+              )
+            : 0;
+
+        const returnVat =
+          roundMoney(
+            cumulativeAllocatedVat -
+              previousAllocatedVat
+          );
+
+        /*
+         * Amount that actually reduces supplier liability.
+         */
+        const lineAmount =
+          roundMoney(
+            returnNetBase +
+              returnVat
+          );
+
+        const effectiveNetCostPerPack =
+          roundMoney(
+            (
+              purchaseLineBase /
+              purchasedPaidUnits
+            ) *
+              unitsPerPack
+          );
+
+        authoritativeTotal =
+          roundMoney(
+            authoritativeTotal +
+              lineAmount
+          );
 
         processedItems.push({
-          medicineId: med.id,
-          medicineName: med.medicineBrand,
-          batchNumber: med.batchNumber,
-          packs: packsToDeduct,
-          looseUnits: looseToDeduct,
+          purchaseItemId,
+
+          purchaseInvoiceId:
+            purchaseItem.invoice.id,
+
+          purchaseInvoiceNumber:
+            purchaseItem.invoice.invoiceNumber,
+
+          purchaseInvoiceDate:
+            formatNepalDateOnly(
+              purchaseItem.invoice.purchaseDate
+            ),
+
+          purchasePaymentMode:
+            purchaseItem.invoice.paymentMode,
+
+          medicineId:
+            med.id,
+
+          medicineName:
+            med.medicineBrand,
+
+          batchNumber:
+            med.batchNumber,
+
+          packs:
+            packsToDeduct,
+
+          looseUnits:
+            looseToDeduct,
+
           unitsPerPack,
-          costPrice: costPerPack,
+
+          originalCostPrice:
+            roundMoney(
+              originalCostPerPack
+            ),
+
+          discountPercent:
+            roundMoney(
+              discountPercent
+            ),
+
+          effectiveNetCostPerPack,
+
+          /*
+           * Kept for compatibility with existing return-history UI.
+           * These are server-derived now.
+           */
+          costPrice:
+            effectiveNetCostPerPack,
+
+          unitCost:
+            effectiveNetCostPerPack,
+
+          isVatApplicable:
+            Boolean(
+              purchaseItem.isVatApplicable
+            ),
+
+          /*
+           * Financial reversal components.
+           */
+          netPurchaseBase:
+            returnNetBase,
+
+          taxableBase:
+            purchaseItem.isVatApplicable
+              ? returnNetBase
+              : 0,
+
+          vatAmount:
+            returnVat,
+
           lineAmount,
-          reason: item?.reason ? String(item.reason).trim() : "",
+
+          totalReturnAmount:
+            lineAmount,
+
+          reason:
+            item?.reason
+              ? String(
+                  item.reason
+                ).trim()
+              : "",
         });
       }
 
       if (authoritativeTotal <= 0) {
         throw new DistributorValidationError(
-          "Return total calculated from inventory cost prices must be greater than zero."
+          "Return total calculated from the original purchase invoice must be greater than zero."
         );
       }
 
@@ -855,7 +1382,7 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
         ledgerEntry: {
           id: String(result.ledgerEntry.id),
           stockistId: formatDistributorCode(id),
-          date: result.ledgerEntry.dateOfCreation.toISOString().split("T")[0],
+          date: formatNepalDateOnly(result.ledgerEntry.dateOfCreation),
           refType: "return_debit_note",
           refNumber: cleanDebitNote,
           description: result.ledgerEntry.description,
@@ -868,7 +1395,7 @@ export const recordDistributorReturn = async (req: Request, res: Response): Prom
           debitNoteNumber: result.returnVoucher.debitNoteNumber,
           stockistId: formatDistributorCode(id),
           stockistName: result.distributor.name,
-          date: result.returnVoucher.date.toISOString().split("T")[0],
+          date: formatNepalDateOnly(result.returnVoucher.date),
           items: Array.isArray(result.returnVoucher.items)
             ? result.returnVoucher.items
             : [],

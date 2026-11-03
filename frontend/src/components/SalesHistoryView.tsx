@@ -21,7 +21,13 @@ import { useDialog } from '../context/DialogContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { exportSalesBookToExcel } from '../utils/excelUtils';
 import { SalesReturnModal } from './SalesReturnModal';
-import { localDateString } from '../utils/date';
+import {
+  instantToNepalDateString,
+  localDateString,
+  nepalDateDaysAgo,
+  nepalMonthStartString,
+  NEPAL_TIME_ZONE
+} from '../utils/date';
 
 export const SalesHistoryView: React.FC = () => {
   const { showToast } = useDialog();
@@ -43,14 +49,9 @@ export const SalesHistoryView: React.FC = () => {
   // Filter sales invoices
   const filteredSales = useMemo(() => {
     const todayStr = localDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = localDateString(yesterday);
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const yesterdayStr = nepalDateDaysAgo(1);
+    const sevenDaysAgoStr = nepalDateDaysAgo(7);
+    const firstOfMonthStr = nepalMonthStartString();
 
     return registerInvoices.filter(inv => {
       // Search
@@ -67,8 +68,8 @@ export const SalesHistoryView: React.FC = () => {
       // Date
       if (dateFilter === 'today') return inv.date === todayStr;
       if (dateFilter === 'yesterday') return inv.date === yesterdayStr;
-      if (dateFilter === '7days') return new Date(inv.date) >= sevenDaysAgo;
-      if (dateFilter === 'month') return new Date(inv.date) >= firstOfMonth;
+      if (dateFilter === '7days') return inv.date >= sevenDaysAgoStr && inv.date <= todayStr;
+      if (dateFilter === 'month') return inv.date >= firstOfMonthStr && inv.date <= todayStr;
 
       return true;
     });
@@ -77,18 +78,16 @@ export const SalesHistoryView: React.FC = () => {
   // Filter customer returns
   const filteredReturns = useMemo(() => {
     const todayStr = localDateString();
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = localDateString(yesterday);
-
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const yesterdayStr = nepalDateDaysAgo(1);
+    const sevenDaysAgoStr = nepalDateDaysAgo(7);
+    const firstOfMonthStr = nepalMonthStartString();
 
     return (customerSalesReturns || []).filter(ret => {
       const q = searchQuery.toLowerCase();
-      const returnDateStr = ret.returnDate ? ret.returnDate.split('T')[0] : '';
+      const returnDateStr =
+        ret.returnDate
+          ? instantToNepalDateString(ret.returnDate)
+          : '';
       const invoiceNumber = ret.invoice?.invoiceNumber || ret.invoiceNumber || '';
       const customerName = ret.invoice?.customerName || ret.customerName || '';
 
@@ -106,8 +105,8 @@ export const SalesHistoryView: React.FC = () => {
 
       if (dateFilter === 'today') return returnDateStr === todayStr;
       if (dateFilter === 'yesterday') return returnDateStr === yesterdayStr;
-      if (dateFilter === '7days') return new Date(ret.returnDate) >= sevenDaysAgo;
-      if (dateFilter === 'month') return new Date(ret.returnDate) >= firstOfMonth;
+      if (dateFilter === '7days') return returnDateStr >= sevenDaysAgoStr && returnDateStr <= todayStr;
+      if (dateFilter === 'month') return returnDateStr >= firstOfMonthStr && returnDateStr <= todayStr;
 
       return true;
     });
@@ -115,12 +114,22 @@ export const SalesHistoryView: React.FC = () => {
 
   // Aggregate stats for sales invoices
   const salesStats = useMemo(() => {
-    const totalRevenue = filteredSales.reduce((acc, s) => acc + s.grandTotal, 0);
+    const totalGross = filteredSales.reduce((acc, s) => acc + s.grandTotal, 0);
     const totalVat = filteredSales.reduce((acc, s) => acc + s.vatAmount, 0);
     const totalExempt = filteredSales.reduce((acc, s) => acc + s.vatExemptSubtotal, 0);
     const totalTaxable = filteredSales.reduce((acc, s) => acc + s.taxableBaseSubtotal, 0);
-    return { totalRevenue, totalVat, totalExempt, totalTaxable };
-  }, [filteredSales]);
+    const totalRefunded = filteredReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
+    const netRealized = Math.max(0, totalGross - totalRefunded);
+    return { 
+      totalRevenue: totalGross, 
+      totalGross, 
+      totalVat, 
+      totalExempt, 
+      totalTaxable, 
+      totalRefunded, 
+      netRealized 
+    };
+  }, [filteredSales, filteredReturns]);
 
   // Aggregate stats for returns
   const returnStats = useMemo(() => {
@@ -224,90 +233,107 @@ export const SalesHistoryView: React.FC = () => {
 
       {/* Aggregate Stats Cards */}
       {activeTab === 'sales' ? (
-        <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              label: 'Total Revenue',
-              value: salesStats.totalRevenue,
-              detail: `${filteredSales.length} bills completed`,
-              accent: 'teal',
-              icon: <Banknote className="h-4 w-4" />
-            },
-            {
-              label: 'VAT-Free Sales',
-              value: salesStats.totalExempt,
-              detail: '0% VAT therapeutic drugs',
-              accent: 'emerald',
-              icon: <CheckCircle2 className="h-4 w-4" />
-            },
-            {
-              label: 'Taxable Base',
-              value: salesStats.totalTaxable,
-              detail: 'Subject to 13% VAT',
-              accent: 'blue',
-              icon: <Filter className="h-4 w-4" />
-            },
-            {
-              label: '13% VAT Collected',
-              value: salesStats.totalVat,
-              detail: 'Payable to IRD Nepal',
-              accent: 'indigo',
-              icon: <QrCode className="h-4 w-4" />
-            }
-          ].map((card) => (
-            <div
-              key={card.label}
-              className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                card.accent === 'teal'
-                  ? 'border-teal-100 bg-teal-50/80'
-                  : card.accent === 'emerald'
-                    ? 'border-emerald-100 bg-emerald-50/80'
-                    : card.accent === 'blue'
-                      ? 'border-blue-100 bg-blue-50/80'
-                      : 'border-indigo-100 bg-indigo-50/80'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+        <div className="space-y-3">
+          <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: 'Gross Billed Sales',
+                value: salesStats.totalRevenue,
+                detail: salesStats.totalRefunded > 0
+                  ? `Net: Rs. ${salesStats.netRealized.toFixed(2)} (-Rs. ${salesStats.totalRefunded.toFixed(2)} refunds)`
+                  : `${filteredSales.length} bills completed`,
+                accent: 'teal',
+                icon: <Banknote className="h-4 w-4" />
+              },
+              {
+                label: 'VAT-Free Sales',
+                value: salesStats.totalExempt,
+                detail: '0% VAT therapeutic drugs',
+                accent: 'emerald',
+                icon: <CheckCircle2 className="h-4 w-4" />
+              },
+              {
+                label: 'Taxable Base',
+                value: salesStats.totalTaxable,
+                detail: 'Subject to 13% VAT',
+                accent: 'blue',
+                icon: <Filter className="h-4 w-4" />
+              },
+              {
+                label: '13% VAT Collected',
+                value: salesStats.totalVat,
+                detail: 'Payable to IRD Nepal',
+                accent: 'indigo',
+                icon: <QrCode className="h-4 w-4" />
+              }
+            ].map((card) => (
+              <div
+                key={card.label}
+                className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                   card.accent === 'teal'
-                    ? 'bg-white text-teal-700 ring-teal-100'
+                    ? 'border-teal-100 bg-teal-50/80'
                     : card.accent === 'emerald'
-                      ? 'bg-white text-emerald-700 ring-emerald-100'
+                      ? 'border-emerald-100 bg-emerald-50/80'
                       : card.accent === 'blue'
-                        ? 'bg-white text-blue-700 ring-blue-100'
-                        : 'bg-white text-indigo-700 ring-indigo-100'
-                }`}>
-                  {card.icon}
-                </span>
-                <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  card.accent === 'teal'
-                    ? 'text-teal-700'
-                    : card.accent === 'emerald'
-                      ? 'text-emerald-700'
-                      : card.accent === 'blue'
-                        ? 'text-blue-700'
-                        : 'text-indigo-700'
-                }`}>
-                  Summary
-                </span>
-              </div>
-              <div className="mt-5">
-                <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
-                <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
-                  card.accent === 'teal'
-                    ? 'text-teal-800'
-                    : card.accent === 'emerald'
-                      ? 'text-emerald-800'
-                      : card.accent === 'blue'
-                        ? 'text-blue-800'
-                        : 'text-indigo-800'
-                }`}>
-                  Rs. {card.value.toFixed(2)}
+                        ? 'border-blue-100 bg-blue-50/80'
+                        : 'border-indigo-100 bg-indigo-50/80'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
+                    card.accent === 'teal'
+                      ? 'bg-white text-teal-700 ring-teal-100'
+                      : card.accent === 'emerald'
+                        ? 'bg-white text-emerald-700 ring-emerald-100'
+                        : card.accent === 'blue'
+                          ? 'bg-white text-blue-700 ring-blue-100'
+                          : 'bg-white text-indigo-700 ring-indigo-100'
+                  }`}>
+                    {card.icon}
+                  </span>
+                  <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                    card.accent === 'teal'
+                      ? 'text-teal-700'
+                      : card.accent === 'emerald'
+                        ? 'text-emerald-700'
+                        : card.accent === 'blue'
+                          ? 'text-blue-700'
+                          : 'text-indigo-700'
+                  }`}>
+                    Summary
+                  </span>
                 </div>
-                <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+                <div className="mt-5">
+                  <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
+                  <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
+                    card.accent === 'teal'
+                      ? 'text-teal-800'
+                      : card.accent === 'emerald'
+                        ? 'text-emerald-800'
+                        : card.accent === 'blue'
+                          ? 'text-blue-800'
+                          : 'text-indigo-800'
+                  }`}>
+                    Rs. {card.value.toFixed(2)}
+                  </div>
+                  <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+                </div>
               </div>
+            ))}
+          </div>
+
+          {salesStats.totalRefunded > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50/80 px-4 py-2.5 text-xs text-teal-900 shadow-sm">
+              <span className="font-medium">
+                Gross Billed: <strong className="font-mono">Rs. {salesStats.totalGross.toFixed(2)}</strong> ({filteredSales.length} bills)
+                {'  '}•{'  '}
+                Customer Returns: <strong className="font-mono text-rose-700">- Rs. {salesStats.totalRefunded.toFixed(2)}</strong> ({filteredReturns.length} returns)
+              </span>
+              <span className="font-bold">
+                Net Realized Sales: <strong className="font-mono text-sm text-teal-950">Rs. {salesStats.netRealized.toFixed(2)}</strong>
+              </span>
             </div>
-          ))}
+          )}
         </div>
       ) : (
         <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -641,10 +667,10 @@ export const SalesHistoryView: React.FC = () => {
                 {paginatedReturns.map((ret) => {
                   const dateObj = new Date(ret.returnDate);
                   const dateFormatted = !isNaN(dateObj.getTime())
-                    ? dateObj.toLocaleDateString()
+                    ? dateObj.toLocaleDateString('en-NP', { timeZone: NEPAL_TIME_ZONE })
                     : ret.returnDate;
                   const timeFormatted = !isNaN(dateObj.getTime())
-                    ? dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    ? dateObj.toLocaleTimeString('en-NP', { timeZone: NEPAL_TIME_ZONE, hour: '2-digit', minute: '2-digit' })
                     : '';
 
                   return (

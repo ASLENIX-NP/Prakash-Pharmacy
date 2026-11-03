@@ -55,6 +55,25 @@ const sanitizeStockistName = (value: string): string =>
 const normalizeStockistPhone = (value: string): string =>
   normalizePhoneNumber(value);
 
+const createEmptyInvoiceItem = (id?: string): StockistInvoiceItem => ({
+  id: id || `row-${Date.now()}`,
+  medicineName: '',
+  genericName: '',
+  category: 'Tablet',
+  batchNumber: '',
+  expiryDate: '',
+  packQty: 0,
+  looseUnits: 0,
+  freePacks: 0,
+  unitsPerPack: 10,
+  costPrice: 0,
+  discountPercent: 0,
+  isVatApplicable: false,
+  mrpPrice: 0,
+  rackLocation: 'Unassigned',
+  lineTotal: 0
+});
+
 export const StockistManagementView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
@@ -194,26 +213,11 @@ export const StockistManagementView: React.FC = () => {
   });
 
   const [invoiceItems, setInvoiceItems] = useState<StockistInvoiceItem[]>([
-    {
-      id: 'row-1',
-      medicineName: '',
-      genericName: '',
-      category: 'Tablet',
-      batchNumber: '',
-      expiryDate: '',
-      packQty: 10,
-      freePacks: 0,
-      unitsPerPack: 10,
-      costPrice: 100,
-      discountPercent: 5,
-      isVatApplicable: false,
-      mrpPrice: 130,
-      rackLocation: 'Rack A-1',
-      lineTotal: 950
-    }
+    createEmptyInvoiceItem('row-1')
   ]);
   const excelBillInputRef = useRef<HTMLInputElement>(null);
   const [isImportingExcelBill, setIsImportingExcelBill] = useState(false);
+  const [isSubmittingPurchaseInvoice, setIsSubmittingPurchaseInvoice] = useState(false);
 
   // Return to Stockist (Debit Note) Form State
   const [returnStockistId, setReturnStockistId] = useState<string>(stockists[0]?.id || '');
@@ -223,6 +227,12 @@ export const StockistManagementView: React.FC = () => {
   const [selectedReturnMedId, setSelectedReturnMedId] = useState<string>('');
   const [returnPacks, setReturnPacks] = useState<number>(1);
   const [returnLoose, setReturnLoose] = useState<number>(0);
+
+
+  const [
+    selectedReturnPurchaseItemId,
+    setSelectedReturnPurchaseItemId
+  ] = useState<string>('');
   const [returnReason, setReturnReason] = useState<StockistReturnReason>('Expired Medicine');
   const [returnNotes, setReturnNotes] = useState<string>('');
   const [viewingPurchaseBill, setViewingPurchaseBill] = useState<StockistPurchaseInvoice | null>(null);
@@ -250,7 +260,7 @@ export const StockistManagementView: React.FC = () => {
     return false;
   };
 
-  // Synchronize selectedStockistId & returnStockistId when stockists load
+  // Synchronize selectedStockistId, returnStockistId & invoiceHeader.stockistId when stockists load
   React.useEffect(() => {
     if (!selectedStockistId && stockists.length > 0) {
       setSelectedStockistId(stockists[0].id);
@@ -258,7 +268,10 @@ export const StockistManagementView: React.FC = () => {
     if (!returnStockistId && stockists.length > 0) {
       setReturnStockistId(stockists[0].id);
     }
-  }, [stockists, selectedStockistId, returnStockistId]);
+    if (!invoiceHeader.stockistId && stockists.length > 0) {
+      setInvoiceHeader(prev => ({ ...prev, stockistId: stockists[0].id }));
+    }
+  }, [stockists, selectedStockistId, returnStockistId, invoiceHeader.stockistId]);
 
   // Active Stockist for Ledger
   const currentSelectedStockist = useMemo(() => {
@@ -318,6 +331,297 @@ export const StockistManagementView: React.FC = () => {
       return false;
     });
   }, [medicines, purchaseInvoices, currentReturnStockist]);
+
+  /*
+   * Original purchase rows available for a supplier return.
+   *
+   * A monetary supplier return must identify its historical
+   * PurchaseInvoiceItem so the backend can use the original
+   * cost, trade discount and VAT instead of today's inventory cost.
+   */
+  const eligibleReturnPurchaseItems = useMemo(() => {
+    if (
+      !currentReturnStockist ||
+      !selectedReturnMedId
+    ) {
+      return [];
+    }
+
+    const selectedMedicine =
+      medicines.find(
+        medicine =>
+          medicine.id ===
+          selectedReturnMedId
+      );
+
+    if (!selectedMedicine) {
+      return [];
+    }
+
+    /*
+     * Count quantities already returned against each historical
+     * PurchaseInvoiceItem.
+     */
+    const returnedUnitsByPurchaseItem =
+      new Map<number, number>();
+
+    stockistReturns.forEach(voucher => {
+      if (
+        !isMatchingStockist(
+          voucher,
+          currentReturnStockist
+        )
+      ) {
+        return;
+      }
+
+      voucher.items?.forEach(item => {
+        const purchaseItemId =
+          Number(
+            item.purchaseItemId
+          );
+
+        if (
+          !Number.isInteger(
+            purchaseItemId
+          ) ||
+          purchaseItemId <= 0
+        ) {
+          return;
+        }
+
+        const unitsPerPack =
+          Math.max(
+            1,
+            Number(
+              item.unitsPerPack
+            ) || 1
+          );
+
+        const returnedUnits =
+          Math.max(
+            0,
+            Number(item.packs || 0) *
+              unitsPerPack +
+              Number(
+                item.looseUnits || 0
+              )
+          );
+
+        returnedUnitsByPurchaseItem.set(
+          purchaseItemId,
+          (
+            returnedUnitsByPurchaseItem.get(
+              purchaseItemId
+            ) || 0
+          ) + returnedUnits
+        );
+      });
+    });
+
+    const options: Array<{
+      purchaseItemId: number;
+      invoiceNumber: string;
+      invoiceDate: string;
+      item: StockistInvoiceItem;
+      unitsPerPack: number;
+      purchasedPaidUnits: number;
+      alreadyReturnedUnits: number;
+      remainingUnits: number;
+      effectiveNetCostPerPack: number;
+      lineBase: number;
+      isVatApplicable: boolean;
+    }> = [];
+
+    purchaseInvoices.forEach(invoice => {
+      if (
+        !isMatchingStockist(
+          invoice,
+          currentReturnStockist
+        )
+      ) {
+        return;
+      }
+
+      invoice.items?.forEach(item => {
+        const purchaseItemId =
+          Number(
+            item.purchaseItemId
+          );
+
+        if (
+          !Number.isInteger(
+            purchaseItemId
+          ) ||
+          purchaseItemId <= 0
+        ) {
+          return;
+        }
+
+        /*
+         * Prefer the real inventory ID returned by the backend.
+         * Name+batch is retained only as a compatibility fallback.
+         */
+        const hasInventoryId =
+          item.inventoryId !== undefined &&
+          item.inventoryId !== null;
+
+        const sameInventory =
+          hasInventoryId &&
+          String(item.inventoryId) ===
+            String(
+              selectedMedicine.id
+            );
+
+        const sameNameAndBatch =
+          String(
+            item.medicineName || ''
+          )
+            .trim()
+            .toLowerCase() ===
+            String(
+              selectedMedicine.name || ''
+            )
+              .trim()
+              .toLowerCase() &&
+          String(
+            item.batchNumber || ''
+          )
+            .trim()
+            .toLowerCase() ===
+            String(
+              selectedMedicine.batchNumber ||
+                ''
+            )
+              .trim()
+              .toLowerCase();
+
+        /*
+         * inventoryId is authoritative whenever the backend
+         * supplied it. Name+batch is only a compatibility fallback
+         * for historical purchase rows that predate inventoryId.
+         */
+        const matchesHistoricalPurchase =
+          hasInventoryId
+            ? sameInventory
+            : sameNameAndBatch;
+
+        if (!matchesHistoricalPurchase) {
+          return;
+        }
+
+        const unitsPerPack =
+          Math.max(
+            1,
+            Number(
+              item.unitsPerPack
+            ) || 1
+          );
+
+        /*
+         * Free packs are excluded from monetary return entitlement.
+         */
+        const purchasedPaidUnits =
+          Number(
+            item.packQty || 0
+          ) *
+            unitsPerPack +
+          Number(
+            item.looseUnits || 0
+          );
+
+        if (
+          purchasedPaidUnits <= 0
+        ) {
+          return;
+        }
+
+        const alreadyReturnedUnits =
+          returnedUnitsByPurchaseItem.get(
+            purchaseItemId
+          ) || 0;
+
+        const remainingUnits =
+          Math.max(
+            0,
+            purchasedPaidUnits -
+              alreadyReturnedUnits
+          );
+
+        if (
+          remainingUnits <= 0
+        ) {
+          return;
+        }
+
+        const lineBase =
+          Number(
+            item.lineTotal || 0
+          );
+
+        const effectiveNetCostPerPack =
+          purchasedPaidUnits > 0
+            ? Math.round(
+                (
+                  (
+                    lineBase /
+                    purchasedPaidUnits
+                  ) *
+                  unitsPerPack
+                ) *
+                  100
+              ) / 100
+            : 0;
+
+        options.push({
+          purchaseItemId,
+          invoiceNumber:
+            invoice.invoiceNumber,
+          invoiceDate:
+            invoice.date,
+          item,
+          unitsPerPack,
+          purchasedPaidUnits,
+          alreadyReturnedUnits,
+          remainingUnits,
+          effectiveNetCostPerPack,
+          lineBase,
+          isVatApplicable:
+            Boolean(
+              item.isVatApplicable
+            )
+        });
+      });
+    });
+
+    /*
+     * Newest purchase invoices first.
+     */
+    return options.sort(
+      (a, b) => {
+        const byDate =
+          String(b.invoiceDate)
+            .localeCompare(
+              String(a.invoiceDate)
+            );
+
+        if (byDate !== 0) {
+          return byDate;
+        }
+
+        return (
+          b.purchaseItemId -
+          a.purchaseItemId
+        );
+      }
+    );
+  }, [
+    currentReturnStockist,
+    selectedReturnMedId,
+    medicines,
+    purchaseInvoices,
+    stockistReturns
+  ]);
 
   // Ledger entries for active stockist with purchase bill cross-referencing
   const filteredLedgerEntries = useMemo(() => {
@@ -477,25 +781,9 @@ export const StockistManagementView: React.FC = () => {
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
-    setInvoiceItems([
-      ...invoiceItems,
-      {
-        id: `row-${Date.now()}`,
-        medicineName: '',
-        genericName: '',
-        category: 'Tablet',
-        batchNumber: '',
-        expiryDate: '',
-        packQty: 10,
-        freePacks: 0,
-        unitsPerPack: 10,
-        costPrice: 100,
-        discountPercent: 0,
-        isVatApplicable: false,
-        mrpPrice: 130,
-        rackLocation: 'Rack A-1',
-        lineTotal: 1000
-      }
+    setInvoiceItems(prev => [
+      ...prev,
+      createEmptyInvoiceItem(`row-${Date.now()}-${prev.length + 1}`)
     ]);
   };
 
@@ -517,9 +805,7 @@ export const StockistManagementView: React.FC = () => {
 
   // Remove Item from Purchase Invoice
   const handleRemoveInvoiceItem = (index: number) => {
-    if (invoiceItems.length > 1) {
-      setInvoiceItems(invoiceItems.filter((_, i) => i !== index));
-    }
+    setInvoiceItems(prev => prev.filter((_, i) => i !== index));
   };
 
   // Auto-fill from existing medicine in stock
@@ -643,8 +929,14 @@ export const StockistManagementView: React.FC = () => {
   // Submit Purchase Invoice
   const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingPurchaseInvoice) return;
+
     if (!invoiceHeader.invoiceNumber.trim()) {
-      showToast('Invoice Number is required!', 'warning', 'Validation');
+      showToast('Wholesaler Invoice / Bill Number is required!', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.length === 0) {
+      showToast('Please add at least one medicine row to the purchase bill.', 'warning', 'Validation');
       return;
     }
     if (invoiceItems.some(it => !it.medicineName.trim())) {
@@ -672,57 +964,60 @@ export const StockistManagementView: React.FC = () => {
       return;
     }
 
-    const stockist = stockists.find(s => s.id === invoiceHeader.stockistId);
-    if (!stockist) return;
+    const stockist =
+      stockists.find(s => s.id === invoiceHeader.stockistId) ||
+      stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s)) ||
+      stockists[0];
 
-    await addPurchaseInvoice({
-      invoiceNumber: invoiceHeader.invoiceNumber,
-      stockistId: stockist.id,
-      stockistName: stockist.name,
-      stockistPan: stockist.panNumber,
-      date: invoiceHeader.date,
-      paymentMode: invoiceHeader.paymentMode,
-      dueDate: invoiceHeader.dueDate || undefined,
-      items: invoiceItems,
-      subtotal: purchaseInvoiceTotals.subtotal,
-      totalDiscount: purchaseInvoiceTotals.totalDiscount,
-      taxableAmount: purchaseInvoiceTotals.taxableAmount,
-      vatAmount: purchaseInvoiceTotals.vatAmount,
-      grandTotal: purchaseInvoiceTotals.grandTotal,
-      paidAmount: invoiceHeader.paymentMode === 'cash' ? purchaseInvoiceTotals.grandTotal : 0,
-      paymentStatus: invoiceHeader.paymentMode === 'cash' ? 'paid' : 'pending',
-      notes: `Entered by: ${currentUser?.name || 'Admin'} (@${currentUser?.username || 'admin'}). ${invoiceHeader.notes || ''}`.trim()
-    });
+    if (!stockist) {
+      showToast('No stockist selected. Please register a stockist in the directory first.', 'warning', 'Validation');
+      return;
+    }
 
-    showToast(`Purchase Invoice #${invoiceHeader.invoiceNumber} recorded successfully!`, 'success', 'Invoice Saved');
-    setInvoiceHeader({
-      invoiceNumber: '',
-      stockistId: stockists[0]?.id || '',
-      date: localDateString(),
-      paymentMode: 'credit',
-      dueDate: '',
-      notes: ''
-    });
-    setInvoiceItems([
-      {
-        id: 'row-1',
-        medicineName: '',
-        genericName: '',
-        category: 'Tablet',
-        batchNumber: '',
-        expiryDate: '',
-        packQty: 10,
-        freePacks: 0,
-        unitsPerPack: 10,
-        costPrice: 100,
-        discountPercent: 5,
-        isVatApplicable: false,
-        mrpPrice: 130,
-        rackLocation: 'Rack A-1',
-        lineTotal: 950
-      }
-    ]);
-    setActiveTab('ledger');
+    try {
+      setIsSubmittingPurchaseInvoice(true);
+
+      const created = await addPurchaseInvoice({
+        invoiceNumber: invoiceHeader.invoiceNumber.trim(),
+        stockistId: stockist.id,
+        stockistName: stockist.name,
+        stockistPan: stockist.panNumber,
+        date: invoiceHeader.date || localDateString(),
+        paymentMode: invoiceHeader.paymentMode,
+        dueDate: invoiceHeader.dueDate || undefined,
+        items: invoiceItems,
+        subtotal: purchaseInvoiceTotals.subtotal,
+        totalDiscount: purchaseInvoiceTotals.totalDiscount,
+        taxableAmount: purchaseInvoiceTotals.taxableAmount,
+        vatAmount: purchaseInvoiceTotals.vatAmount,
+        grandTotal: purchaseInvoiceTotals.grandTotal,
+        paidAmount: invoiceHeader.paymentMode === 'cash' ? purchaseInvoiceTotals.grandTotal : 0,
+        paymentStatus: invoiceHeader.paymentMode === 'cash' ? 'paid' : 'pending',
+        notes: `Entered by: ${currentUser?.name || 'Admin'} (@${currentUser?.username || 'admin'}). ${invoiceHeader.notes || ''}`.trim()
+      });
+
+      showToast(`Purchase Invoice #${created?.invoiceNumber || invoiceHeader.invoiceNumber} recorded successfully! Stockist ledger & inventory stock updated.`, 'success', 'Invoice Saved');
+      setInvoiceHeader({
+        invoiceNumber: '',
+        stockistId: stockist.id,
+        date: localDateString(),
+        paymentMode: 'credit',
+        dueDate: '',
+        notes: ''
+      });
+      setInvoiceItems([createEmptyInvoiceItem('row-1')]);
+      setSelectedStockistId(stockist.id);
+      setActiveTab('ledger');
+    } catch (err: any) {
+      console.error('Failed to record purchase invoice:', err);
+      showToast(
+        err.message || 'Failed to record purchase bill. Please verify the invoice details and retry.',
+        'error',
+        'Invoice Save Failed'
+      );
+    } finally {
+      setIsSubmittingPurchaseInvoice(false);
+    }
   };
 
   // Submit Stockist Payment
@@ -747,37 +1042,266 @@ export const StockistManagementView: React.FC = () => {
 
   // Add Item to Return Voucher
   const handleAddReturnItem = () => {
-    const med = medicines.find(m => m.id === selectedReturnMedId);
-    if (!med) return;
+    const med =
+      medicines.find(
+        m =>
+          m.id === selectedReturnMedId
+      );
 
-    if (returnPacks <= 0 && returnLoose <= 0) {
-      showToast('Please specify at least 1 pack to return.', 'warning', 'Return Notice');
+    if (!med) {
       return;
     }
 
-    const unitCost = med.costPrice;
-    const looseCost = med.unitsPerPack > 1 ? (med.costPrice / med.unitsPerPack) : med.costPrice;
-    const totalReturnAmount = (returnPacks * unitCost) + (returnLoose * looseCost);
+    const purchaseOption =
+      eligibleReturnPurchaseItems.find(
+        option =>
+          String(option.purchaseItemId) ===
+          selectedReturnPurchaseItemId
+      );
+
+    if (!purchaseOption) {
+      showToast(
+        'Select the original purchase invoice for this medicine before adding the return.',
+        'warning',
+        'Original Invoice Required'
+      );
+      return;
+    }
+
+    if (
+      returnPacks <= 0 &&
+      returnLoose <= 0
+    ) {
+      showToast(
+        'Please specify a return quantity greater than zero.',
+        'warning',
+        'Return Notice'
+      );
+      return;
+    }
+
+    if (
+      !Number.isInteger(returnPacks) ||
+      returnPacks < 0 ||
+      !Number.isInteger(returnLoose) ||
+      returnLoose < 0
+    ) {
+      showToast(
+        'Return packs and loose units must be non-negative whole numbers.',
+        'warning',
+        'Return Quantity'
+      );
+      return;
+    }
+
+    if (
+      returnLoose >=
+      purchaseOption.unitsPerPack
+    ) {
+      showToast(
+        `Loose return quantity must be less than ${purchaseOption.unitsPerPack}. Convert a full pack into the Packs field.`,
+        'warning',
+        'Return Quantity'
+      );
+      return;
+    }
+
+    if (
+      returnItems.some(
+        item =>
+          Number(item.purchaseItemId) ===
+          purchaseOption.purchaseItemId
+      )
+    ) {
+      showToast(
+        'This original purchase row is already included in the debit note. Combine the quantity into one row.',
+        'warning',
+        'Duplicate Purchase Row'
+      );
+      return;
+    }
+
+    const requestedUnits =
+      returnPacks *
+        purchaseOption.unitsPerPack +
+      returnLoose;
+
+    if (
+      requestedUnits >
+      purchaseOption.remainingUnits
+    ) {
+      showToast(
+        `This purchase invoice has only ${purchaseOption.remainingUnits} unit(s) remaining that can be returned.`,
+        'warning',
+        'Return Quantity Exceeded'
+      );
+      return;
+    }
+
+    const roundMoney = (
+      value: number
+    ) =>
+      Math.round(
+        (value + Number.EPSILON) *
+          100
+      ) / 100;
+
+    /*
+     * Preview the same cumulative allocation used by the backend.
+     * Backend remains authoritative.
+     */
+    const previousUnits =
+      purchaseOption
+        .alreadyReturnedUnits;
+
+    const cumulativeUnits =
+      previousUnits +
+      requestedUnits;
+
+    const previousBase =
+      roundMoney(
+        purchaseOption.lineBase *
+          previousUnits /
+          purchaseOption
+            .purchasedPaidUnits
+      );
+
+    const cumulativeBase =
+      roundMoney(
+        purchaseOption.lineBase *
+          cumulativeUnits /
+          purchaseOption
+            .purchasedPaidUnits
+      );
+
+    const returnBase =
+      roundMoney(
+        cumulativeBase -
+          previousBase
+      );
+
+    const originalVat =
+      purchaseOption.isVatApplicable
+        ? roundMoney(
+            purchaseOption.lineBase *
+              0.13
+          )
+        : 0;
+
+    const previousVat =
+      purchaseOption.isVatApplicable
+        ? roundMoney(
+            originalVat *
+              previousUnits /
+              purchaseOption
+                .purchasedPaidUnits
+          )
+        : 0;
+
+    const cumulativeVat =
+      purchaseOption.isVatApplicable
+        ? roundMoney(
+            originalVat *
+              cumulativeUnits /
+              purchaseOption
+                .purchasedPaidUnits
+          )
+        : 0;
+
+    const returnVat =
+      roundMoney(
+        cumulativeVat -
+          previousVat
+      );
+
+    const totalReturnAmount =
+      roundMoney(
+        returnBase +
+          returnVat
+      );
 
     setReturnItems([
       ...returnItems,
       {
-        medicineId: med.id,
-        medicineName: med.name,
-        batchNumber: med.batchNumber,
-        expiryDate: med.expiryDate,
-        packs: returnPacks,
-        looseUnits: returnLoose,
-        unitsPerPack: med.unitsPerPack,
-        unitCost,
+        purchaseItemId:
+          purchaseOption.purchaseItemId,
+
+        purchaseInvoiceNumber:
+          purchaseOption.invoiceNumber,
+
+        purchaseInvoiceDate:
+          purchaseOption.invoiceDate,
+
+        medicineId:
+          med.id,
+
+        medicineName:
+          med.name,
+
+        batchNumber:
+          med.batchNumber,
+
+        expiryDate:
+          med.expiryDate,
+
+        packs:
+          returnPacks,
+
+        looseUnits:
+          returnLoose,
+
+        unitsPerPack:
+          purchaseOption.unitsPerPack,
+
+        unitCost:
+          purchaseOption
+            .effectiveNetCostPerPack,
+
         totalReturnAmount,
-        reason: returnReason
+
+        originalCostPrice:
+          Number(
+            purchaseOption.item.costPrice ||
+              0
+          ),
+
+        discountPercent:
+          Number(
+            purchaseOption.item
+              .discountPercent || 0
+          ),
+
+        effectiveNetCostPerPack:
+          purchaseOption
+            .effectiveNetCostPerPack,
+
+        isVatApplicable:
+          purchaseOption
+            .isVatApplicable,
+
+        netPurchaseBase:
+          returnBase,
+
+        taxableBase:
+          purchaseOption
+            .isVatApplicable
+            ? returnBase
+            : 0,
+
+        vatAmount:
+          returnVat,
+
+        reason:
+          returnReason
       }
     ]);
 
     setSelectedReturnMedId('');
+    setSelectedReturnPurchaseItemId('');
     setReturnPacks(1);
     setReturnLoose(0);
+
+
   };
 
   // Submit Stockist Return (Debit Note)
@@ -810,24 +1334,45 @@ export const StockistManagementView: React.FC = () => {
       );
 
     try {
-      await recordStockistReturn({
+      const savedVoucher =
+        await recordStockistReturn({
         debitNoteNumber,
         stockistId: stockist.id,
         stockistName: stockist.name,
-        date:
-          new Date()
-            .toISOString()
-            .split('T')[0],
+        date: new Intl.DateTimeFormat(
+          'en-CA',
+          {
+            timeZone: 'Asia/Kathmandu',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }
+        ).format(new Date()),
         items: returnItems,
         totalAmount,
         notes: returnNotes
       });
 
+      /*
+       * Backend-calculated debit-note value is authoritative.
+       * The frontend value is only a preview.
+       */
+      const authoritativeTotal =
+        Number(
+          savedVoucher.totalAmount
+        );
+
       showToast(
         "Debit Note #" +
           debitNoteNumber +
           " issued! Rs. " +
-          totalAmount.toFixed(2) +
+          (
+            Number.isFinite(
+              authoritativeTotal
+            )
+              ? authoritativeTotal
+              : totalAmount
+          ).toFixed(2) +
           " deducted from " +
           stockist.name +
           "'s payable balance.",
@@ -836,6 +1381,10 @@ export const StockistManagementView: React.FC = () => {
       );
 
       setReturnItems([]);
+      setSelectedReturnMedId('');
+      setSelectedReturnPurchaseItemId('');
+      setReturnPacks(1);
+      setReturnLoose(0);
 
       setDebitNoteNumber(
         `DN-${Date.now()
@@ -1234,10 +1783,13 @@ export const StockistManagementView: React.FC = () => {
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Select Wholesaler / Stockist: *</label>
               <select
-                value={invoiceHeader.stockistId}
+                value={invoiceHeader.stockistId || stockists[0]?.id || ''}
                 onChange={(e) => setInvoiceHeader({ ...invoiceHeader, stockistId: e.target.value })}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900 focus:outline-hidden"
               >
+                {stockists.length === 0 && (
+                  <option value="">No stockists registered yet</option>
+                )}
                 {stockists.map(s => (
                   <option key={s.id} value={s.id}>{s.name} (PAN: {s.panNumber})</option>
                 ))}
@@ -1350,50 +1902,67 @@ export const StockistManagementView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {invoiceItems.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3">
-                        <input
-                          type="text"
-                          required
-                          placeholder="Medicine name"
-                          value={item.medicineName}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
-                        />
-                        <div className="mt-1 flex items-center gap-1">
-                          <select
-                            onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
-                            className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
+                  {invoiceItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="py-8 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <p className="text-xs text-slate-500 font-medium">No medicines added to this bill yet.</p>
+                          <button
+                            type="button"
+                            onClick={handleAddInvoiceItemRow}
+                            className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
                           >
-                            <option value="">Or Pick Existing...</option>
-                            {medicines.map(m => (
-                              <option key={m.id} value={m.id}>
-                                {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
-                              </option>
-                            ))}
-                          </select>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Add Medicine Row</span>
+                          </button>
                         </div>
                       </td>
+                    </tr>
+                  ) : (
+                    invoiceItems.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Medicine name"
+                            value={item.medicineName}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
+                          />
+                          <div className="mt-1 flex items-center gap-1">
+                            <select
+                              onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
+                              className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
+                            >
+                              <option value="">Or Pick Existing...</option>
+                              {medicines.map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </td>
 
-                      <td className="py-2 px-2">
-                        <input
-                          type="text"
-                          placeholder="Batch"
-                          value={item.batchNumber}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { batchNumber: e.target.value })}
-                          className="w-20 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono"
-                        />
-                      </td>
+                        <td className="py-2 px-2">
+                          <input
+                            type="text"
+                            placeholder="Batch"
+                            value={item.batchNumber}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { batchNumber: e.target.value })}
+                            className="w-20 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono"
+                          />
+                        </td>
 
-                      <td className="py-2 px-2">
-                        <input
-                          type="date"
-                          value={item.expiryDate}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
-                          className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
-                        />
-                      </td>
+                        <td className="py-2 px-2">
+                          <input
+                            type="date"
+                            value={item.expiryDate}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
+                            className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
+                          />
+                        </td>
 
                       <td className="py-2 px-2 text-center">
                         <input
@@ -1465,35 +2034,37 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                         />
                       </td>
 
-                      <td className="py-2 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            item.isVatApplicable 
-                              ? 'bg-blue-100 text-blue-800' 
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {item.isVatApplicable ? '13% VAT' : '0% Free'}
-                        </button>
-                      </td>
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              item.isVatApplicable 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {item.isVatApplicable ? '13% VAT' : '0% Free'}
+                          </button>
+                        </td>
 
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
-                        Rs. {item.lineTotal.toFixed(2)}
-                      </td>
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                          Rs. {item.lineTotal.toFixed(2)}
+                        </td>
 
-                      <td className="py-2 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveInvoiceItem(idx)}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInvoiceItem(idx)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
+                            title="Delete this medicine row"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1535,10 +2106,20 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="submit"
-              className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-700/20 flex items-center gap-1.5 transition-all"
+              disabled={isSubmittingPurchaseInvoice}
+              className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-700/20 flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Record Purchase Bill &amp; Update Inventory Stock</span>
+              {isSubmittingPurchaseInvoice ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Recording Purchase Bill &amp; Updating Stock...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Record Purchase Bill &amp; Update Inventory Stock</span>
+                </>
+              )}
             </button>
           </div>
         </form>
@@ -1807,6 +2388,8 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 onChange={(e) => {
                   setReturnStockistId(e.target.value);
                   setSelectedReturnMedId('');
+                  setSelectedReturnPurchaseItemId('');
+                  setReturnItems([]);
                 }}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900"
               >
@@ -1843,7 +2426,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
             <span className="text-xs font-bold text-rose-900 block">
               Add Medicine to Return Voucher:
             </span>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 text-xs">
               <div className="md:col-span-2 space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="block text-[11px] font-semibold text-slate-700">
@@ -1860,9 +2443,27 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 <select
                   value={selectedReturnMedId}
                   onChange={(e) => {
-                    setSelectedReturnMedId(e.target.value);
-                    const chosen = medicines.find(m => m.id === e.target.value);
-                    if (chosen && chosen.stockPacks > 0) {
+                    const medicineId =
+                      e.target.value;
+
+                    setSelectedReturnMedId(
+                      medicineId
+                    );
+
+                    setSelectedReturnPurchaseItemId(
+                      ''
+                    );
+
+                    const chosen =
+                      medicines.find(
+                        m =>
+                          m.id === medicineId
+                      );
+
+                    if (
+                      chosen &&
+                      chosen.stockPacks > 0
+                    ) {
                       setReturnPacks(1);
                     }
                   }}
@@ -1875,7 +2476,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                   </option>
                   {(showAllMedsInReturn ? medicines : eligibleReturnMedicines).map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.name} • Batch: {m.batchNumber || 'N/A'} • Exp: {m.expiryDate || 'N/A'} • Stock: {m.stockPacks} pk (Cost: Rs. {m.costPrice})
+                      {m.name} • Batch: {m.batchNumber || 'N/A'} • Exp: {m.expiryDate || 'N/A'} • Stock: {m.stockPacks} pk
                     </option>
                   ))}
                 </select>
@@ -1894,7 +2495,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                     if (!chosen) return null;
                     return (
                       <span className="text-[10px] font-mono text-slate-600">
-                        Available Stock: <strong className="text-slate-900">{chosen.stockPacks} pk</strong> (Rs. {chosen.costPrice}/pk)
+                        Available Stock: <strong className="text-slate-900">{chosen.stockPacks} pk</strong>
                       </span>
                     );
                   })()}
@@ -1911,6 +2512,115 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
 onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-mono font-bold"
                 />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  Original Purchase Invoice: *
+                </label>
+
+                <select
+                  value={selectedReturnPurchaseItemId}
+                  onChange={(e) =>
+                    setSelectedReturnPurchaseItemId(
+                      e.target.value
+                    )
+                  }
+                  disabled={
+                    !selectedReturnMedId ||
+                    eligibleReturnPurchaseItems.length === 0
+                  }
+                  className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-slate-900 font-medium disabled:bg-slate-100 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {!selectedReturnMedId
+                      ? '-- Select medicine first --'
+                      : eligibleReturnPurchaseItems.length === 0
+                        ? '-- No eligible historical purchase found --'
+                        : '-- Select original purchase invoice --'}
+                  </option>
+
+                  {eligibleReturnPurchaseItems.map(option => {
+                    const remainingPacks =
+                      Math.floor(
+                        option.remainingUnits /
+                          option.unitsPerPack
+                      );
+
+                    const remainingLoose =
+                      option.remainingUnits %
+                      option.unitsPerPack;
+
+                    return (
+                      <option
+                        key={option.purchaseItemId}
+                        value={option.purchaseItemId}
+                      >
+                        #{option.invoiceNumber}
+                        {' • '}
+                        {option.invoiceDate}
+                        {' • Remaining: '}
+                        {remainingPacks} pk
+                        {remainingLoose > 0
+                          ? ` + ${remainingLoose} loose`
+                          : ''}
+                        {' • Net Rs. '}
+                        {option.effectiveNetCostPerPack.toFixed(2)}
+                        /pk
+                        {option.isVatApplicable
+                          ? ' + VAT'
+                          : ' • Non-VAT'}
+                      </option>
+                    );
+                  })}
+                </select>
+
+                {selectedReturnPurchaseItemId &&
+                  (() => {
+                    const selectedPurchase =
+                      eligibleReturnPurchaseItems.find(
+                        option =>
+                          String(
+                            option.purchaseItemId
+                          ) ===
+                          selectedReturnPurchaseItemId
+                      );
+
+                    if (!selectedPurchase) {
+                      return null;
+                    }
+
+                    return (
+                      <div className="mt-1 rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[10px] leading-relaxed text-teal-900">
+                        <strong>
+                          Original invoice #{selectedPurchase.invoiceNumber}
+                        </strong>
+
+                        {' • Cost Rs. '}
+                        {Number(
+                          selectedPurchase.item.costPrice ||
+                            0
+                        ).toFixed(2)}
+                        /pk
+
+                        {' • Discount '}
+                        {Number(
+                          selectedPurchase.item.discountPercent ||
+                            0
+                        ).toFixed(2)}
+                        %
+
+                        {' • Net Rs. '}
+                        {selectedPurchase.effectiveNetCostPerPack.toFixed(2)}
+                        /pk
+
+                        {' • '}
+                        {selectedPurchase.isVatApplicable
+                          ? 'VAT 13%'
+                          : 'Non-VAT'}
+                      </div>
+                    );
+                  })()}
               </div>
 
               <div>
@@ -1932,7 +2642,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
               <div className="flex items-end">
                 <button
                   type="button"
-                  disabled={!selectedReturnMedId}
+                  disabled={!selectedReturnMedId || !selectedReturnPurchaseItemId}
                   onClick={handleAddReturnItem}
                   className="w-full py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition-colors"
                 >
@@ -1952,6 +2662,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                     <th className="py-2 px-2">Batch</th>
                     <th className="py-2 px-2">Expiry</th>
                     <th className="py-2 px-2">Quantity</th>
+                    <th className="py-2 px-2 text-right">Net Cost/Pk</th>
                     <th className="py-2 px-2">Reason</th>
                     <th className="py-2 px-3 text-right">Credit Value (Rs.)</th>
                     <th className="py-2 px-2 text-center"></th>
@@ -1960,10 +2671,21 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                 <tbody className="divide-y divide-slate-100">
                   {returnItems.map((it, idx) => (
                     <tr key={idx}>
-                      <td className="py-2 px-3 font-bold text-slate-900">{it.medicineName}</td>
+                      <td className="py-2 px-3">
+                        <div className="font-bold text-slate-900">
+                          {it.medicineName}
+                        </div>
+
+                        {it.purchaseInvoiceNumber && (
+                          <div className="mt-0.5 text-[10px] font-mono font-medium text-teal-700">
+                            Original Inv: #{it.purchaseInvoiceNumber}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2 px-2 font-mono">{it.batchNumber}</td>
                       <td className="py-2 px-2 font-mono text-slate-500">{it.expiryDate}</td>
                       <td className="py-2 px-2 font-mono font-bold">{it.packs} packs</td>
+                      <td className="py-2 px-2 font-mono text-right text-slate-700">Rs. {it.unitCost.toFixed(2)}</td>
                       <td className="py-2 px-2 font-medium text-rose-800">{it.reason}</td>
                       <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
                         Rs. {it.totalReturnAmount.toFixed(2)}

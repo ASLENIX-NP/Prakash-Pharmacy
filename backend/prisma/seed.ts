@@ -17,8 +17,17 @@ async function main() {
   const lastName = requiredSetting("SEED_ADMIN_LAST_NAME");
   const email = process.env.SEED_ADMIN_EMAIL?.trim() || null;
 
-  if (password.length < 6) {
-    throw new Error("SEED_ADMIN_PASSWORD must be at least 6 characters long.");
+  const hasStrongPassword =
+    password.length >= 12 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password);
+
+  if (!hasStrongPassword) {
+    throw new Error(
+      "SEED_ADMIN_PASSWORD must be at least 12 characters and contain uppercase, lowercase, number, and special character."
+    );
   }
 
   const existingUser = await prisma.user.findUnique({

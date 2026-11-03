@@ -6,11 +6,15 @@ import {
   formatPurchaseCode,
   parseIdParam,
 } from "../utils/id.helpers.js";
+import {
+  formatNepalDateOnly,
+  parseNepalDateBoundary,
+} from "../utils/nepal-time.js";
 
 // Helper to format a database purchase invoice row
 export const formatPurchaseResponse = (purchase: any) => {
   const dateObj = new Date(purchase.purchaseDate || purchase.createdAt);
-  const dateStr = dateObj.toISOString().split("T")[0];
+  const dateStr = formatNepalDateOnly(dateObj);
 
   const formattedItems = (purchase.items || []).map((it: any) => ({
     id: String(it.id),
@@ -45,7 +49,7 @@ export const formatPurchaseResponse = (purchase: any) => {
     date: dateStr,
     purchaseDate: dateObj.toISOString(),
     paymentMode: (purchase.paymentMode || "credit").toLowerCase(),
-    dueDate: purchase.dueDate ? new Date(purchase.dueDate).toISOString().split("T")[0] : undefined,
+    dueDate: purchase.dueDate ? formatNepalDateOnly(purchase.dueDate) : undefined,
     subtotal: Number(purchase.subtotal || 0),
     discountAmount: Number(purchase.discountAmount || 0),
     taxableAmount: Number(purchase.taxableAmount || 0),
@@ -75,12 +79,40 @@ export const getAllPurchases = async (req: Request, res: Response): Promise<void
 
     if (startDate || endDate) {
       where.purchaseDate = {};
+
       if (startDate) {
-        where.purchaseDate.gte = new Date(String(startDate));
+        const start =
+          parseNepalDateBoundary(
+            startDate,
+            false
+          );
+
+        if (!start) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid purchase start date.",
+          });
+          return;
+        }
+
+        where.purchaseDate.gte = start;
       }
+
       if (endDate) {
-        const end = new Date(String(endDate));
-        end.setHours(23, 59, 59, 999);
+        const end =
+          parseNepalDateBoundary(
+            endDate,
+            true
+          );
+
+        if (!end) {
+          res.status(400).json({
+            success: false,
+            message: "Invalid purchase end date.",
+          });
+          return;
+        }
+
         where.purchaseDate.lte = end;
       }
     }
@@ -159,11 +191,24 @@ const roundPurchaseMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
 
-const isValidPurchaseDateOnly = (value: unknown): boolean => {
-  const text = String(value ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
-  const parsed = new Date(`${text}T00:00:00.000Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
+const isValidPurchaseDateOnly = (
+  value: unknown
+): boolean => {
+  const text =
+    String(value ?? "").trim();
+
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(text)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    parseNepalDateBoundary(
+      text,
+      false
+    )
+  );
 };
 
 const parsePurchaseBoolean = (value: unknown, fieldName: string): boolean => {
@@ -219,18 +264,35 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       );
     }
 
-    const parsedPurchaseDate = date
-      ? new Date(date)
-      : purchaseDate
-        ? new Date(purchaseDate)
+    const rawPurchaseDate =
+      date || purchaseDate;
+
+    const parsedPurchaseDate =
+      rawPurchaseDate
+        ? parseNepalDateBoundary(
+            rawPurchaseDate,
+            false
+          )
         : new Date();
-    if (Number.isNaN(parsedPurchaseDate.getTime())) {
-      throw new PurchaseValidationError("Purchase date is invalid.");
+
+    if (!parsedPurchaseDate) {
+      throw new PurchaseValidationError(
+        "Purchase date is invalid."
+      );
     }
 
-    const parsedDueDate = dueDate ? new Date(dueDate) : null;
-    if (parsedDueDate && Number.isNaN(parsedDueDate.getTime())) {
-      throw new PurchaseValidationError("Due date is invalid.");
+    const parsedDueDate =
+      dueDate
+        ? parseNepalDateBoundary(
+            dueDate,
+            false
+          )
+        : null;
+
+    if (dueDate && !parsedDueDate) {
+      throw new PurchaseValidationError(
+        "Due date is invalid."
+      );
     }
 
     const normalizedItems = items.map((item: any, index: number) => {
@@ -269,6 +331,24 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         "isVatApplicable"
       );
 
+      const reorderLevel = Number(
+        item.reorderLevel ??
+        item.packAlertLevel ??
+        15
+      );
+
+      const barcode =
+        item.barcode === undefined ||
+        item.barcode === null
+          ? null
+          : String(item.barcode).trim() || null;
+
+      const inventoryNotes =
+        item.inventoryNotes === undefined ||
+        item.inventoryNotes === null
+          ? null
+          : String(item.inventoryNotes).trim() || null;
+
       if (
         !Number.isInteger(packQty) || packQty < 0 ||
         !Number.isInteger(looseUnits) || looseUnits < 0 ||
@@ -303,6 +383,16 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           `MRP / selling price for '${medicineName}' must be zero or positive.`
         );
       }
+
+      if (
+        !Number.isInteger(reorderLevel) ||
+        reorderLevel < 0
+      ) {
+        throw new PurchaseValidationError(
+          `Reorder level for '${medicineName}' must be a non-negative whole number.`
+        );
+      }
+
       if (
         !Number.isFinite(discountPercent) ||
         discountPercent < 0 ||
@@ -344,6 +434,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         genericName: String(item.genericName || medicineName).trim(),
         categoryName: String(item.category || item.categoryName || "Tablet").trim(),
         rackLocation: String(item.rackLocation || "General Shelf").trim(),
+        barcode,
+        reorderLevel,
+        inventoryNotes,
       };
     });
 
@@ -448,6 +541,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           genericName,
           categoryName,
           rackLocation,
+          barcode,
+          reorderLevel,
+          inventoryNotes,
         } = item;
         const totalPacksReceived = packQty + freePacks;
 
@@ -557,11 +653,14 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
               unitPerPack: unitsPerPack,
               packInStock: totalPacksReceived,
               unitInStock: looseUnits,
-              packAlertLevel: 15,
+              packAlertLevel: reorderLevel,
               costPrice,
               sellingPrice: mrpPrice,
               hasvat: isVatApplicable,
-              notes: `Purchased via Inward Invoice #${cleanInvoiceNumber}`,
+              barcode,
+              notes:
+                inventoryNotes ||
+                `Purchased via Inward Invoice #${cleanInvoiceNumber}`,
             },
           });
           linkedInventoryId = created.id;

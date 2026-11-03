@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
 import { prisma } from "../db.js";
+import {
+  parseNepalDateBoundary,
+} from "../utils/nepal-time.js";
 
 const toNumber = (value: unknown): number => {
   const parsed = Number(value);
@@ -10,13 +13,115 @@ const roundMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
 export async function getVatReportSummary(
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const [bills, purchases, inventory, salesReturns] =
+    // ── Date-range filter ──────────────────────────────────────────────────
+    // Accept ?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD (ISO date strings).
+    // If omitted the query covers ALL time (backward-compatible).
+    const { startDate, endDate } = req.query as {
+      startDate?: string;
+      endDate?: string;
+    };
+
+    const start =
+      startDate
+        ? parseNepalDateBoundary(
+            startDate,
+            false
+          )
+        : null;
+
+    if (startDate && !start) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid VAT report start date.",
+      });
+      return;
+    }
+
+    const end =
+      endDate
+        ? parseNepalDateBoundary(
+            endDate,
+            true
+          )
+        : null;
+
+    if (endDate && !end) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid VAT report end date.",
+      });
+      return;
+    }
+
+    if (
+      start &&
+      end &&
+      start.getTime() > end.getTime()
+    ) {
+      res.status(400).json({
+        success: false,
+        message:
+          "VAT report start date cannot be after end date.",
+      });
+      return;
+    }
+
+    // Prisma `where` fragments — only add date filter when dates are given.
+    const billDateWhere =
+      start || end
+        ? {
+            transactionDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+
+    const purchaseDateWhere =
+      start || end
+        ? {
+            purchaseDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+
+    const returnDateWhere =
+      start || end
+        ? {
+            returnDate: {
+              ...(start ? { gte: start } : {}),
+              ...(end   ? { lte: end   } : {}),
+            },
+          }
+        : {};
+    // ──────────────────────────────────────────────────────────────────────
+
+    const distributorReturnDateWhere =
+      start || end
+        ? {
+            date: {
+              ...(start ? { gte: start } : {}),
+              ...(end ? { lte: end } : {}),
+            },
+          }
+        : {};
+
+    const [
+      bills,
+      purchases,
+      inventory,
+      salesReturns,
+      distributorReturns,
+    ] =
       await Promise.all([
         prisma.bill.findMany({
+          where: billDateWhere,
           select: {
             subTotal: true,
             discountAmount: true,
@@ -38,6 +143,7 @@ export async function getVatReportSummary(
         }),
 
         prisma.purchaseInvoice.findMany({
+          where: purchaseDateWhere,
           select: {
             subtotal: true,
             discountAmount: true,
@@ -53,6 +159,7 @@ export async function getVatReportSummary(
           },
         }),
 
+        // Inventory valuation is always current stock snapshot — no date filter.
         prisma.inventory.findMany({
           select: {
             packInStock: true,
@@ -64,6 +171,7 @@ export async function getVatReportSummary(
         }),
 
         prisma.salesReturn.findMany({
+          where: returnDateWhere,
           select: {
             refundAmount: true,
             items: {
@@ -83,6 +191,12 @@ export async function getVatReportSummary(
                 },
               },
             },
+          },
+        }),
+        prisma.distributorReturn.findMany({
+          where: distributorReturnDateWhere,
+          select: {
+            items: true,
           },
         }),
       ]);
@@ -249,6 +363,106 @@ export async function getVatReportSummary(
         storedTaxablePurchaseBase;
     }
 
+    /*
+     * Supplier debit notes reverse purchase value and input VAT
+     * in the period in which the supplier return occurs.
+     *
+     * Only accounting-safe return rows created from an original
+     * PurchaseInvoiceItem contain netPurchaseBase. Older legacy
+     * rows are deliberately not reconstructed from current stock
+     * prices because that could rewrite historical VAT incorrectly.
+     */
+    for (const supplierReturn of distributorReturns) {
+      const returnedItems =
+        Array.isArray(
+          supplierReturn.items
+        )
+          ? supplierReturn.items
+          : [];
+
+      for (const rawItem of returnedItems) {
+        if (
+          !rawItem ||
+          typeof rawItem !== "object" ||
+          Array.isArray(rawItem)
+        ) {
+          continue;
+        }
+
+        const item =
+          rawItem as Record<
+            string,
+            unknown
+          >;
+
+        /*
+         * This field identifies a new accounting-safe supplier
+         * return produced from the historical purchase invoice.
+         */
+        if (
+          !Object.prototype.hasOwnProperty.call(
+            item,
+            "netPurchaseBase"
+          )
+        ) {
+          continue;
+        }
+
+        const returnedBase =
+          toNumber(
+            item.netPurchaseBase
+          );
+
+        const returnedVat =
+          toNumber(
+            item.vatAmount
+          );
+
+        const isTaxableReturn =
+          item.isVatApplicable === true ||
+          returnedVat > 0;
+
+        /*
+         * Reverse the net purchase amount represented by this
+         * debit-note row.
+         */
+        totalPurchases -=
+          returnedBase +
+          returnedVat;
+
+        if (isTaxableReturn) {
+          taxablePurchaseBase -=
+            returnedBase;
+
+          inputVat -=
+            returnedVat;
+        } else {
+          purchaseWithoutVat -=
+            returnedBase;
+        }
+      }
+    }
+
+    totalPurchases =
+      roundMoney(
+        totalPurchases
+      );
+
+    taxablePurchaseBase =
+      roundMoney(
+        taxablePurchaseBase
+      );
+
+    purchaseWithoutVat =
+      roundMoney(
+        purchaseWithoutVat
+      );
+
+    inputVat =
+      roundMoney(
+        inputVat
+      );
+
     const purchaseWithVat =
       taxablePurchaseBase + inputVat;
 
@@ -313,6 +527,11 @@ export async function getVatReportSummary(
     res.status(200).json({
       success: true,
       data: {
+        // Echoed back so the frontend can show "Showing period: X → Y"
+        period: {
+          startDate: startDate || null,
+          endDate: endDate || null,
+        },
         sales: {
           totalGross: roundMoney(
             totalSalesGross

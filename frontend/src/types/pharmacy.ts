@@ -33,6 +33,7 @@ export interface Medicine {
   reorderLevel: number; // Low stock threshold (in packs)
   rackLocation: string; // e.g. "Rack A-1", "Syrup Bay 2", "Cold Storage"
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
+  hasvat?: boolean; // backend compatibility alias
   barcode?: string;
   notes?: string;
   saleStatus?: MedicineSaleStatus;
@@ -97,6 +98,12 @@ export interface Stockist {
 
 export interface StockistInvoiceItem {
   id: string;
+
+  // Backend PurchaseInvoiceItem identifiers.
+  // Required for accounting-safe supplier returns.
+  purchaseItemId?: number;
+  inventoryId?: number;
+
   medicineId?: string;
   medicineName: string;
   genericName: string;
@@ -112,6 +119,13 @@ export interface StockistInvoiceItem {
   isVatApplicable: boolean;
   mrpPrice: number;
   rackLocation: string;
+
+  // Optional inventory metadata used when a purchase creates
+  // a brand-new inventory medicine.
+  barcode?: string;
+  reorderLevel?: number;
+  inventoryNotes?: string;
+
   lineTotal: number;
 }
 
@@ -162,15 +176,41 @@ export type StockistReturnReason =
   | 'Other';
 
 export interface StockistReturnItem {
+  /*
+   * New returns must point to their original PurchaseInvoiceItem.
+   * Optional here only so historical/legacy return records can
+   * still be loaded from the database.
+   */
+  purchaseItemId?: number;
+  purchaseInvoiceId?: number;
+  purchaseInvoiceNumber?: string;
+  purchaseInvoiceDate?: string;
+
   medicineId: string;
   medicineName: string;
   batchNumber: string;
   expiryDate: string;
+
   packs: number;
   looseUnits: number;
   unitsPerPack: number;
-  unitCost: number; // per pack cost
+
+  /*
+   * Display/compatibility values.
+   * The backend is authoritative for the actual debit-note amount.
+   */
+  unitCost: number;
   totalReturnAmount: number;
+
+  originalCostPrice?: number;
+  discountPercent?: number;
+  effectiveNetCostPerPack?: number;
+
+  isVatApplicable?: boolean;
+  netPurchaseBase?: number;
+  taxableBase?: number;
+  vatAmount?: number;
+
   reason: StockistReturnReason;
 }
 
