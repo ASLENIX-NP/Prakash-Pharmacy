@@ -396,26 +396,6 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                 </div>
               </div>
             </div>
-
-            {/* Signatures */}
-            <div className="pt-4 flex justify-between items-end text-[10px] text-slate-600 border-t border-slate-200">
-              <div className="border-t border-slate-400 w-28 pt-1 text-center">
-                Customer Sign
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-slate-900 text-[10px] mb-2">
-                  For {settings.pharmacistName || settings.storeName}
-                </div>
-                {settings.pharmacistCouncilRegNumber && (
-                  <div className="mb-1 text-[9px] text-slate-500">
-                    NPC Reg. No: {settings.pharmacistCouncilRegNumber}
-                  </div>
-                )}
-                <div className="border-t border-slate-400 w-36 pt-1 text-center">
-                  Pharmacist Signature
-                </div>
-              </div>
-            </div>
           </div>
         </div>
 
