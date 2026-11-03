@@ -18,7 +18,6 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { value: 'Batch Number', ...HEADER_STYLE },
       { value: 'Expiry Date (YYYY-MM-DD)', ...HEADER_STYLE },
       { value: 'Packs In Stock', ...HEADER_STYLE },
-      { value: 'Loose Tablets (Units)', ...HEADER_STYLE },
       { value: 'Units Per Pack', ...HEADER_STYLE },
       { value: 'Purchase Cost Price', ...HEADER_STYLE },
       { value: 'MRP / Selling Price', ...HEADER_STYLE },
@@ -26,7 +25,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { value: 'Reorder Alert Level', ...HEADER_STYLE },
       { value: 'Shelf / Rack Location', ...HEADER_STYLE },
       { value: '13% VAT Applicable (YES/NO)', ...HEADER_STYLE },
-      { value: 'Barcode', ...HEADER_STYLE },
+      { value: 'Doctor Prescription Required (YES/NO)', ...HEADER_STYLE },
       { value: 'Notes', ...HEADER_STYLE },
     ],
     [
@@ -36,7 +35,6 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: String, value: 'AMX2024' },
       { type: String, value: '2027-06-30' },
       { type: Number, value: 50 },
-      { type: Number, value: 0 },
       { type: Number, value: 10 },
       { type: Number, value: 75.00 },
       { type: Number, value: 105.00 },
@@ -44,8 +42,8 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: Number, value: 15 },
       { type: String, value: 'Rack A-2' },
       { type: String, value: 'NO' },
-      { type: String, value: '8901083001234' },
-      { type: String, value: 'Example row - replace or add below' },
+      { type: String, value: 'YES' },
+      { type: String, value: 'Example prescription-required medicine' },
     ],
     [
       { type: String, value: 'Volini Gel 30g' },
@@ -54,7 +52,6 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: String, value: 'VOL8901' },
       { type: String, value: '2027-04-15' },
       { type: Number, value: 25 },
-      { type: Number, value: 0 },
       { type: Number, value: 1 },
       { type: Number, value: 115.00 },
       { type: Number, value: 165.00 },
@@ -62,8 +59,8 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: Number, value: 8 },
       { type: String, value: 'Ointment Shelf 1' },
       { type: String, value: 'YES' },
-      { type: String, value: '8901083003456' },
-      { type: String, value: '13% VAT applicable item example' },
+      { type: String, value: 'NO' },
+      { type: String, value: '13% VAT applicable, prescription not required' },
     ]
   ];
 
@@ -74,7 +71,6 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
     { width: 16 }, // Batch
     { width: 22 }, // Expiry Date
     { width: 16 }, // Packs
-    { width: 20 }, // Loose units
     { width: 16 }, // Units per pack
     { width: 18 }, // Cost price
     { width: 20 }, // MRP
@@ -82,7 +78,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
     { width: 18 }, // Reorder Level
     { width: 22 }, // Rack Location
     { width: 26 }, // VAT status
-    { width: 18 }, // Barcode
+    { width: 34 }, // Prescription requirement
     { width: 30 }, // Notes
   ];
 
@@ -118,11 +114,7 @@ const FIELD_ALIASES = {
     'packsinstock', 'stockpacks', 'packstock', 'packs', 'stock',
     'qty', 'quantity', 'totalpacks', 'currentstock', 'availablestock', 'boxes', 'box'
   ],
-  stockLooseUnits: [
-    'stocklooseunits', 'loosetabletsunits', 'loosetablets', 'looseunits', 'looseqty', 'loose',
-    'tabs', 'tab', 'tablets', 'tablet', 'units', 'loosetabs', 'loosetablet', 'looseunit',
-    'loosepills', 'pills', 'pill', 'loosecount', 'tabcount', 'loosestock', 'stripunits'
-  ],
+
   unitsPerPack: [
     'unitsperpack', 'packsize', 'unitsinpack', 'packing', 'pack', 'stripsize', 'tabsinpack'
   ],
@@ -149,8 +141,12 @@ const FIELD_ALIASES = {
   isVatApplicable: [
     'isvatapplicable', '13vatapplicableyesno', '13vatapplicable', 'vatapplicable', 'vatstatus', 'vat', 'taxable', 'hasvat'
   ],
-  barcode: [
-    'barcode', 'barcodenumber', 'qrcode', 'upc', 'ean', 'code'
+  prescriptionRequired: [
+    'doctorprescriptionrequiredyesno',
+    'doctorprescriptionrequired',
+    'prescriptionrequired',
+    'requiresprescription',
+    'rxrequired'
   ],
   creditLimit: [
     'creditlimit', 'distributorcreditlimit', 'distributorcredit', 'suppliercreditlimit',
@@ -172,6 +168,30 @@ function findRowValue(rowMap: Map<string, any>, aliases: string[]): { found: boo
     }
   }
   return { found: false, value: undefined };
+}
+
+function parsePrescriptionRequirement(
+  val: any
+): { valid: boolean; value: boolean } {
+  if (
+    val === undefined ||
+    val === null ||
+    String(val).trim() === ''
+  ) {
+    return { valid: true, value: false };
+  }
+
+  const normalized = String(val).trim().toLowerCase();
+
+  if (['yes', 'y', 'true', '1'].includes(normalized)) {
+    return { valid: true, value: true };
+  }
+
+  if (['no', 'n', 'false', '0'].includes(normalized)) {
+    return { valid: true, value: false };
+  }
+
+  return { valid: false, value: false };
 }
 
 function parseFlexibleDate(val: any): { found: boolean; formatted: string } {
@@ -365,7 +385,6 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const batchResult = findRowValue(rowMap, FIELD_ALIASES.batchNumber);
       const expiryRawResult = findRowValue(rowMap, FIELD_ALIASES.expiryDate);
       const stockPacksResult = findRowValue(rowMap, FIELD_ALIASES.stockPacks);
-      const stockLooseResult = findRowValue(rowMap, FIELD_ALIASES.stockLooseUnits);
       const unitsPerPackResult = findRowValue(rowMap, FIELD_ALIASES.unitsPerPack);
       const costPriceResult = findRowValue(rowMap, FIELD_ALIASES.costPrice);
       const amountResult = findRowValue(rowMap, FIELD_ALIASES.amount);
@@ -374,9 +393,20 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const reorderLevelResult = findRowValue(rowMap, FIELD_ALIASES.reorderLevel);
       const rackResult = findRowValue(rowMap, FIELD_ALIASES.rackLocation);
       const vatResult = findRowValue(rowMap, FIELD_ALIASES.isVatApplicable);
-      const barcodeResult = findRowValue(rowMap, FIELD_ALIASES.barcode);
+      const prescriptionResult = findRowValue(rowMap, FIELD_ALIASES.prescriptionRequired);
       const creditLimitResult = findRowValue(rowMap, FIELD_ALIASES.creditLimit);
       const notesResult = findRowValue(rowMap, FIELD_ALIASES.notes);
+
+      const parsedPrescription =
+        parsePrescriptionRequirement(prescriptionResult.value);
+
+      if (!parsedPrescription.valid) {
+        errorList.push({
+          row: rowNum,
+          reason: 'Doctor Prescription Required must be YES or NO'
+        });
+        return;
+      }
 
       const rawName = nameResult.found ? String(nameResult.value).trim() : '';
       if (!rawName) {
@@ -390,7 +420,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const expiryDate = parsedExpiry.found ? parsedExpiry.formatted : '';
 
       const rawStockPacks = parseCleanNumber(stockPacksResult.value).value;
-      const stockLooseUnits = parseCleanNumber(stockLooseResult.value).value;
+      const stockLooseUnits = 0;
       const unitsPerPack = unitsPerPackResult.found
         ? Math.max(1, Math.round(parseCleanNumber(unitsPerPackResult.value).value))
         : 10;
@@ -399,16 +429,16 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const rawMrp = parseCleanNumber(mrpPriceResult.value).value;
       const rawAmount = parseCleanNumber(amountResult.value).value;
 
-      // Default stockPacks to 1 only if BOTH packs and loose units are missing/0
+      // Supplier purchases are received as complete packs only.
       let stockPacks = rawStockPacks;
-      if (stockPacks <= 0 && stockLooseUnits <= 0 && (rawCost > 0 || rawAmount > 0)) {
+      if (stockPacks <= 0 && (rawCost > 0 || rawAmount > 0)) {
         stockPacks = 1;
       }
 
       // Directly calculate costPrice from cost column, line amount (taking packs + tabs into account), or MRP
       let costPrice = rawCost;
       if ((!costPrice || costPrice <= 0) && rawAmount > 0) {
-        const effectivePacks = stockPacks + (unitsPerPack > 1 ? stockLooseUnits / unitsPerPack : (stockLooseUnits > 0 ? stockLooseUnits : 0));
+        const effectivePacks = stockPacks;
         if (effectivePacks > 0) {
           costPrice = Math.round((rawAmount / effectivePacks) * 100) / 100;
         }
@@ -431,13 +461,13 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
         category: categoryResult.found,
         rackLocation: rackResult.found,
         stockPacks: stockPacksResult.found || rawAmount > 0,
-        stockLooseUnits: stockLooseResult.found,
+        stockLooseUnits: false,
         unitsPerPack: unitsPerPackResult.found,
         costPrice: costPriceResult.found || rawAmount > 0 || mrpPriceResult.found,
         mrpPrice: mrpPriceResult.found,
         reorderLevel: reorderLevelResult.found,
         isVatApplicable: vatResult.found,
-        barcode: barcodeResult.found,
+        prescriptionRequired: prescriptionResult.found,
         notes: notesResult.found,
         supplierName: supplierResult.found,
       };
@@ -461,7 +491,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
           : 15,
         rackLocation: rackResult.found ? String(rackResult.value).trim() : '',
         isVatApplicable: parseVat(vatResult.value).value,
-        barcode: barcodeResult.found ? String(barcodeResult.value).trim() : undefined,
+        prescriptionRequired: parsedPrescription.value,
         notes: notesResult.found ? String(notesResult.value).trim() : undefined,
         supplierCreditLimit: creditLimitResult.found ? parseCleanNumber(creditLimitResult.value).value : undefined,
         providedFields,

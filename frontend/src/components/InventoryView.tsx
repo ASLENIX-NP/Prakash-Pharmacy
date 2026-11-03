@@ -136,7 +136,7 @@ export const InventoryView: React.FC = () => {
     batchNumber: '',
     expiryDate: '',
     stockPacks: undefined,
-    stockLooseUnits: undefined,
+    stockLooseUnits: 0,
     unitsPerPack: undefined,
     costPrice: undefined,
     mrpPrice: undefined,
@@ -145,33 +145,26 @@ export const InventoryView: React.FC = () => {
     reorderLevel: undefined,
     rackLocation: 'Rack A-1',
     isVatApplicable: false,
-    barcode: '',
+    prescriptionRequired: false,
     notes: '',
     saleStatus: 'SELLABLE',
     safetyReason: ''
   });
 
-  // Calculate bill totals dynamically (factoring in both full packs and loose tabs)
+  // Calculate imported purchase totals using complete packs only.
   const billCalculations = useMemo(() => {
     let subtotal = 0;
     let taxableAmount = 0;
     let totalPacks = 0;
-    let totalLooseTabs = 0;
 
     parsedImportItems.forEach(item => {
       const packs = Number(item.stockPacks) || 0;
-      const loose = Number(item.stockLooseUnits) || 0;
-      const upp = Number(item.unitsPerPack) > 0 ? Number(item.unitsPerPack) : 10;
       const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
-      
-      const packCost = packs * cost;
-      const looseCost = upp > 1 ? (cost / upp) : cost;
-      const tabsCost = loose * looseCost;
-      const line = Math.round((packCost + tabsCost) * 100) / 100;
+
+      const line = Math.round((packs * cost) * 100) / 100;
 
       subtotal += line;
       totalPacks += packs;
-      totalLooseTabs += loose;
       if (item.isVatApplicable) {
         taxableAmount += line;
       }
@@ -185,8 +178,7 @@ export const InventoryView: React.FC = () => {
       taxableAmount: Math.round(taxableAmount * 100) / 100,
       vatAmount,
       grandTotal,
-      totalPacks,
-      totalLooseTabs
+      totalPacks
     };
   }, [parsedImportItems]);
 
@@ -271,7 +263,7 @@ export const InventoryView: React.FC = () => {
       batchNumber: '',
       expiryDate: '',
       stockPacks: undefined,
-      stockLooseUnits: undefined,
+      stockLooseUnits: 0,
       unitsPerPack: undefined,
       costPrice: undefined,
       mrpPrice: undefined,
@@ -280,7 +272,7 @@ export const InventoryView: React.FC = () => {
       reorderLevel: undefined,
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
-      barcode: '',
+      prescriptionRequired: false,
       notes: '',
       saleStatus: 'SELLABLE',
       safetyReason: ''
@@ -359,6 +351,10 @@ export const InventoryView: React.FC = () => {
       expiryDate: String(formData.expiryDate).trim()
     };
 
+    // Barcode is intentionally dormant for now and must not be sent by
+    // normal Add/Edit Medicine workflows.
+    delete normalizedFormData.barcode;
+
     const requiredNumbers = [
       formData.unitsPerPack,
       formData.stockPacks,
@@ -382,8 +378,10 @@ export const InventoryView: React.FC = () => {
     const openingPacks =
       Number(formData.stockPacks) || 0;
 
-    const openingLoose =
-      Number(formData.stockLooseUnits) || 0;
+    // New supplier purchases are received as complete packs only.
+    // Loose-unit inventory can still be created later through tablet sales
+    // and audited Physical Stock Adjustment.
+    const openingLoose = 0;
 
     const openingUnitsPerPack =
       Number(formData.unitsPerPack) || 1;
@@ -666,7 +664,7 @@ export const InventoryView: React.FC = () => {
           openingPacks,
 
         looseUnits:
-          openingLoose,
+          0,
 
         freePacks:
           0,
@@ -682,6 +680,9 @@ export const InventoryView: React.FC = () => {
 
         isVatApplicable,
 
+        prescriptionRequired:
+          Boolean(formData.prescriptionRequired),
+
         mrpPrice:
           mrpPerPack,
 
@@ -690,10 +691,6 @@ export const InventoryView: React.FC = () => {
             formData.rackLocation ||
             'Unassigned'
           ),
-
-        barcode:
-          formData.barcode?.trim() ||
-          undefined,
 
         reorderLevel:
           Number(
@@ -1635,7 +1632,7 @@ export const InventoryView: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4 text-teal-700" />
                             <span>
                               Parsed {parsedImportItems.length} Bill Items ({billCalculations.totalPacks} Packs
-                              {billCalculations.totalLooseTabs > 0 ? ` + ${billCalculations.totalLooseTabs} Tabs` : ''})
+                              )
                             </span>
                           </div>
                           <span className="text-[11px] font-semibold text-teal-800 font-mono">
@@ -2093,14 +2090,22 @@ export const InventoryView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Barcode / EAN:</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 8901083001234"
-                    value={formData.barcode || ''}
-                    onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
-                  />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Doctor Prescription Required:
+                  </label>
+                  <select
+                    value={formData.prescriptionRequired ? 'yes' : 'no'}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        prescriptionRequired: e.target.value === 'yes'
+                      })
+                    }
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:outline-hidden"
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
                 </div>
 
                 <div>
@@ -2143,20 +2148,20 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Loose Tablets / Units:</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    inputMode="numeric"
-                    required
-                    value={formData.stockLooseUnits || ''}
-                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, stockLooseUnits: parseIntegerInput(e.target.value, 6) })}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
-                  />
-                </div>
+                {editingMedicine && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Loose Tablets / Units:
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.stockLooseUnits ?? 0}
+                      disabled
+                      title="Stock quantity is managed through Stock Count / Physical Stock Adjustment."
+                      className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-500 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Purchase Cost / Pack (NPR):</label>
