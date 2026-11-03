@@ -109,6 +109,16 @@ app.listen(PORT, async () => {
     console.log(`📦 Version:  ${dbHealth.version}`);
 
     await ensureInitialAdminAndSettings();
+
+    try {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "purchase_invoice_items_tbl"
+          ALTER COLUMN "pack_qty" TYPE DECIMAL(10, 2),
+          ALTER COLUMN "free_packs" TYPE DECIMAL(10, 2);
+      `);
+    } catch {
+      // Safe fallback if already migrated or during initial table provisioning
+    }
   } else {
     console.error(`❌ PostgreSQL connection failed!`);
     console.error(`⚠️  Error: ${dbHealth.error}`);

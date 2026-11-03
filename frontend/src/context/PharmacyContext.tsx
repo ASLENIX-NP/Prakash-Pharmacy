@@ -398,7 +398,10 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     readStoredCollection<RackLocation>(STORAGE_KEYS.RACKS)
   );
 
-  const isAdmin = currentUser?.role === 'Admin';
+  const isAdmin = Boolean(
+    (currentUser?.role && String(currentUser.role).trim().toLowerCase() === 'admin') ||
+    (currentUser?.username && String(currentUser.username).trim().toLowerCase() === 'admin')
+  );
 
   const [medicines, setMedicines] = useState<Medicine[]>(() =>
     readStoredCollection<Medicine>(STORAGE_KEYS.MEDICINES)
@@ -870,7 +873,6 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       } else if (!cancelled) {
         setStockAdjustments([]);
-        setStockists([]);
         setStockistLedgers([]);
         setPurchaseInvoices([]);
         // For non-admin accounts, do not wipe the current logged-in user!
@@ -2206,25 +2208,23 @@ if (distributorList.length === 0) {
 
 
   const refreshLiveStockists = async (): Promise<Stockist[]> => {
-    // ADMIN GUARD: stockist refresh
-    if (!isAdmin) {
-      setStockists([]);
+    try {
+      const response =
+        await apiRequest<{ data: Stockist[] }>(
+          '/distributors?limit=all'
+        );
+
+      const liveStockists =
+        Array.isArray(response.data)
+          ? response.data
+          : [];
+
+      setStockists(liveStockists);
+
+      return liveStockists;
+    } catch {
       return [];
     }
-
-const response =
-      await apiRequest<{ data: Stockist[] }>(
-        '/distributors?limit=all'
-      );
-
-    const liveStockists =
-      Array.isArray(response.data)
-        ? response.data
-        : [];
-
-    setStockists(liveStockists);
-
-    return liveStockists;
   };
 
 

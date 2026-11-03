@@ -136,6 +136,7 @@ export const InventoryView: React.FC = () => {
     batchNumber: '',
     expiryDate: '',
     stockPacks: undefined,
+    freePacks: undefined,
     stockLooseUnits: 0,
     unitsPerPack: undefined,
     costPrice: undefined,
@@ -156,15 +157,18 @@ export const InventoryView: React.FC = () => {
     let subtotal = 0;
     let taxableAmount = 0;
     let totalPacks = 0;
+    let totalFreePacks = 0;
 
     parsedImportItems.forEach(item => {
       const packs = Number(item.stockPacks) || 0;
+      const free = Number(item.freePacks) || 0;
       const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
 
       const line = Math.round((packs * cost) * 100) / 100;
 
       subtotal += line;
       totalPacks += packs;
+      totalFreePacks += free;
       if (item.isVatApplicable) {
         taxableAmount += line;
       }
@@ -178,7 +182,8 @@ export const InventoryView: React.FC = () => {
       taxableAmount: Math.round(taxableAmount * 100) / 100,
       vatAmount,
       grandTotal,
-      totalPacks
+      totalPacks,
+      totalFreePacks
     };
   }, [parsedImportItems]);
 
@@ -263,6 +268,7 @@ export const InventoryView: React.FC = () => {
       batchNumber: '',
       expiryDate: '',
       stockPacks: undefined,
+      freePacks: undefined,
       stockLooseUnits: 0,
       unitsPerPack: undefined,
       costPrice: undefined,
@@ -288,8 +294,15 @@ export const InventoryView: React.FC = () => {
     setManualNewDistributorPhone('');
     setManualNewDistributorPan('');
     const vatVal = Boolean(m.isVatApplicable ?? (m as any).hasvat);
+    const matchedDist = stockists.find(s =>
+      s.id === m.supplierId ||
+      String((s as any).distributorId) === String(m.supplierId) ||
+      (m.supplierName && s.name.toLowerCase() === m.supplierName.toLowerCase())
+    );
     setFormData({
       ...m,
+      supplierId: matchedDist ? matchedDist.id : (m.supplierId || ''),
+      supplierName: matchedDist ? matchedDist.name : (m.supplierName || ''),
       isVatApplicable: vatVal,
       hasvat: vatVal
     });
@@ -355,7 +368,6 @@ export const InventoryView: React.FC = () => {
     const requiredNumbers = [
       formData.unitsPerPack,
       formData.stockPacks,
-      formData.stockLooseUnits,
       formData.costPrice,
       formData.mrpPrice,
       formData.reorderLevel,
@@ -364,7 +376,6 @@ export const InventoryView: React.FC = () => {
       requiredNumbers.some(value => value === undefined || !Number.isFinite(value)) ||
       formData.unitsPerPack! < 1 ||
       formData.stockPacks! < 0 ||
-      formData.stockLooseUnits! < 0 ||
       formData.costPrice! < 0 ||
       formData.mrpPrice! < 0 ||
       formData.reorderLevel! < 1
@@ -375,17 +386,16 @@ export const InventoryView: React.FC = () => {
     const openingPacks =
       Number(formData.stockPacks) || 0;
 
-    // New supplier purchases are received as complete packs only.
-    // Loose-unit inventory can still be created later through tablet sales
-    // and audited Physical Stock Adjustment.
-    const openingLoose = 0;
+    const openingFreePacks =
+      Number(formData.freePacks) || 0;
+
+    const openingLoose = 0; // Imported distributor medicines always arrive in full commercial packs
 
     const openingUnitsPerPack =
       Number(formData.unitsPerPack) || 1;
 
     const openingStockUnits =
-      openingPacks *
-        openingUnitsPerPack +
+      Math.round((openingPacks + openingFreePacks) * openingUnitsPerPack) +
       openingLoose;
 
 
@@ -470,7 +480,9 @@ export const InventoryView: React.FC = () => {
     let supplierPan =
       stockists.find(
         stockist =>
-          stockist.id === supplierId
+          stockist.id === supplierId ||
+          String((stockist as any).distributorId) === String(supplierId) ||
+          (supplierName && stockist.name.toLowerCase() === supplierName.toLowerCase())
       )?.panNumber || '';
 
 
@@ -664,7 +676,7 @@ export const InventoryView: React.FC = () => {
           0,
 
         freePacks:
-          0,
+          openingFreePacks,
 
         unitsPerPack:
           openingUnitsPerPack,
@@ -851,7 +863,8 @@ export const InventoryView: React.FC = () => {
             }
           }
         } else if (!selectedDistributorId && stockists.length > 0) {
-          setSelectedDistributorId(stockists[0].id);
+          const firstActive = stockists.find(s => !s.status || s.status.toLowerCase() === 'active') || stockists[0];
+          setSelectedDistributorId(firstActive.id);
         }
       }
     } catch (err: any) {
@@ -908,7 +921,8 @@ export const InventoryView: React.FC = () => {
           finalStockistName = created.name;
           finalStockistPan = created.panNumber || '';
         } else {
-          const existing = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
+          const firstActive = stockists.find(s => !s.status || s.status.toLowerCase() === 'active');
+          const existing = stockists.find(s => s.id === selectedDistributorId || String((s as any).distributorId) === String(selectedDistributorId)) || firstActive || stockists[0];
           if (!existing) {
             showToast('Please select or create a Distributor.', 'warning', 'Validation');
             setIsSubmittingImport(false);
@@ -935,10 +949,10 @@ export const InventoryView: React.FC = () => {
             expiryDate: item.expiryDate || '',
             packQty: packs,
             looseUnits: 0,
-            freePacks: 0,
+            freePacks: Number(item.freePacks) || 0,
             unitsPerPack: upp,
             costPrice: cost,
-            discountPercent: 0,
+            discountPercent: Number(item.discountPercent) || 0,
             isVatApplicable: Boolean(item.isVatApplicable),
             prescriptionRequired: Boolean(item.prescriptionRequired),
             mrpPrice: item.mrpPrice || (cost > 0 ? Math.round(cost * 1.25 * 100) / 100 : 0),
@@ -1411,44 +1425,56 @@ export const InventoryView: React.FC = () => {
                           className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-slate-800 focus:outline-hidden"
                         >
                           {stockists.length === 0 && <option value="">No distributors registered yet (Click + Register New)</option>}
-                          {stockists.map(s => (
-                            <option key={s.id} value={s.id}>
-                              {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
-                            </option>
-                          ))}
+                          {stockists.map(s => {
+                            const isInactive = Boolean(s.status && s.status.toLowerCase() !== 'active');
+                            return (
+                              <option key={s.id} value={s.id}>
+                                {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()} {isInactive ? ' • [Inactive]' : ' • [Active]'}
+                              </option>
+                            );
+                          })}
                         </select>
                         {(() => {
-                          const selectedStockist = stockists.find(s => s.id === selectedDistributorId) || stockists[0];
+                          const firstActive = stockists.find(s => !s.status || s.status.toLowerCase() === 'active');
+                          const selectedStockist = stockists.find(s => s.id === selectedDistributorId || String((s as any).distributorId) === String(selectedDistributorId)) || firstActive || stockists[0];
                           if (!selectedStockist) return null;
+                          const isStockistInactive = Boolean(selectedStockist.status && selectedStockist.status.toLowerCase() !== 'active');
                           const availableCredit = Math.max(0, selectedStockist.creditLimit - selectedStockist.currentBalance);
                           const isOverCredit = billPaymentMode === 'credit' && parsedImportItems.length > 0 && selectedStockist.creditLimit > 0 && billCalculations.grandTotal > availableCredit;
                           return (
-                            <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-teal-50/70 border border-teal-200 text-xs">
-                              <div className="flex items-center gap-3">
-                                <div>
-                                  <span className="text-[10px] text-slate-500 block">Credit Limit</span>
-                                  <span className="font-bold font-mono text-slate-800">Rs. {selectedStockist.creditLimit.toLocaleString()}</span>
+                            <div className="space-y-2">
+                              {isStockistInactive && (
+                                <div className="p-2 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-900 font-medium">
+                                  ℹ️ Distributor <strong>{selectedStockist.name}</strong> was marked inactive and will be auto-reactivated upon importing this invoice.
                                 </div>
-                                <div className="h-6 w-px bg-teal-200" />
-                                <div>
-                                  <span className="text-[10px] text-slate-500 block">Current Liability</span>
-                                  <span className={`font-bold font-mono ${selectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
-                                    Rs. {selectedStockist.currentBalance.toLocaleString()}
-                                  </span>
-                                </div>
-                                <div className="h-6 w-px bg-teal-200" />
-                                <div>
-                                  <span className="text-[10px] text-slate-500 block">Available Credit</span>
-                                  <span className="font-bold font-mono text-teal-800">
-                                    Rs. {availableCredit.toLocaleString()}
-                                  </span>
-                                </div>
-                              </div>
-                              {isOverCredit && (
-                                <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
-                                  ⚠️ Bill exceeds available credit!
-                                </span>
                               )}
+                              <div className="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg bg-teal-50/70 border border-teal-200 text-xs">
+                                <div className="flex items-center gap-3">
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 block">Credit Limit</span>
+                                    <span className="font-bold font-mono text-slate-800">Rs. {selectedStockist.creditLimit.toLocaleString()}</span>
+                                  </div>
+                                  <div className="h-6 w-px bg-teal-200" />
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 block">Current Liability</span>
+                                    <span className={`font-bold font-mono ${selectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-700'}`}>
+                                      Rs. {selectedStockist.currentBalance.toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div className="h-6 w-px bg-teal-200" />
+                                  <div>
+                                    <span className="text-[10px] text-slate-500 block">Available Credit</span>
+                                    <span className="font-bold font-mono text-teal-800">
+                                      Rs. {availableCredit.toLocaleString()}
+                                    </span>
+                                  </div>
+                                </div>
+                                {isOverCredit && (
+                                  <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                                    ⚠️ Bill exceeds available credit!
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           );
                         })()}
@@ -1627,7 +1653,7 @@ export const InventoryView: React.FC = () => {
                             <CheckCircle2 className="w-4 h-4 text-teal-700" />
                             <span>
                               Parsed {parsedImportItems.length} Bill Items ({billCalculations.totalPacks} Packs
-                              )
+                              {billCalculations.totalFreePacks > 0 ? ` + ${billCalculations.totalFreePacks} Free Bonus` : ''})
                             </span>
                           </div>
                           <span className="text-[11px] font-semibold text-teal-800 font-mono">
@@ -1733,6 +1759,9 @@ export const InventoryView: React.FC = () => {
                             <div className="font-mono text-right">
                               <span className="text-slate-700">
                                 {item.stockPacks} pk
+                                {Number(item.freePacks) > 0 ? (
+                                  <span className="text-emerald-700 font-bold ml-1">+{item.freePacks} free</span>
+                                ) : ''}
                               </span>
                               {(item.costPrice > 0 || item.mrpPrice > 0) && (
                                 <span className="text-teal-700 ml-2">@ Rs. {item.costPrice > 0 ? item.costPrice : item.mrpPrice}</span>
@@ -1861,24 +1890,31 @@ export const InventoryView: React.FC = () => {
 
                   {manualDistributorMode === 'select' ? (
                     <select
-                      value={formData.supplierId || ''}
+                      value={
+                        stockists.find(s => s.id === formData.supplierId || String((s as any).distributorId) === String(formData.supplierId))?.id ||
+                        formData.supplierId ||
+                        ''
+                      }
                       onChange={(e) => {
                         const val = e.target.value;
-                        const found = stockists.find(s => s.id === val);
+                        const found = stockists.find(s => s.id === val || String((s as any).distributorId) === String(val));
                         setFormData({
                           ...formData,
-                          supplierId: val,
+                          supplierId: found ? found.id : val,
                           supplierName: found ? found.name : ''
                         });
                       }}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-800 focus:bg-white focus:outline-hidden"
                     >
                       <option value="">Unassigned (No Distributor Selected)</option>
-                      {stockists.map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()}
-                        </option>
-                      ))}
+                      {stockists.map(s => {
+                        const isInactive = Boolean(s.status && s.status.toLowerCase() !== 'active');
+                        return (
+                          <option key={s.id} value={s.id}>
+                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()} {isInactive ? ' • [Inactive]' : ' • [Active]'}
+                          </option>
+                        );
+                      })}
                     </select>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-white p-2.5 rounded-lg border border-slate-200">
@@ -2132,12 +2168,39 @@ export const InventoryView: React.FC = () => {
                   <input
                     type="number"
                     min="0"
-                    step="1"
-                    inputMode="numeric"
+                    step="0.01"
+                    inputMode="decimal"
                     required
-                    value={formData.stockPacks || ''}
-                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                    onChange={(e) => setFormData({ ...formData, stockPacks: parseIntegerInput(e.target.value, 6) })}
+                    disabled={Boolean(editingMedicine)}
+                    title={
+                      editingMedicine
+                        ? 'Stock quantity is managed through Stock Count / Physical Stock Adjustment.'
+                        : undefined
+                    }
+                    value={formData.stockPacks ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                    onChange={(e) => setFormData({ ...formData, stockPacks: parseDecimalInput(e.target.value, 2) })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Free / Bonus (Packs):</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    disabled={Boolean(editingMedicine)}
+                    title={
+                      editingMedicine
+                        ? 'Bonus packs are recorded on new inward stock / purchase invoices.'
+                        : 'Free bonus packs received from distributor'
+                    }
+                    placeholder="0 (e.g. 1 or 0.5)"
+                    value={formData.freePacks ?? ''}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                    onChange={(e) => setFormData({ ...formData, freePacks: parseDecimalInput(e.target.value, 2) })}
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-75"
                   />
                 </div>

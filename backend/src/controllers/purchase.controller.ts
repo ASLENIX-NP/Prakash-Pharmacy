@@ -26,9 +26,9 @@ export const formatPurchaseResponse = (purchase: any) => {
     category: it.categoryName || "Tablet",
     batchNumber: it.batchNumber,
     expiryDate: it.expiryDate,
-    packQty: it.packQty,
-    looseUnits: it.looseUnits || 0,
-    freePacks: it.freePacks || 0,
+    packQty: Number(it.packQty),
+    looseUnits: Number(it.looseUnits || 0),
+    freePacks: Number(it.freePacks || 0),
     unitsPerPack: it.unitsPerPack || 10,
     costPrice: Number(it.costPrice || 0),
     discountPercent: Number(it.discountPercent || 0),
@@ -358,12 +358,12 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           : String(item.inventoryNotes).trim() || null;
 
       if (
-        !Number.isInteger(packQty) || packQty < 0 ||
-        !Number.isInteger(submittedLooseUnits) || submittedLooseUnits < 0 ||
-        !Number.isInteger(freePacks) || freePacks < 0
+        !Number.isFinite(packQty) || packQty < 0 ||
+        !Number.isFinite(submittedLooseUnits) || submittedLooseUnits < 0 ||
+        !Number.isFinite(freePacks) || freePacks < 0
       ) {
         throw new PurchaseValidationError(
-          `Purchase quantities for '${medicineName}' must be whole, non-negative numbers.`
+          `Purchase quantities for '${medicineName}' must be non-negative numbers.`
         );
       }
 
@@ -493,10 +493,11 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       }
 
       if (String(distributor.status || "active").trim().toLowerCase() !== "active") {
-        throw new PurchaseValidationError(
-          "Selected distributor is inactive and cannot receive new purchase invoices.",
-          409
-        );
+        // Auto-reactivate the distributor when a valid purchase bill is received
+        await tx.distributor.update({
+          where: { id: targetDistributorId },
+          data: { status: "active" },
+        });
       }
 
       const duplicate = await tx.purchaseInvoice.findFirst({
@@ -629,7 +630,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           }
 
           const incomingUnits =
-            totalPacksReceived * existingUnitsPerPack;
+            Math.round(totalPacksReceived * existingUnitsPerPack);
 
           const rows = await tx.$queryRaw<Array<{ id: number }>>`
             UPDATE inventory_tbl
@@ -657,6 +658,11 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
 
           linkedInventoryId = Number(rows[0].id);
         } else {
+          const totalUnitsReceived =
+            Math.round(totalPacksReceived * unitsPerPack) + Math.round(looseUnits);
+          const initialPacks = Math.floor(totalUnitsReceived / unitsPerPack);
+          const initialLoose = totalUnitsReceived % unitsPerPack;
+
           const created = await tx.inventory.create({
             data: {
               medicineBrand: medicineName,
@@ -667,8 +673,8 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
               rackId: rack.id,
               distributorId: targetDistributorId,
               unitPerPack: unitsPerPack,
-              packInStock: totalPacksReceived,
-              unitInStock: 0,
+              packInStock: initialPacks,
+              unitInStock: initialLoose,
               packAlertLevel: reorderLevel,
               costPrice,
               sellingPrice: mrpPrice,
@@ -1012,11 +1018,11 @@ export const deletePurchase = async (
 
 
           const purchasedPacks =
-            item.packQty +
-            (item.freePacks || 0);
+            Number(item.packQty) +
+            Number(item.freePacks || 0);
 
           const purchasedLoose =
-            item.looseUnits || 0;
+            Number(item.looseUnits || 0);
 
 
           /*
@@ -1086,7 +1092,7 @@ export const deletePurchase = async (
           }
 
           const purchasedTotalUnits =
-            purchasedPacks * inventoryUnitsPerPack + purchasedLoose;
+            Math.round(purchasedPacks * inventoryUnitsPerPack) + purchasedLoose;
           const currentTotalUnits =
             inventory.packInStock * inventoryUnitsPerPack + inventory.unitInStock;
 

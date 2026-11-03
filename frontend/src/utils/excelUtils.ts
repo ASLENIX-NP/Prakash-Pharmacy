@@ -18,6 +18,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { value: 'Batch Number', ...HEADER_STYLE },
       { value: 'Expiry Date (YYYY-MM-DD)', ...HEADER_STYLE },
       { value: 'Packs In Stock', ...HEADER_STYLE },
+      { value: 'Free / Bonus (Packs)', ...HEADER_STYLE },
       { value: 'Units Per Pack', ...HEADER_STYLE },
       { value: 'Purchase Cost Price', ...HEADER_STYLE },
       { value: 'MRP / Selling Price', ...HEADER_STYLE },
@@ -35,6 +36,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: String, value: 'AMX2024' },
       { type: String, value: '2027-06-30' },
       { type: Number, value: 50 },
+      { type: Number, value: 5 },
       { type: Number, value: 10 },
       { type: Number, value: 75.00 },
       { type: Number, value: 105.00 },
@@ -52,6 +54,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { type: String, value: 'VOL8901' },
       { type: String, value: '2027-04-15' },
       { type: Number, value: 25 },
+      { type: Number, value: 0 },
       { type: Number, value: 1 },
       { type: Number, value: 115.00 },
       { type: Number, value: 165.00 },
@@ -71,6 +74,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
     { width: 16 }, // Batch
     { width: 22 }, // Expiry Date
     { width: 16 }, // Packs
+    { width: 20 }, // Free / Bonus Packs
     { width: 16 }, // Units per pack
     { width: 18 }, // Cost price
     { width: 20 }, // MRP
@@ -147,6 +151,12 @@ const FIELD_ALIASES = {
     'prescriptionrequired',
     'requiresprescription',
     'rxrequired'
+  ],
+  freePacks: [
+    'freepacks', 'freebonus', 'free', 'bonus', 'bonuspacks', 'freepack', 'scheme', 'bonusqty', 'freeqty', 'bonusquantity', 'freequantity', 'freebonuspacks', 'freebonuspcks', 'freebonusqty', 'bonuspks', 'freepks'
+  ],
+  discountPercent: [
+    'discountpercent', 'discpercent', 'discount', 'disc', 'discp', 'dis', 'tradediscount', 'dispercent', 'disc%'
   ],
   creditLimit: [
     'creditlimit', 'distributorcreditlimit', 'distributorcredit', 'suppliercreditlimit',
@@ -394,6 +404,9 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const rackResult = findRowValue(rowMap, FIELD_ALIASES.rackLocation);
       const vatResult = findRowValue(rowMap, FIELD_ALIASES.isVatApplicable);
       const prescriptionResult = findRowValue(rowMap, FIELD_ALIASES.prescriptionRequired);
+      const barcodeResult = findRowValue(rowMap, FIELD_ALIASES.barcode);
+      const freePacksResult = findRowValue(rowMap, FIELD_ALIASES.freePacks);
+      const discountPercentResult = findRowValue(rowMap, FIELD_ALIASES.discountPercent);
       const creditLimitResult = findRowValue(rowMap, FIELD_ALIASES.creditLimit);
       const notesResult = findRowValue(rowMap, FIELD_ALIASES.notes);
 
@@ -428,6 +441,8 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const rawCost = parseCleanNumber(costPriceResult.value).value;
       const rawMrp = parseCleanNumber(mrpPriceResult.value).value;
       const rawAmount = parseCleanNumber(amountResult.value).value;
+      const rawFreePacks = parseCleanNumber(freePacksResult.value).value;
+      const rawDiscountPercent = parseCleanNumber(discountPercentResult.value).value;
 
       // Supplier purchases are received as complete packs only.
       let stockPacks = rawStockPacks;
@@ -470,6 +485,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
         prescriptionRequired: prescriptionResult.found,
         notes: notesResult.found,
         supplierName: supplierResult.found,
+        freePacks: freePacksResult.found,
       };
 
       const medicine: Medicine = {
@@ -494,6 +510,8 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
         prescriptionRequired: parsedPrescription.value,
         notes: notesResult.found ? String(notesResult.value).trim() : undefined,
         supplierCreditLimit: creditLimitResult.found ? parseCleanNumber(creditLimitResult.value).value : undefined,
+        freePacks: rawFreePacks > 0 ? rawFreePacks : 0,
+        discountPercent: rawDiscountPercent > 0 ? rawDiscountPercent : 0,
         providedFields,
       };
 
@@ -653,9 +671,27 @@ export function exportWholesalerAnalyticsToExcel(
   itemsAnalytics: any[],
   storeName: string
 ): void {
+  const data = itemsAnalytics.map(row => ({
+    'Medicine Name': row.medicineName,
+    'Generic Name': row.genericName || 'N/A',
+    'Batch Number': row.batchNumber,
+    'Wholesaler': row.stockistName,
+    'Invoice #': row.invoiceNumber,
+    'Terms': row.paymentMode,
+    'Billed Cost Rate (NPR)': Number(row.costPrice).toFixed(2),
+    'Effective Cost Rate (NPR)': Number(row.effectiveCost || row.costPrice).toFixed(2),
+    'Trade Disc %': row.discountPercent,
+    'Purchased Packs': row.packsPurchased,
+    'Free Bonus Packs': row.freePacks,
+    'Scheme Bonus Profit (NPR)': Number(row.schemeProfit || 0).toFixed(2),
+    'Packs Sold': Number(row.packsSold).toFixed(1),
+    'Packs In Stock': row.currentStockPacks,
+    'Sales Revenue (NPR)': Number(row.totalRevenue).toFixed(2),
+  }));
+
   const dateStr = localDateString();
   const fileName = `${storeName.replace(/\s+/g, '_')}_Wholesaler_Item_Sales_Analysis_${dateStr}.xlsx`;
-  exportObjectsToExcel(fileName, 'Wholesaler_Item_Analytics', itemsAnalytics).catch(console.error);
+  exportObjectsToExcel(fileName, 'Wholesaler_Item_Analytics', data).catch(console.error);
 }
 
 // Export Inward Purchase Bill Details (Medicines, Batch, Cost Price, MRP, VAT, Line Total)

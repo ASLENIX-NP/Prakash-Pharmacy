@@ -14,7 +14,9 @@ import {
   CreditCard,
   RotateCcw,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  TrendingUp,
+  RefreshCw
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -36,6 +38,10 @@ export const SalesHistoryView: React.FC = () => {
     customerSalesReturns,
     setActiveInvoiceToPrint,
     settings,
+    isAdmin,
+    medicines,
+    refreshLiveBills,
+    refreshLiveReturns,
   } = usePharmacy();
 
   const [activeTab, setActiveTab] = useState<'sales' | 'returns'>('sales');
@@ -43,6 +49,44 @@ export const SalesHistoryView: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'month'>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<SaleInvoice | null>(null);
   const [returningInvoice, setReturningInvoice] = useState<SaleInvoice | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Auto-refresh live bills and returns on mount to ensure latest counter transactions are displayed
+  useEffect(() => {
+    refreshLiveBills?.().catch(console.error);
+    refreshLiveReturns?.().catch(console.error);
+  }, []);
+
+  // Helper to calculate cost of goods sold (COGS) and realized gross profit per bill
+  const calculateInvoiceProfit = (inv: SaleInvoice) => {
+    const cogs = (inv.items || []).reduce((acc, it) => {
+      let cost = Number(it.costPrice) || 0;
+      // Fallback to current inventory costPrice if item snapshot is missing/zero
+      if (cost <= 0 && it.medicineName) {
+        const match = (medicines || []).find(m => 
+          m.name.toLowerCase() === it.medicineName.toLowerCase() ||
+          m.id === it.medicineId
+        );
+        if (match) {
+          cost = Number(match.costPrice) || 0;
+        }
+      }
+      const qty = Number(it.quantity) || 0;
+      const unitsPerPack = Number(it.unitsPerPack) || 1;
+      const lineCost = it.isLooseUnit ? (cost / unitsPerPack) * qty : cost * qty;
+      return acc + lineCost;
+    }, 0);
+
+    // Net Revenue excluding 13% statutory VAT (since VAT is government liability)
+    const subtotalRev = (inv.taxableBaseSubtotal || 0) + (inv.vatExemptSubtotal || 0);
+    const netRevenueExVat = subtotalRev > 0 
+      ? subtotalRev 
+      : Math.max(0, (inv.grandTotal || 0) - (inv.vatAmount || 0));
+
+    const grossProfit = Math.round((netRevenueExVat - cogs) * 100) / 100;
+    const marginPct = netRevenueExVat > 0 ? (grossProfit / netRevenueExVat) * 100 : 0;
+    return { cogs, netRevenueExVat, grossProfit, marginPct };
+  };
 
   const registerInvoices = salesInvoices;
 
@@ -120,6 +164,18 @@ export const SalesHistoryView: React.FC = () => {
     const totalTaxable = filteredSales.reduce((acc, s) => acc + s.taxableBaseSubtotal, 0);
     const totalRefunded = filteredReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
     const netRealized = Math.max(0, totalGross - totalRefunded);
+
+    // COGS and Gross Profit across all filtered sales
+    let totalCogs = 0;
+    filteredSales.forEach(inv => {
+      const { cogs } = calculateInvoiceProfit(inv);
+      totalCogs += cogs;
+    });
+
+    const netSalesExVat = Math.max(0, (totalExempt + totalTaxable) - totalRefunded);
+    const totalGrossProfit = Math.max(0, netSalesExVat - totalCogs);
+    const overallMarginPct = netSalesExVat > 0 ? (totalGrossProfit / netSalesExVat) * 100 : 0;
+
     return { 
       totalRevenue: totalGross, 
       totalGross, 
@@ -127,7 +183,10 @@ export const SalesHistoryView: React.FC = () => {
       totalExempt, 
       totalTaxable, 
       totalRefunded, 
-      netRealized 
+      netRealized,
+      totalCogs,
+      totalGrossProfit,
+      overallMarginPct
     };
   }, [filteredSales, filteredReturns]);
 
@@ -191,15 +250,38 @@ export const SalesHistoryView: React.FC = () => {
           </div>
         </div>
 
-        {activeTab === 'sales' && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => exportSalesBookToExcel(filteredSales, settings.storeName)}
-            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-bold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+            type="button"
+            disabled={isRefreshing}
+            onClick={async () => {
+              try {
+                setIsRefreshing(true);
+                await Promise.all([refreshLiveBills?.(), refreshLiveReturns?.()]);
+                showToast('Sales register updated with latest live bills.', 'success', 'Refreshed');
+              } catch (err) {
+                showToast('Could not refresh bills from server.', 'error', 'Error');
+              } finally {
+                setIsRefreshing(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-60 cursor-pointer"
+            title="Reload live sales invoices from database"
           >
-            <Download className="h-3.5 w-3.5" />
-            <span>Export Sales Book (.xlsx)</span>
+            <RefreshCw className={`h-3.5 w-3.5 text-slate-500 ${isRefreshing ? 'animate-spin text-teal-600' : ''}`} />
+            <span>{isRefreshing ? 'Syncing...' : 'Refresh'}</span>
           </button>
-        )}
+
+          {activeTab === 'sales' && (
+            <button
+              onClick={() => exportSalesBookToExcel(filteredSales, settings.storeName)}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Sales Book (.xlsx)</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Register Tab Navigation */}
@@ -234,7 +316,7 @@ export const SalesHistoryView: React.FC = () => {
       {/* Aggregate Stats Cards */}
       {activeTab === 'sales' ? (
         <div className="space-y-3">
-          <div className="premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className={`premium-sales-kpis grid grid-cols-1 gap-4 sm:grid-cols-2 ${isAdmin ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
             {[
               {
                 label: 'Gross Billed Sales',
@@ -243,6 +325,7 @@ export const SalesHistoryView: React.FC = () => {
                   ? `Net: Rs. ${salesStats.netRealized.toFixed(2)} (-Rs. ${salesStats.totalRefunded.toFixed(2)} refunds)`
                   : `${filteredSales.length} bills completed`,
                 accent: 'teal',
+                badge: 'Gross Revenue',
                 icon: <Banknote className="h-4 w-4" />
               },
               {
@@ -250,6 +333,7 @@ export const SalesHistoryView: React.FC = () => {
                 value: salesStats.totalExempt,
                 detail: '0% VAT therapeutic drugs',
                 accent: 'emerald',
+                badge: '0% Exempt',
                 icon: <CheckCircle2 className="h-4 w-4" />
               },
               {
@@ -257,6 +341,7 @@ export const SalesHistoryView: React.FC = () => {
                 value: salesStats.totalTaxable,
                 detail: 'Subject to 13% VAT',
                 accent: 'blue',
+                badge: 'Tax Base',
                 icon: <Filter className="h-4 w-4" />
               },
               {
@@ -264,59 +349,80 @@ export const SalesHistoryView: React.FC = () => {
                 value: salesStats.totalVat,
                 detail: 'Payable to IRD Nepal',
                 accent: 'indigo',
+                badge: 'IRD VAT',
                 icon: <QrCode className="h-4 w-4" />
-              }
+              },
+              ...(isAdmin ? [{
+                label: 'Gross Profit',
+                value: salesStats.totalGrossProfit,
+                detail: `${salesStats.overallMarginPct.toFixed(1)}% margin (COGS: Rs. ${salesStats.totalCogs.toFixed(0)})`,
+                accent: 'profit',
+                badge: 'Admin Audit',
+                icon: <TrendingUp className="h-4 w-4" />
+              }] : [])
             ].map((card) => (
               <div
                 key={card.label}
                 className={`premium-sales-kpi rounded-[20px] border p-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                  card.accent === 'teal'
-                    ? 'border-teal-100 bg-teal-50/80'
-                    : card.accent === 'emerald'
-                      ? 'border-emerald-100 bg-emerald-50/80'
-                      : card.accent === 'blue'
-                        ? 'border-blue-100 bg-blue-50/80'
-                        : 'border-indigo-100 bg-indigo-50/80'
+                  card.accent === 'profit'
+                    ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50/80 ring-1 ring-emerald-100'
+                    : card.accent === 'teal'
+                      ? 'border-teal-100 bg-teal-50/80'
+                      : card.accent === 'emerald'
+                        ? 'border-emerald-100 bg-emerald-50/80'
+                        : card.accent === 'blue'
+                          ? 'border-blue-100 bg-blue-50/80'
+                          : 'border-indigo-100 bg-indigo-50/80'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ring-1 ${
-                    card.accent === 'teal'
-                      ? 'bg-white text-teal-700 ring-teal-100'
-                      : card.accent === 'emerald'
-                        ? 'bg-white text-emerald-700 ring-emerald-100'
-                        : card.accent === 'blue'
-                          ? 'bg-white text-blue-700 ring-blue-100'
-                          : 'bg-white text-indigo-700 ring-indigo-100'
+                    card.accent === 'profit'
+                      ? 'bg-emerald-600 text-white ring-emerald-300 shadow-xs'
+                      : card.accent === 'teal'
+                        ? 'bg-white text-teal-700 ring-teal-100'
+                        : card.accent === 'emerald'
+                          ? 'bg-white text-emerald-700 ring-emerald-100'
+                          : card.accent === 'blue'
+                            ? 'bg-white text-blue-700 ring-blue-100'
+                            : 'bg-white text-indigo-700 ring-indigo-100'
                   }`}>
                     {card.icon}
                   </span>
-                  <span className={`text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                    card.accent === 'teal'
-                      ? 'text-teal-700'
-                      : card.accent === 'emerald'
-                        ? 'text-emerald-700'
-                        : card.accent === 'blue'
-                          ? 'text-blue-700'
-                          : 'text-indigo-700'
+                  <span className={`text-[10px] font-bold uppercase tracking-[0.08em] ${
+                    card.accent === 'profit'
+                      ? 'bg-emerald-100/90 text-emerald-800 px-2 py-0.5 rounded-full ring-1 ring-emerald-200'
+                      : card.accent === 'teal'
+                        ? 'text-teal-700'
+                        : card.accent === 'emerald'
+                          ? 'text-emerald-700'
+                          : card.accent === 'blue'
+                            ? 'text-blue-700'
+                            : 'text-indigo-700'
                   }`}>
-                    Summary
+                    {card.badge}
                   </span>
                 </div>
                 <div className="mt-5">
-                  <div className="text-[11px] font-medium text-slate-500">{card.label}</div>
+                  <div className={`text-[11px] font-medium ${card.accent === 'profit' ? 'text-emerald-900 font-semibold' : 'text-slate-500'}`}>
+                    {card.label}
+                  </div>
                   <div className={`mt-2 font-mono text-[1.75rem] font-extrabold leading-none tracking-[-0.05em] tabular-nums ${
-                    card.accent === 'teal'
-                      ? 'text-teal-800'
-                      : card.accent === 'emerald'
-                        ? 'text-emerald-800'
-                        : card.accent === 'blue'
-                          ? 'text-blue-800'
-                          : 'text-indigo-800'
+                    card.accent === 'profit'
+                      ? 'text-emerald-900'
+                      : card.accent === 'teal'
+                        ? 'text-teal-800'
+                        : card.accent === 'emerald'
+                          ? 'text-emerald-800'
+                          : card.accent === 'blue'
+                            ? 'text-blue-800'
+                            : 'text-indigo-800'
                   }`}>
                     Rs. {card.value.toFixed(2)}
                   </div>
-                  <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{card.detail}</div>
+                  <div className={`mt-2 text-[11px] leading-relaxed ${card.accent === 'profit' ? 'text-emerald-700 font-medium' : 'text-slate-500'}`}>
+                    {card.detail}
+                  </div>
                 </div>
               </div>
             ))}
@@ -492,6 +598,11 @@ export const SalesHistoryView: React.FC = () => {
                   <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">13% VAT</th>
                   <th className="px-3 py-3 text-center text-[10px] font-bold uppercase tracking-[0.08em]">Payment</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Grand Total</th>
+                  {isAdmin && (
+                    <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em] text-emerald-800 bg-emerald-50/50">
+                      Gross Profit
+                    </th>
+                  )}
                   <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-[0.08em]">Action</th>
                 </tr>
               </thead>
@@ -543,6 +654,20 @@ export const SalesHistoryView: React.FC = () => {
                       Rs. {inv.grandTotal.toFixed(2)}
                     </td>
 
+                    {isAdmin && (() => {
+                      const { grossProfit, marginPct, cogs } = calculateInvoiceProfit(inv);
+                      return (
+                        <td className="px-3 py-3 align-top text-right bg-emerald-50/20">
+                          <div className={`font-mono text-[11px] font-bold ${grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            Rs. {grossProfit.toFixed(2)}
+                          </div>
+                          <div className="mt-0.5 text-[10px] font-semibold text-emerald-600" title={`COGS: Rs. ${cogs.toFixed(2)}`}>
+                            {marginPct.toFixed(0)}% margin
+                          </div>
+                        </td>
+                      );
+                    })()}
+
                     <td className="px-3 py-3 align-top text-right">
                       {inv.id.startsWith('demo-sale-') ? (
                         <span className="inline-flex rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-amber-700">
@@ -575,7 +700,7 @@ export const SalesHistoryView: React.FC = () => {
 
                 {filteredSales.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-500">
+                    <td colSpan={isAdmin ? 11 : 10} className="py-12 text-center text-slate-500">
                       No sales invoices found matching the current search or filter.
                     </td>
                   </tr>

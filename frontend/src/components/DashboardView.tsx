@@ -21,7 +21,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     stockists, 
     settings, 
     setActiveAuditMedicine, 
-    setActiveInvoiceToPrint 
+    setActiveInvoiceToPrint,
+    isAdmin
   } = usePharmacy();
 
   const todayStr = localDateString();
@@ -42,6 +43,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
   const todayRefunds = todayReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
   const todayNetRevenue = Math.max(0, todayGrossRevenue - todayRefunds);
   const avgBillValue = todaySales.length > 0 ? todayGrossRevenue / todaySales.length : 0;
+
+  // Today's Gross Profit (Admin only)
+  const todayProfitData = useMemo(() => {
+    let todayCogs = 0;
+    let todayRevenueExVat = 0;
+
+    todaySales.forEach(inv => {
+      const subtotalRev = (inv.taxableBaseSubtotal || 0) + (inv.vatExemptSubtotal || 0);
+      const revExVat = subtotalRev > 0 
+        ? subtotalRev 
+        : Math.max(0, (inv.grandTotal || 0) - (inv.vatAmount || 0));
+      todayRevenueExVat += revExVat;
+
+      (inv.items || []).forEach(it => {
+        let cost = Number(it.costPrice) || 0;
+        if (cost <= 0 && it.medicineName) {
+          const match = (medicines || []).find(m => 
+            m.name.toLowerCase() === it.medicineName.toLowerCase() ||
+            m.id === it.medicineId
+          );
+          if (match) {
+            cost = Number(match.costPrice) || 0;
+          }
+        }
+        const qty = Number(it.quantity) || 0;
+        const unitsPerPack = Number(it.unitsPerPack) || 1;
+        const lineCost = it.isLooseUnit ? (cost / unitsPerPack) * qty : cost * qty;
+        todayCogs += lineCost;
+      });
+    });
+
+    const netSalesExVat = Math.max(0, todayRevenueExVat - todayRefunds);
+    const grossProfit = Math.max(0, netSalesExVat - todayCogs);
+    const marginPct = netSalesExVat > 0 ? (grossProfit / netSalesExVat) * 100 : 0;
+
+    return { todayCogs, grossProfit, marginPct };
+  }, [todaySales, todayRefunds, medicines]);
 
   // Inventory Overview KPIs
   const totalPacks = medicines.reduce((acc, m) => acc + m.stockPacks, 0);
@@ -115,6 +153,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
             <p className="mt-3 font-mono text-[28px] font-black leading-none tracking-tight text-slate-950">
               Rs. {todayNetRevenue.toFixed(2)}
             </p>
+
+            {isAdmin && (
+              <div className="mt-2.5 flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-1.5 text-xs ring-1 ring-emerald-200">
+                <span className="font-semibold text-emerald-800">Today's Profit:</span>
+                <span className="font-mono font-extrabold text-emerald-700">
+                  + Rs. {todayProfitData.grossProfit.toFixed(2)} ({todayProfitData.marginPct.toFixed(0)}%)
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 border-t border-slate-200 pt-3">
@@ -534,6 +581,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                 <th className="py-2.5 px-3">Medicines</th>
                 <th className="py-2.5 px-3">Mode</th>
                 <th className="py-2.5 px-4 text-right">Grand Total</th>
+                {isAdmin && <th className="py-2.5 px-3 text-right text-emerald-800">Gross Profit</th>}
                 <th className="py-2.5 px-3 text-right">Reprint</th>
               </tr>
             </thead>
@@ -550,6 +598,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
                   <td className="py-2.5 px-4 text-right font-mono font-extrabold text-slate-900">
                     Rs. {sale.grandTotal.toFixed(2)}
                   </td>
+                  {isAdmin && (() => {
+                    const cogs = (sale.items || []).reduce((acc, it) => {
+                      let cost = Number(it.costPrice) || 0;
+                      if (cost <= 0 && it.medicineName) {
+                        const match = (medicines || []).find(m => 
+                          m.name.toLowerCase() === it.medicineName.toLowerCase() ||
+                          m.id === it.medicineId
+                        );
+                        if (match) {
+                          cost = Number(match.costPrice) || 0;
+                        }
+                      }
+                      const qty = Number(it.quantity) || 0;
+                      const unitsPerPack = Number(it.unitsPerPack) || 1;
+                      return acc + (it.isLooseUnit ? (cost / unitsPerPack) * qty : cost * qty);
+                    }, 0);
+                    const subtotalRev = (sale.taxableBaseSubtotal || 0) + (sale.vatExemptSubtotal || 0);
+                    const netRev = subtotalRev > 0 
+                      ? subtotalRev 
+                      : Math.max(0, (sale.grandTotal || 0) - (sale.vatAmount || 0));
+                    const profit = Math.round((netRev - cogs) * 100) / 100;
+                    return (
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700">
+                        + Rs. {profit.toFixed(2)}
+                      </td>
+                    );
+                  })()}
                   <td className="py-2.5 px-3 text-right">
                     <button
                       onClick={() => setActiveInvoiceToPrint(sale)}
@@ -562,7 +637,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
               ))}
               {salesInvoices.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400">
+                  <td colSpan={isAdmin ? 8 : 7} className="py-8 text-center text-slate-400">
                     No counter sales completed yet today.
                   </td>
                 </tr>

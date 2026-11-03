@@ -255,11 +255,17 @@ async function resolveDistributor(
     if (match) {
       const id = Number.parseInt(match[0], 10);
 
-      const existing = await prisma.distributor.findUnique({
+      let existing = await prisma.distributor.findUnique({
         where: { id },
       });
 
       if (existing) {
+        if (String(existing.status || "").toLowerCase() !== "active") {
+          existing = await prisma.distributor.update({
+            where: { id: existing.id },
+            data: { status: "active" },
+          });
+        }
         return existing.id;
       }
     }
@@ -282,17 +288,31 @@ async function resolveDistributor(
   }
 
   let dist = await prisma.distributor.findFirst({
-    where: { name: { equals: distName, mode: "insensitive" } },
+    where: {
+      name: { equals: distName, mode: "insensitive" },
+      status: "active",
+    },
   });
 
   if (!dist) {
-    dist = await prisma.distributor.create({
-      data: {
-        name: distName,
-        phone: "9800000000",
-        address: "Makwanpur, Nepal",
-      },
+    const inactiveDist = await prisma.distributor.findFirst({
+      where: { name: { equals: distName, mode: "insensitive" } },
     });
+    if (inactiveDist) {
+      dist = await prisma.distributor.update({
+        where: { id: inactiveDist.id },
+        data: { status: "active" },
+      });
+    } else {
+      dist = await prisma.distributor.create({
+        data: {
+          name: distName,
+          phone: "9800000000",
+          address: "Makwanpur, Nepal",
+          status: "active",
+        },
+      });
+    }
   }
 
   return dist.id;
@@ -535,6 +555,15 @@ export const bulkImportInventory = async (
              (item.packInStock ?? item.stockPacks) !== null &&
              (item.packInStock ?? item.stockPacks) !== "");
 
+        const hasFreePacks = provided
+          ? Boolean(provided.freePacks)
+          : ((item.freePacks ?? item.bonusPacks ?? item.bonus) !== undefined &&
+             (item.freePacks ?? item.bonusPacks ?? item.bonus) !== null &&
+             (item.freePacks ?? item.bonusPacks ?? item.bonus) !== "");
+        const rawFreePacks = hasFreePacks
+          ? toNumber(item.freePacks ?? item.bonusPacks ?? item.bonus, 0, 0)
+          : 0;
+
         const hasStockLoose = provided
           ? Boolean(provided.stockLooseUnits ?? provided.unitInStock)
           : ((item.unitInStock ?? item.stockLooseUnits) !== undefined &&
@@ -698,19 +727,18 @@ export const bulkImportInventory = async (
               ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
               : 10;
 
-            const packInStock = hasStockPacks
-              ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+            const rawPackInStock = hasStockPacks
+              ? toNumber(item.packInStock ?? item.stockPacks, 0, 0)
               : 0;
 
-            const unitInStock = hasStockLoose
-              ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+            const rawUnitInStock = hasStockLoose
+              ? toNumber(item.unitInStock ?? item.stockLooseUnits, 0, 0)
               : 0;
 
-            if (unitInStock >= unitPerPack) {
-              throw new Error(
-                `Loose-unit stock must be less than units per pack (${unitPerPack}); convert full units into packs.`
-              );
-            }
+            const totalPacks = rawPackInStock + rawFreePacks;
+            const totalUnits = Math.round(totalPacks * unitPerPack) + Math.round(rawUnitInStock);
+            const packInStock = Math.floor(totalUnits / unitPerPack);
+            const unitInStock = totalUnits % unitPerPack;
 
             const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
               ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)
@@ -905,10 +933,10 @@ export const bulkImportInventory = async (
           }
 
           const inputPacksToAdd = hasStockPacks
-            ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+            ? toNumber(item.packInStock ?? item.stockPacks, 0, 0)
             : 0;
           const inputLooseToAdd = hasStockLoose
-            ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+            ? toNumber(item.unitInStock ?? item.stockLooseUnits, 0, 0)
             : 0;
 
           if (item.packAlertLevel !== undefined || item.reorderLevel !== undefined) {
@@ -991,15 +1019,16 @@ export const bulkImportInventory = async (
                   );
                 }
 
+                const addedPacks = inputPacksToAdd + rawFreePacks;
                 const addedUnits =
-                  inputPacksToAdd * targetUnitsPerPack + inputLooseToAdd;
+                  Math.round(addedPacks * targetUnitsPerPack) + Math.round(inputLooseToAdd);
                 const currentUnits =
                   current.packInStock * targetUnitsPerPack + current.unitInStock;
                 const mergedUnits = currentUnits + addedUnits;
                 const nextPacks = Math.floor(mergedUnits / targetUnitsPerPack);
                 const nextLooseUnits = mergedUnits % targetUnitsPerPack;
 
-                if (hasStockPacks || hasStockLoose) {
+                if (hasStockPacks || hasStockLoose || rawFreePacks > 0) {
                   updateData.packInStock = nextPacks;
                   updateData.unitInStock = nextLooseUnits;
                 }
@@ -1108,19 +1137,18 @@ export const bulkImportInventory = async (
           ? toInt(item.unitPerPack ?? item.unitsPerPack, 10, 1)
           : 10;
 
-        const packInStock = hasStockPacks
-          ? toInt(item.packInStock ?? item.stockPacks, 0, 0)
+        const rawPackInStock = hasStockPacks
+          ? toNumber(item.packInStock ?? item.stockPacks, 0, 0)
           : 0;
 
-        const unitInStock = hasStockLoose
-          ? toInt(item.unitInStock ?? item.stockLooseUnits, 0, 0)
+        const rawUnitInStock = hasStockLoose
+          ? toNumber(item.unitInStock ?? item.stockLooseUnits, 0, 0)
           : 0;
 
-        if (unitInStock >= unitPerPack) {
-          throw new Error(
-            `Loose-unit stock must be less than units per pack (${unitPerPack}); convert full units into packs.`
-          );
-        }
+        const totalPacks = rawPackInStock + rawFreePacks;
+        const totalUnits = Math.round(totalPacks * unitPerPack) + Math.round(rawUnitInStock);
+        const packInStock = Math.floor(totalUnits / unitPerPack);
+        const unitInStock = totalUnits % unitPerPack;
 
         const packAlertLevel = (item.packAlertLevel !== undefined || item.reorderLevel !== undefined)
           ? toInt(item.packAlertLevel ?? item.reorderLevel, 15, 0)

@@ -23,7 +23,9 @@ import {
   Layers,
   ArrowRight,
   Eye,
-  Edit3
+  Edit3,
+  Gift,
+  TrendingUp
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -62,9 +64,9 @@ const createEmptyInvoiceItem = (id?: string): StockistInvoiceItem => ({
   category: 'Tablet',
   batchNumber: '',
   expiryDate: '',
-  packQty: 0,
+  packQty: '',
   looseUnits: 0,
-  freePacks: 0,
+  freePacks: '',
   unitsPerPack: 10,
   costPrice: 0,
   discountPercent: 0,
@@ -792,9 +794,12 @@ export const StockistManagementView: React.FC = () => {
     const updated = [...invoiceItems];
     const current = { ...updated[index], ...updates };
 
-    // Calculate line total from purchased packs only.
-    const baseAmount = current.packQty * current.costPrice;
-    const discountAmt = (baseAmount * (current.discountPercent || 0)) / 100;
+    // Purchases from distributors are in packs (can be decimal e.g. 4.5 packs)
+    const packQty = Number(current.packQty) || 0;
+    const costPrice = Number(current.costPrice) || 0;
+    const discountPercent = Number(current.discountPercent) || 0;
+    const baseAmount = packQty * costPrice;
+    const discountAmt = (baseAmount * discountPercent) / 100;
     current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
 
     updated[index] = current;
@@ -844,9 +849,13 @@ export const StockistManagementView: React.FC = () => {
 
       const importedRows: StockistInvoiceItem[] = res.success.map((m, idx) => {
         const packQty = m.stockPacks || 0;
+        const freePacks = m.freePacks || 0;
+        const discountPercent = m.discountPercent || 0;
         const costPrice = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
         const unitsPerPack = m.unitsPerPack || 10;
-        const lineTotal = Math.round((packQty * costPrice) * 100) / 100;
+        const baseAmount = packQty * costPrice;
+        const discountAmt = (baseAmount * discountPercent) / 100;
+        const lineTotal = Math.round((baseAmount - discountAmt) * 100) / 100;
 
         return {
           id: `imp-${Date.now()}-${idx}`,
@@ -855,11 +864,12 @@ export const StockistManagementView: React.FC = () => {
           category: m.category || 'Tablet',
           batchNumber: m.batchNumber || '',
           expiryDate: m.expiryDate || '',
-          packQty: packQty > 0 ? packQty : 1,
-          freePacks: 0,
+          packQty: packQty > 0 ? packQty : (freePacks > 0 ? 0 : 1),
+          looseUnits: 0,
+          freePacks,
           unitsPerPack,
           costPrice,
-          discountPercent: 0,
+          discountPercent,
           isVatApplicable: Boolean(m.isVatApplicable),
           prescriptionRequired: Boolean(m.prescriptionRequired),
           mrpPrice: m.mrpPrice || (costPrice > 0 ? Math.round(costPrice * 1.25 * 100) / 100 : 0),
@@ -895,10 +905,18 @@ export const StockistManagementView: React.FC = () => {
     let totalDiscount = 0;
     let taxableAmount = 0;
     let vatAmount = 0;
+    let totalFreePacks = 0;
+    let freeBonusProfitCost = 0;
+    let freeBonusValueMrp = 0;
 
     invoiceItems.forEach(it => {
-      const gross = it.packQty * it.costPrice;
-      const disc = (gross * (it.discountPercent || 0)) / 100;
+      const packQty = Number(it.packQty) || 0;
+      const freeQty = Number(it.freePacks) || 0;
+      const costPrice = Number(it.costPrice) || 0;
+      const mrpPrice = Number(it.mrpPrice) || 0;
+      const discountPercent = Number(it.discountPercent) || 0;
+      const gross = packQty * costPrice;
+      const disc = (gross * discountPercent) / 100;
       const net = gross - disc;
 
       subtotal += gross;
@@ -907,6 +925,12 @@ export const StockistManagementView: React.FC = () => {
       if (it.isVatApplicable) {
         taxableAmount += net;
         vatAmount += net * 0.13;
+      }
+
+      if (freeQty > 0) {
+        totalFreePacks += freeQty;
+        freeBonusProfitCost += (freeQty * costPrice);
+        freeBonusValueMrp += (freeQty * mrpPrice);
       }
     });
 
@@ -917,7 +941,10 @@ export const StockistManagementView: React.FC = () => {
       totalDiscount,
       taxableAmount,
       vatAmount,
-      grandTotal
+      grandTotal,
+      totalFreePacks,
+      freeBonusProfitCost: Math.round(freeBonusProfitCost * 100) / 100,
+      freeBonusValueMrp: Math.round(freeBonusValueMrp * 100) / 100,
     };
   }, [invoiceItems]);
 
@@ -950,12 +977,16 @@ export const StockistManagementView: React.FC = () => {
       showToast('Units per pack must be a positive whole number for every purchase row.', 'warning', 'Validation');
       return;
     }
-    if (invoiceItems.some(it => !Number.isInteger(it.packQty) || it.packQty < 0 || !Number.isInteger(it.freePacks || 0) || (it.freePacks || 0) < 0)) {
-      showToast('Pack and free-pack quantities must be whole, non-negative numbers.', 'warning', 'Validation');
+    if (invoiceItems.some(it => !Number.isFinite(Number(it.packQty)) || Number(it.packQty) < 0)) {
+      showToast('Purchase pack quantity must be a non-negative number for every purchase row.', 'warning', 'Validation');
       return;
     }
-    if (invoiceItems.some(it => (it.packQty + (it.freePacks || 0)) <= 0)) {
-      showToast('Every purchase row must receive at least one complete pack.', 'warning', 'Validation');
+    if (invoiceItems.some(it => !Number.isFinite(Number(it.freePacks || 0)) || Number(it.freePacks || 0) < 0)) {
+      showToast('Free / bonus pack quantity must be a non-negative number for every purchase row.', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.some(it => (Number(it.packQty) + Number(it.freePacks || 0)) <= 0)) {
+      showToast('Every purchase row must receive at least one pack (or free bonus pack).', 'warning', 'Validation');
       return;
     }
 
@@ -980,7 +1011,17 @@ export const StockistManagementView: React.FC = () => {
         date: invoiceHeader.date || localDateString(),
         paymentMode: invoiceHeader.paymentMode,
         dueDate: invoiceHeader.dueDate || undefined,
-        items: invoiceItems.map(item => ({ ...item, looseUnits: 0 })),
+        items: invoiceItems.map(it => ({
+          ...it,
+          packQty: Number(it.packQty) || 0,
+          looseUnits: 0,
+          freePacks: Number(it.freePacks) || 0,
+          unitsPerPack: Number(it.unitsPerPack) || 10,
+          costPrice: Number(it.costPrice) || 0,
+          discountPercent: Number(it.discountPercent) || 0,
+          mrpPrice: Number(it.mrpPrice) || 0,
+          lineTotal: Number(it.lineTotal) || 0,
+        })),
         subtotal: purchaseInvoiceTotals.subtotal,
         totalDiscount: purchaseInvoiceTotals.totalDiscount,
         taxableAmount: purchaseInvoiceTotals.taxableAmount,
@@ -1421,6 +1462,8 @@ export const StockistManagementView: React.FC = () => {
         discountPercent: number;
         packsPurchased: number;
         freePacks: number;
+        schemeProfit: number;
+        effectiveCost: number;
         packsSold: number;
         totalRevenue: number;
         currentStockPacks: number;
@@ -1437,6 +1480,12 @@ export const StockistManagementView: React.FC = () => {
                  m.batchNumber.toLowerCase() === it.batchNumber.toLowerCase()
           );
 
+          const purchasedPacks = Number(it.packQty) || 0;
+          const freeBonusPacks = Number(it.freePacks) || 0;
+          const totalPks = purchasedPacks + freeBonusPacks;
+          const effCost = totalPks > 0 ? (purchasedPacks * it.costPrice) / totalPks : it.costPrice;
+          const bonusVal = freeBonusPacks * it.costPrice;
+
           itemsMap[key] = {
             medicineName: it.medicineName,
             genericName: it.genericName,
@@ -1446,15 +1495,24 @@ export const StockistManagementView: React.FC = () => {
             paymentMode: inv.paymentMode.toUpperCase(),
             costPrice: it.costPrice,
             discountPercent: it.discountPercent,
-            packsPurchased: it.packQty,
-            freePacks: it.freePacks,
+            packsPurchased: purchasedPacks,
+            freePacks: freeBonusPacks,
+            schemeProfit: Math.round(bonusVal * 100) / 100,
+            effectiveCost: Math.round(effCost * 100) / 100,
             packsSold: 0,
             totalRevenue: 0,
             currentStockPacks: liveMed ? liveMed.stockPacks : 0
           };
         } else {
-          itemsMap[key].packsPurchased += it.packQty;
-          itemsMap[key].freePacks += it.freePacks;
+          const addPurchased = Number(it.packQty) || 0;
+          const addFree = Number(it.freePacks) || 0;
+          itemsMap[key].packsPurchased += addPurchased;
+          itemsMap[key].freePacks += addFree;
+          itemsMap[key].schemeProfit += Math.round(addFree * it.costPrice * 100) / 100;
+          const totalPks = itemsMap[key].packsPurchased + itemsMap[key].freePacks;
+          itemsMap[key].effectiveCost = totalPks > 0
+            ? Math.round(((itemsMap[key].packsPurchased * it.costPrice) / totalPks) * 100) / 100
+            : it.costPrice;
         }
       });
     });
@@ -1660,13 +1718,22 @@ export const StockistManagementView: React.FC = () => {
                     </div>
                     <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || 'â€”'}</span>
                   </div>
-                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
-                    stk.currentBalance > 0
-                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
-                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  }`}>
-                    {stk.currentBalance > 0 ? 'Payable' : 'Settled'}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                      stk.status && stk.status.toLowerCase() !== 'active'
+                        ? 'bg-amber-50 text-amber-900 border-amber-300'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    }`}>
+                      {stk.status && stk.status.toLowerCase() !== 'active' ? 'Inactive' : 'Active'}
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
+                      stk.currentBalance > 0
+                        ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                        : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    }`}>
+                      {stk.currentBalance > 0 ? 'Payable' : 'Settled'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid gap-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
@@ -1747,6 +1814,19 @@ export const StockistManagementView: React.FC = () => {
                   >
                     Pay Balance
                   </button>
+                  {stk.status && stk.status.toLowerCase() !== 'active' && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await updateStockist(stk.id, { status: 'active' });
+                        showToast(`Distributor "${stk.name}" reactivated successfully!`, 'success', 'Active Status');
+                      }}
+                      className="rounded-xl border border-amber-400 bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-900 transition hover:bg-amber-100 text-center"
+                      title="Reactivate distributor to permit new purchases"
+                    >
+                      Reactivate
+                    </button>
+                  )}
                 </div>
               </div>
               );
@@ -1778,16 +1858,21 @@ export const StockistManagementView: React.FC = () => {
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Select Wholesaler / Stockist: *</label>
               <select
-                value={invoiceHeader.stockistId || stockists[0]?.id || ''}
+                value={invoiceHeader.stockistId || stockists.find(s => !s.status || s.status.toLowerCase() === 'active')?.id || stockists[0]?.id || ''}
                 onChange={(e) => setInvoiceHeader({ ...invoiceHeader, stockistId: e.target.value })}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900 focus:outline-hidden"
               >
                 {stockists.length === 0 && (
                   <option value="">No stockists registered yet</option>
                 )}
-                {stockists.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} (PAN: {s.panNumber})</option>
-                ))}
+                {stockists.map(s => {
+                  const isInactive = Boolean(s.status && s.status.toLowerCase() !== 'active');
+                  return (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (PAN: {s.panNumber || '—'}) {isInactive ? ' • [Inactive]' : ' • [Active]'}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -1898,7 +1983,7 @@ export const StockistManagementView: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {invoiceItems.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-8 text-center text-slate-400">
+                      <td colSpan={11} className="py-8 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-2">
                           <p className="text-xs text-slate-500 font-medium">No medicines added to this bill yet.</p>
                           <button
@@ -1958,40 +2043,56 @@ export const StockistManagementView: React.FC = () => {
                           />
                         </td>
 
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.packQty || ''}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
-                          className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
-                        />
-                      </td>
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={item.packQty ?? ''}
+                            placeholder="0"
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: decimalInputValue(e.target.value, 2) })}
+                            className="w-16 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center text-slate-800"
+                          />
+                        </td>
 
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0"
+                            value={item.freePacks ?? ''}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: decimalInputValue(e.target.value, 2) })}
+                            className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700 font-bold"
+                          />
+                        </td>
 
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.freePacks || ''}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
-                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.costPrice || ''}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
-                          className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
-                        />
-                      </td>
+                        <td className="py-2 px-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={item.costPrice === 0 ? '' : item.costPrice}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
+                            className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
+                          />
+                          {(() => {
+                            const pq = Number(item.packQty) || 0;
+                            const fq = Number(item.freePacks) || 0;
+                            const cp = Number(item.costPrice) || 0;
+                            if (fq > 0 && pq > 0 && cp > 0) {
+                              const eff = (pq * cp) / (pq + fq);
+                              return (
+                                <span className="block text-[9px] text-emerald-700 font-mono font-semibold text-right mt-0.5 whitespace-nowrap" title={`Effective rate factoring ${fq} free pack(s)`}>
+                                  Eff: {eff.toFixed(2)}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </td>
 
                       <td className="py-2 px-2">
                         <input
@@ -2083,7 +2184,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
               />
             </div>
 
-            <div className="w-64 space-y-1.5 text-right font-mono">
+            <div className="w-72 space-y-1.5 text-right font-mono">
               <div className="flex justify-between text-slate-600">
                 <span>Subtotal:</span>
                 <span>Rs. {purchaseInvoiceTotals.subtotal.toFixed(2)}</span>
@@ -2096,10 +2197,24 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 <span>13% VAT Portion:</span>
                 <span>+ Rs. {purchaseInvoiceTotals.vatAmount.toFixed(2)}</span>
               </div>
+              {purchaseInvoiceTotals.freeBonusProfitCost > 0 && (
+                <div className="flex justify-between text-emerald-800 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 text-xs">
+                  <span className="flex items-center gap-1 font-semibold text-emerald-900 font-sans">
+                    <Gift className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Free Scheme Profit:</span>
+                  </span>
+                  <span>+ Rs. {purchaseInvoiceTotals.freeBonusProfitCost.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-base font-extrabold text-slate-900 pt-1 border-t border-slate-300">
                 <span>Grand Total:</span>
                 <span>Rs. {purchaseInvoiceTotals.grandTotal.toFixed(2)}</span>
               </div>
+              {purchaseInvoiceTotals.freeBonusProfitCost > 0 && (
+                <p className="text-[10px] text-emerald-700 text-right font-sans font-medium">
+                  Includes {purchaseInvoiceTotals.totalFreePacks} free pack(s) received @ Rs. 0 cost (100% profit when sold)
+                </p>
+              )}
             </div>
           </div>
 
@@ -2759,6 +2874,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                     <th className="py-2.5 px-2 text-right">Cost Rate</th>
                     <th className="py-2.5 px-2 text-right">Trade Disc %</th>
                     <th className="py-2.5 px-2 text-center">Purchased</th>
+                    <th className="py-2.5 px-2 text-right">Scheme Profit</th>
                     <th className="py-2.5 px-2 text-center">Sold</th>
                     <th className="py-2.5 px-2 text-center">In Stock</th>
                     <th className="py-2.5 px-3 text-right">Sales Revenue</th>
@@ -2780,10 +2896,26 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                           {row.paymentMode}
                         </span>
                       </td>
-                      <td className="py-3 px-2 text-right font-mono">Rs. {row.costPrice.toFixed(2)}</td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        <div>Rs. {row.costPrice.toFixed(2)}</div>
+                        {row.freePacks > 0 && row.effectiveCost < row.costPrice && (
+                          <div className="text-[9px] text-emerald-700 font-semibold" title="Effective cost rate with free bonus">
+                            Eff: Rs. {row.effectiveCost.toFixed(2)}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-3 px-2 text-right font-mono text-emerald-700 font-bold">{row.discountPercent}%</td>
                       <td className="py-3 px-2 text-center font-mono font-bold">
                         {row.packsPurchased} pk {row.freePacks > 0 && `(+${row.freePacks} free)`}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono font-bold">
+                        {row.schemeProfit > 0 ? (
+                          <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            +Rs. {row.schemeProfit.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-normal">—</span>
+                        )}
                       </td>
                       <td className="py-3 px-2 text-center font-mono font-bold text-teal-800">
                         {row.packsSold.toFixed(1)} pk
@@ -2798,7 +2930,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   ))}
                   {itemAnalytics.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-slate-400">
+                      <td colSpan={11} className="py-8 text-center text-slate-400">
                         No purchase invoices recorded yet. Record invoices to view analytics.
                       </td>
                     </tr>
@@ -3368,48 +3500,73 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
             {/* Modal Body: Scrollable Line Items */}
             <div className="min-h-0 p-5 sm:p-6 overflow-y-auto space-y-4 flex-1 text-xs">
               {/* Summary Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
-                  <span className="text-slate-500 block text-[11px] font-medium">Wholesaler / Stockist</span>
-                  <strong className="text-slate-900 text-xs mt-1 block truncate" title={viewingPurchaseBill.stockistName}>
-                    {viewingPurchaseBill.stockistName}
-                  </strong>
-                  <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
-                    PAN: {viewingPurchaseBill.stockistPan || 'â€”'}
-                  </span>
-                </div>
-                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
-                  <span className="text-slate-500 block text-[11px] font-medium">Invoice Info</span>
-                  <strong className="text-slate-900 text-xs mt-1 block font-mono">
-                    Bill #{viewingPurchaseBill.invoiceNumber}
-                  </strong>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">
-                    Date: {viewingPurchaseBill.date || 'â€”'}
-                  </span>
-                </div>
-                <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
-                  <span className="text-slate-500 block text-[11px] font-medium">Quantity Volume</span>
-                  <strong className="font-mono text-slate-900 text-xs mt-1 block">
-                    {viewingPurchaseBill.items?.reduce((sum, it) => sum + (it.packQty || 0), 0) || 0} Packs
-                    {(() => {
-                      const loose = viewingPurchaseBill.items?.reduce((sum, it) => sum + (it.looseUnits || 0), 0) || 0;
-                      return loose > 0 ? ` + ${loose} Tabs` : '';
-                    })()}
-                  </strong>
-                  <span className="text-[10px] text-teal-700 font-bold block mt-0.5 font-mono">
-                    {viewingPurchaseBill.items?.length || 0} Distinct Medicines
-                  </span>
-                </div>
-                <div className="bg-teal-50 border border-teal-200 p-3.5 rounded-2xl">
-                  <span className="text-teal-800 block text-[11px] font-semibold">Grand Total Amount</span>
-                  <strong className="font-mono font-extrabold text-base text-teal-950 mt-1 block">
-                    Rs. {Number(viewingPurchaseBill.grandTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </strong>
-                  <span className="text-[10px] text-teal-700 block mt-0.5">
-                    {Number(viewingPurchaseBill.vatAmount) > 0 ? `Includes 13% VAT portion` : 'Tax Exempt (0% VAT)'}
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const freeProfitCost = (viewingPurchaseBill.items || []).reduce((sum, it) => {
+                  const free = Number(it.freePacks) || 0;
+                  const cost = Number(it.costPrice) || 0;
+                  return sum + (free * cost);
+                }, 0);
+                const freePacksTotal = (viewingPurchaseBill.items || []).reduce((sum, it) => sum + (Number(it.freePacks) || 0), 0);
+
+                return (
+                  <div className={`grid grid-cols-2 ${freeProfitCost > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-3`}>
+                    <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                      <span className="text-slate-500 block text-[11px] font-medium">Wholesaler / Stockist</span>
+                      <strong className="text-slate-900 text-xs mt-1 block truncate" title={viewingPurchaseBill.stockistName}>
+                        {viewingPurchaseBill.stockistName}
+                      </strong>
+                      <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
+                        PAN: {viewingPurchaseBill.stockistPan || '—'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                      <span className="text-slate-500 block text-[11px] font-medium">Invoice Info</span>
+                      <strong className="text-slate-900 text-xs mt-1 block font-mono">
+                        Bill #{viewingPurchaseBill.invoiceNumber}
+                      </strong>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">
+                        Date: {viewingPurchaseBill.date || '—'}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
+                      <span className="text-slate-500 block text-[11px] font-medium">Quantity Volume</span>
+                      <strong className="font-mono text-slate-900 text-xs mt-1 block">
+                        {viewingPurchaseBill.items?.reduce((sum, it) => sum + (Number(it.packQty) || 0), 0) || 0} Packs
+                        {(() => {
+                          const loose = viewingPurchaseBill.items?.reduce((sum, it) => sum + (it.looseUnits || 0), 0) || 0;
+                          return loose > 0 ? ` + ${loose} Tabs` : '';
+                        })()}
+                      </strong>
+                      <span className="text-[10px] text-teal-700 font-bold block mt-0.5 font-mono">
+                        {viewingPurchaseBill.items?.length || 0} Distinct Medicines
+                      </span>
+                    </div>
+                    {freeProfitCost > 0 && (
+                       <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl">
+                        <span className="text-emerald-800 block text-[11px] font-semibold flex items-center gap-1 font-sans">
+                          <Gift className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Scheme Profit Gain</span>
+                        </span>
+                        <strong className="font-mono font-extrabold text-base text-emerald-950 mt-1 block">
+                          + Rs. {freeProfitCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </strong>
+                        <span className="text-[10px] text-emerald-700 block mt-0.5 font-sans">
+                          +{freePacksTotal} Free Pack(s) @ Rs. 0
+                        </span>
+                      </div>
+                    )}
+                    <div className="bg-teal-50 border border-teal-200 p-3.5 rounded-2xl">
+                      <span className="text-teal-800 block text-[11px] font-semibold">Grand Total Amount</span>
+                      <strong className="font-mono font-extrabold text-base text-teal-950 mt-1 block">
+                        Rs. {Number(viewingPurchaseBill.grandTotal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </strong>
+                      <span className="text-[10px] text-teal-700 block mt-0.5">
+                        {Number(viewingPurchaseBill.vatAmount) > 0 ? `Includes 13% VAT portion` : 'Tax Exempt (0% VAT)'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Medicine Filter Bar */}
               {viewingPurchaseBill.items && viewingPurchaseBill.items.length > 0 && (
@@ -3467,8 +3624,16 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                         );
                       })
                       .map((item, idx) => {
+                        const packQty = Number(item.packQty) || 0;
+                        const freeQty = Number(item.freePacks) || 0;
+                        const costPrice = Number(item.costPrice) || 0;
+                        const totalPacks = packQty + freeQty;
+                        const effCost = totalPacks > 0 ? (packQty * costPrice) / totalPacks : costPrice;
                         const margin = item.mrpPrice > 0 
-                          ? (((item.mrpPrice - item.costPrice) / item.mrpPrice) * 100).toFixed(1)
+                          ? (((item.mrpPrice - costPrice) / item.mrpPrice) * 100).toFixed(1)
+                          : '0';
+                        const effMargin = item.mrpPrice > 0
+                          ? (((item.mrpPrice - effCost) / item.mrpPrice) * 100).toFixed(1)
                           : '0';
 
                         return (
@@ -3502,23 +3667,35 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                                   +{item.looseUnits} tabs
                                 </span>
                               )}
-                              {item.freePacks > 0 && (
-                                <span className="text-emerald-700 text-[10px] ml-1 bg-emerald-50 px-1 py-0.2 rounded">
+                              {Number(item.freePacks) > 0 && (
+                                <span className="text-emerald-700 text-[10px] ml-1 bg-emerald-50 px-1 py-0.2 rounded font-semibold border border-emerald-200">
                                   +{item.freePacks} Free
                                 </span>
                               )}
                             </td>
                             <td className="py-2.5 px-2 text-right font-mono font-bold text-teal-800">
-                              Rs. {Number(item.costPrice).toFixed(2)}
+                              <div>Rs. {Number(item.costPrice).toFixed(2)}</div>
+                              {freeQty > 0 && packQty > 0 && (
+                                <div className="text-[9px] text-emerald-700 font-normal font-sans" title="Effective cost rate per pack with free bonus">
+                                  Eff: Rs. {effCost.toFixed(2)}
+                                </div>
+                              )}
                             </td>
                             <td className="py-2.5 px-2 text-right font-mono text-slate-700">
                               Rs. {Number(item.mrpPrice).toFixed(2)}
                             </td>
                             <td className="py-2.5 px-2 text-center font-mono text-[10px]">
                               {Number(margin) > 0 ? (
-                                <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded font-bold">
-                                  +{margin}%
-                                </span>
+                                <div className="flex flex-col items-center">
+                                  <span className="bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded font-bold">
+                                    +{margin}%
+                                  </span>
+                                  {freeQty > 0 && Number(effMargin) > Number(margin) && (
+                                    <span className="text-[9px] text-emerald-700 font-semibold font-sans mt-0.5" title="Effective profit margin with free bonus scheme">
+                                      Eff: +{effMargin}%
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="text-slate-400">â€”</span>
                               )}

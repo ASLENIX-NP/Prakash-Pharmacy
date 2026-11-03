@@ -178,11 +178,31 @@ export const createDistributor = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Optional uniqueness warning for name
+    // Optional uniqueness warning for name; reactivate if previously marked inactive
     const existing = await prisma.distributor.findFirst({
       where: { name: { equals: cleanName, mode: "insensitive" } },
     });
     if (existing) {
+      if (String(existing.status || "").toLowerCase() !== "active") {
+        const reactivated = await prisma.distributor.update({
+          where: { id: existing.id },
+          data: {
+            status: "active",
+            phone: cleanPhone || existing.phone,
+            pannumber: cleanPan || existing.pannumber,
+            email: cleanEmail || existing.email,
+            address: address ? String(address).trim() : existing.address,
+            contactPerson: contactPerson ? String(contactPerson).trim() : existing.contactPerson,
+            creditLimit: parsedCreditLimit > 0 ? parsedCreditLimit : existing.creditLimit,
+          },
+        });
+        res.status(200).json({
+          success: true,
+          message: `Distributor "${cleanName}" was previously inactive and has been reactivated successfully.`,
+          data: formatDistributorResponse(reactivated),
+        });
+        return;
+      }
       res.status(409).json({
         success: false,
         message: `Distributor "${cleanName}" already exists.`,

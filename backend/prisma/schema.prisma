@@ -413,10 +413,10 @@ model PurchaseInvoiceItem {
   batchNumber  String  @map("batch_number")
   expiryDate   String  @map("expiry_date")
 
-  packQty      Int @map("pack_qty")
-  looseUnits   Int @default(0) @map("loose_units")
-  freePacks    Int @default(0) @map("free_packs")
-  unitsPerPack Int @default(10) @map("units_per_pack")
+  packQty      Decimal @default(0.00) @map("pack_qty") @db.Decimal(10, 2)
+  looseUnits   Int     @default(0) @map("loose_units")
+  freePacks    Decimal @default(0.00) @map("free_packs") @db.Decimal(10, 2)
+  unitsPerPack Int     @default(10) @map("units_per_pack")
 
   costPrice       Decimal @map("cost_price") @db.Decimal(10, 2)
   discountPercent Decimal @default(0.00) @map("discount_percent") @db.Decimal(5, 2)

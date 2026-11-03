@@ -43,6 +43,8 @@ export interface Medicine {
   safetyReason?: string;
   safetyChangedAt?: string | null;
   safetyChangedBy?: string;
+  freePacks?: number;
+  discountPercent?: number;
   supplierCreditLimit?: number;
   providedFields?: Record<string, boolean>;
 }
@@ -110,9 +112,9 @@ export interface StockistInvoiceItem {
   category: MedicineCategory;
   batchNumber: string;
   expiryDate: string;
-  packQty: number;
+  packQty: number | string;
   looseUnits?: number; // Loose tablets/units outside full packs
-  freePacks: number;
+  freePacks: number | string;
   unitsPerPack: number;
   costPrice: number; // Price per pack before discount
   discountPercent: number; // Trade discount %

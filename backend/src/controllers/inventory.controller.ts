@@ -5,6 +5,7 @@ import {
   formatRackCode,
   formatCategoryCode,
   formatGenericCode,
+  formatDistributorCode,
   parseIdParam,
 } from "../utils/id.helpers.js";
 import {
@@ -178,7 +179,7 @@ const resolveInventoryDistributor = async (
         10
       );
 
-    const distributor =
+    let distributor =
       await prisma.distributor.findUnique({
         where: {
           id,
@@ -195,6 +196,13 @@ const resolveInventoryDistributor = async (
       };
     }
 
+    if (String(distributor.status || "").toLowerCase() !== "active") {
+      distributor = await prisma.distributor.update({
+        where: { id: distributor.id },
+        data: { status: "active" },
+      });
+    }
+
     return {
       provided: true,
       id:
@@ -208,8 +216,22 @@ const resolveInventoryDistributor = async (
   // Resolve by supplier/distributor name.
   if (supplierName) {
 
-    const distributor =
+    let distributor =
       await prisma.distributor.findFirst({
+        where: {
+          name: {
+            equals:
+              supplierName,
+
+            mode:
+              "insensitive",
+          },
+          status: "active",
+        },
+      });
+
+    if (!distributor) {
+      const inactiveDist = await prisma.distributor.findFirst({
         where: {
           name: {
             equals:
@@ -220,6 +242,14 @@ const resolveInventoryDistributor = async (
           },
         },
       });
+
+      if (inactiveDist) {
+        distributor = await prisma.distributor.update({
+          where: { id: inactiveDist.id },
+          data: { status: "active" },
+        });
+      }
+    }
 
     if (!distributor) {
       return {
@@ -259,7 +289,7 @@ export const formatInventoryItem = (inv: any) => {
 
     supplierId:
       inv.distributorId
-        ? String(inv.distributorId)
+        ? formatDistributorCode(inv.distributorId)
         : "",
 
     distributorName:
@@ -707,8 +737,9 @@ export const createInventory = async (req: Request, res: Response): Promise<void
     // 4. Numerical and pricing validation. Never silently clamp or truncate
     // invalid physical stock / monetary values.
     const finalUnitPerPack = Number(unitPerPack ?? unitsPerPack ?? 10);
-    const finalPackInStock = Number(packInStock ?? stockPacks ?? 0);
-    const finalUnitInStock = Number(unitInStock ?? stockLooseUnits ?? 0);
+    const rawPackStock = Number(packInStock ?? stockPacks ?? 0);
+    const rawFreeStock = Number(req.body.freePacks ?? req.body.bonusPacks ?? 0);
+    const rawLooseStock = Number(unitInStock ?? stockLooseUnits ?? 0);
     const finalAlertLevel = Number(packAlertLevel ?? reorderLevel ?? 15);
     const finalCostPrice = Number(costPrice ?? 0);
     const finalSellingPrice = Number(sellingPrice ?? mrpPrice ?? 0);
@@ -724,21 +755,22 @@ export const createInventory = async (req: Request, res: Response): Promise<void
       res.status(400).json({ success: false, message: "Units per pack must be a positive whole number." });
       return;
     }
-    if (!Number.isInteger(finalPackInStock) || finalPackInStock < 0) {
-      res.status(400).json({ success: false, message: "Pack stock must be a non-negative whole number." });
+    if (!Number.isFinite(rawPackStock) || rawPackStock < 0) {
+      res.status(400).json({ success: false, message: "Pack stock must be a non-negative number." });
       return;
     }
-    if (!Number.isInteger(finalUnitInStock) || finalUnitInStock < 0) {
-      res.status(400).json({ success: false, message: "Loose-unit stock must be a non-negative whole number." });
+    if (!Number.isFinite(rawFreeStock) || rawFreeStock < 0) {
+      res.status(400).json({ success: false, message: "Free bonus packs must be a non-negative number." });
       return;
     }
-    if (finalUnitInStock >= finalUnitPerPack) {
-      res.status(400).json({
-        success: false,
-        message: `Loose-unit stock must be less than units per pack (${finalUnitPerPack}). Convert full units into packs.`,
-      });
+    if (!Number.isFinite(rawLooseStock) || rawLooseStock < 0) {
+      res.status(400).json({ success: false, message: "Loose-unit stock must be a non-negative number." });
       return;
     }
+    const combinedPacks = rawPackStock + (rawFreeStock > 0 ? rawFreeStock : 0);
+    const totalOpeningUnits = Math.round(combinedPacks * finalUnitPerPack) + Math.round(rawLooseStock);
+    const finalPackInStock = Math.floor(totalOpeningUnits / finalUnitPerPack);
+    const finalUnitInStock = totalOpeningUnits % finalUnitPerPack;
     if (!Number.isInteger(finalAlertLevel) || finalAlertLevel < 0) {
       res.status(400).json({ success: false, message: "Reorder level must be a non-negative whole number." });
       return;

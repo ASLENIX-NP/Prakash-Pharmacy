@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Printer, 
@@ -10,7 +10,8 @@ import {
   MapPin, 
   FileText,
   FileCheck,
-  FileDown
+  FileDown,
+  TrendingUp
 } from 'lucide-react';
 import { SaleInvoice } from '../types/pharmacy';
 import { usePharmacy } from '../context/PharmacyContext';
@@ -44,10 +45,37 @@ function numberToWords(num: number): string {
 }
 
 export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClose }) => {
-  const { settings } = usePharmacy();
+  const { settings, isAdmin, medicines } = usePharmacy();
   const [format, setFormat] = useState<'a5' | 'thermal'>(
     settings.defaultInvoiceSize === 'Thermal' ? 'thermal' : 'a5'
   );
+
+  const profitAudit = useMemo(() => {
+    if (!invoice || !isAdmin) return null;
+    const cogs = (invoice.items || []).reduce((acc, it) => {
+      let cost = Number(it.costPrice) || 0;
+      if (cost <= 0 && it.medicineName) {
+        const match = (medicines || []).find(m => 
+          m.name.toLowerCase() === it.medicineName.toLowerCase() ||
+          m.id === it.medicineId
+        );
+        if (match) {
+          cost = Number(match.costPrice) || 0;
+        }
+      }
+      const qty = Number(it.quantity) || 0;
+      const unitsPerPack = Number(it.unitsPerPack) || 1;
+      const lineCost = it.isLooseUnit ? (cost / unitsPerPack) * qty : cost * qty;
+      return acc + lineCost;
+    }, 0);
+    const subtotalRev = (invoice.taxableBaseSubtotal || 0) + (invoice.vatExemptSubtotal || 0);
+    const netRevenueExVat = subtotalRev > 0
+      ? subtotalRev
+      : Math.max(0, (invoice.grandTotal || 0) - (invoice.vatAmount || 0));
+    const grossProfit = Math.round((netRevenueExVat - cogs) * 100) / 100;
+    const marginPct = netRevenueExVat > 0 ? (grossProfit / netRevenueExVat) * 100 : 0;
+    return { cogs, netRevenueExVat, grossProfit, marginPct };
+  }, [invoice, isAdmin, medicines]);
 
   useEffect(() => {
     setFormat(settings.defaultInvoiceSize === 'Thermal' ? 'thermal' : 'a5');
@@ -131,6 +159,31 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
             </button>
           </div>
         </div>
+
+        {/* Admin Confidential Margin Audit Banner (Never printed on physical paper or PDF) */}
+        {profitAudit && (
+          <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-800 px-5 py-2 text-xs flex flex-wrap items-center justify-between gap-2 print:hidden shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 bg-emerald-800 text-emerald-100 font-bold px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">
+                <TrendingUp className="w-3 h-3 text-emerald-300" />
+                Admin Audit
+              </span>
+              <span className="text-emerald-300">
+                COGS: <strong className="font-mono text-white">Rs. {profitAudit.cogs.toFixed(2)}</strong>
+              </span>
+              <span className="text-emerald-600">•</span>
+              <span className="text-emerald-300">
+                Net Sales (ex-VAT): <strong className="font-mono text-white">Rs. {profitAudit.netRevenueExVat.toFixed(2)}</strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-300">Gross Profit:</span>
+              <strong className="font-mono text-xs text-emerald-100 bg-emerald-900/90 px-2.5 py-0.5 rounded border border-emerald-700">
+                + Rs. {profitAudit.grossProfit.toFixed(2)} ({profitAudit.marginPct.toFixed(1)}% margin)
+              </strong>
+            </div>
+          </div>
+        )}
 
         {/* Scrollable Printable Bill Container */}
         <div className="overflow-y-auto flex-1 p-4 sm:p-6 print:p-0 print:overflow-visible">
