@@ -55,6 +55,25 @@ const sanitizeStockistName = (value: string): string =>
 const normalizeStockistPhone = (value: string): string =>
   normalizePhoneNumber(value);
 
+const createEmptyInvoiceItem = (id?: string): StockistInvoiceItem => ({
+  id: id || `row-${Date.now()}`,
+  medicineName: '',
+  genericName: '',
+  category: 'Tablet',
+  batchNumber: '',
+  expiryDate: '',
+  packQty: 0,
+  looseUnits: 0,
+  freePacks: 0,
+  unitsPerPack: 10,
+  costPrice: 0,
+  discountPercent: 0,
+  isVatApplicable: false,
+  mrpPrice: 0,
+  rackLocation: 'Unassigned',
+  lineTotal: 0
+});
+
 export const StockistManagementView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
@@ -194,26 +213,11 @@ export const StockistManagementView: React.FC = () => {
   });
 
   const [invoiceItems, setInvoiceItems] = useState<StockistInvoiceItem[]>([
-    {
-      id: 'row-1',
-      medicineName: '',
-      genericName: '',
-      category: 'Tablet',
-      batchNumber: '',
-      expiryDate: '',
-      packQty: 10,
-      freePacks: 0,
-      unitsPerPack: 10,
-      costPrice: 100,
-      discountPercent: 5,
-      isVatApplicable: false,
-      mrpPrice: 130,
-      rackLocation: 'Rack A-1',
-      lineTotal: 950
-    }
+    createEmptyInvoiceItem('row-1')
   ]);
   const excelBillInputRef = useRef<HTMLInputElement>(null);
   const [isImportingExcelBill, setIsImportingExcelBill] = useState(false);
+  const [isSubmittingPurchaseInvoice, setIsSubmittingPurchaseInvoice] = useState(false);
 
   // Return to Stockist (Debit Note) Form State
   const [returnStockistId, setReturnStockistId] = useState<string>(stockists[0]?.id || '');
@@ -256,7 +260,7 @@ export const StockistManagementView: React.FC = () => {
     return false;
   };
 
-  // Synchronize selectedStockistId & returnStockistId when stockists load
+  // Synchronize selectedStockistId, returnStockistId & invoiceHeader.stockistId when stockists load
   React.useEffect(() => {
     if (!selectedStockistId && stockists.length > 0) {
       setSelectedStockistId(stockists[0].id);
@@ -264,7 +268,10 @@ export const StockistManagementView: React.FC = () => {
     if (!returnStockistId && stockists.length > 0) {
       setReturnStockistId(stockists[0].id);
     }
-  }, [stockists, selectedStockistId, returnStockistId]);
+    if (!invoiceHeader.stockistId && stockists.length > 0) {
+      setInvoiceHeader(prev => ({ ...prev, stockistId: stockists[0].id }));
+    }
+  }, [stockists, selectedStockistId, returnStockistId, invoiceHeader.stockistId]);
 
   // Active Stockist for Ledger
   const currentSelectedStockist = useMemo(() => {
@@ -774,25 +781,9 @@ export const StockistManagementView: React.FC = () => {
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
-    setInvoiceItems([
-      ...invoiceItems,
-      {
-        id: `row-${Date.now()}`,
-        medicineName: '',
-        genericName: '',
-        category: 'Tablet',
-        batchNumber: '',
-        expiryDate: '',
-        packQty: 10,
-        freePacks: 0,
-        unitsPerPack: 10,
-        costPrice: 100,
-        discountPercent: 0,
-        isVatApplicable: false,
-        mrpPrice: 130,
-        rackLocation: 'Rack A-1',
-        lineTotal: 1000
-      }
+    setInvoiceItems(prev => [
+      ...prev,
+      createEmptyInvoiceItem(`row-${Date.now()}-${prev.length + 1}`)
     ]);
   };
 
@@ -814,9 +805,7 @@ export const StockistManagementView: React.FC = () => {
 
   // Remove Item from Purchase Invoice
   const handleRemoveInvoiceItem = (index: number) => {
-    if (invoiceItems.length > 1) {
-      setInvoiceItems(invoiceItems.filter((_, i) => i !== index));
-    }
+    setInvoiceItems(prev => prev.filter((_, i) => i !== index));
   };
 
   // Auto-fill from existing medicine in stock
@@ -940,8 +929,14 @@ export const StockistManagementView: React.FC = () => {
   // Submit Purchase Invoice
   const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingPurchaseInvoice) return;
+
     if (!invoiceHeader.invoiceNumber.trim()) {
-      showToast('Invoice Number is required!', 'warning', 'Validation');
+      showToast('Wholesaler Invoice / Bill Number is required!', 'warning', 'Validation');
+      return;
+    }
+    if (invoiceItems.length === 0) {
+      showToast('Please add at least one medicine row to the purchase bill.', 'warning', 'Validation');
       return;
     }
     if (invoiceItems.some(it => !it.medicineName.trim())) {
@@ -969,57 +964,60 @@ export const StockistManagementView: React.FC = () => {
       return;
     }
 
-    const stockist = stockists.find(s => s.id === invoiceHeader.stockistId);
-    if (!stockist) return;
+    const stockist =
+      stockists.find(s => s.id === invoiceHeader.stockistId) ||
+      stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s)) ||
+      stockists[0];
 
-    await addPurchaseInvoice({
-      invoiceNumber: invoiceHeader.invoiceNumber,
-      stockistId: stockist.id,
-      stockistName: stockist.name,
-      stockistPan: stockist.panNumber,
-      date: invoiceHeader.date,
-      paymentMode: invoiceHeader.paymentMode,
-      dueDate: invoiceHeader.dueDate || undefined,
-      items: invoiceItems,
-      subtotal: purchaseInvoiceTotals.subtotal,
-      totalDiscount: purchaseInvoiceTotals.totalDiscount,
-      taxableAmount: purchaseInvoiceTotals.taxableAmount,
-      vatAmount: purchaseInvoiceTotals.vatAmount,
-      grandTotal: purchaseInvoiceTotals.grandTotal,
-      paidAmount: invoiceHeader.paymentMode === 'cash' ? purchaseInvoiceTotals.grandTotal : 0,
-      paymentStatus: invoiceHeader.paymentMode === 'cash' ? 'paid' : 'pending',
-      notes: `Entered by: ${currentUser?.name || 'Admin'} (@${currentUser?.username || 'admin'}). ${invoiceHeader.notes || ''}`.trim()
-    });
+    if (!stockist) {
+      showToast('No stockist selected. Please register a stockist in the directory first.', 'warning', 'Validation');
+      return;
+    }
 
-    showToast(`Purchase Invoice #${invoiceHeader.invoiceNumber} recorded successfully!`, 'success', 'Invoice Saved');
-    setInvoiceHeader({
-      invoiceNumber: '',
-      stockistId: stockists[0]?.id || '',
-      date: localDateString(),
-      paymentMode: 'credit',
-      dueDate: '',
-      notes: ''
-    });
-    setInvoiceItems([
-      {
-        id: 'row-1',
-        medicineName: '',
-        genericName: '',
-        category: 'Tablet',
-        batchNumber: '',
-        expiryDate: '',
-        packQty: 10,
-        freePacks: 0,
-        unitsPerPack: 10,
-        costPrice: 100,
-        discountPercent: 5,
-        isVatApplicable: false,
-        mrpPrice: 130,
-        rackLocation: 'Rack A-1',
-        lineTotal: 950
-      }
-    ]);
-    setActiveTab('ledger');
+    try {
+      setIsSubmittingPurchaseInvoice(true);
+
+      const created = await addPurchaseInvoice({
+        invoiceNumber: invoiceHeader.invoiceNumber.trim(),
+        stockistId: stockist.id,
+        stockistName: stockist.name,
+        stockistPan: stockist.panNumber,
+        date: invoiceHeader.date || localDateString(),
+        paymentMode: invoiceHeader.paymentMode,
+        dueDate: invoiceHeader.dueDate || undefined,
+        items: invoiceItems,
+        subtotal: purchaseInvoiceTotals.subtotal,
+        totalDiscount: purchaseInvoiceTotals.totalDiscount,
+        taxableAmount: purchaseInvoiceTotals.taxableAmount,
+        vatAmount: purchaseInvoiceTotals.vatAmount,
+        grandTotal: purchaseInvoiceTotals.grandTotal,
+        paidAmount: invoiceHeader.paymentMode === 'cash' ? purchaseInvoiceTotals.grandTotal : 0,
+        paymentStatus: invoiceHeader.paymentMode === 'cash' ? 'paid' : 'pending',
+        notes: `Entered by: ${currentUser?.name || 'Admin'} (@${currentUser?.username || 'admin'}). ${invoiceHeader.notes || ''}`.trim()
+      });
+
+      showToast(`Purchase Invoice #${created?.invoiceNumber || invoiceHeader.invoiceNumber} recorded successfully! Stockist ledger & inventory stock updated.`, 'success', 'Invoice Saved');
+      setInvoiceHeader({
+        invoiceNumber: '',
+        stockistId: stockist.id,
+        date: localDateString(),
+        paymentMode: 'credit',
+        dueDate: '',
+        notes: ''
+      });
+      setInvoiceItems([createEmptyInvoiceItem('row-1')]);
+      setSelectedStockistId(stockist.id);
+      setActiveTab('ledger');
+    } catch (err: any) {
+      console.error('Failed to record purchase invoice:', err);
+      showToast(
+        err.message || 'Failed to record purchase bill. Please verify the invoice details and retry.',
+        'error',
+        'Invoice Save Failed'
+      );
+    } finally {
+      setIsSubmittingPurchaseInvoice(false);
+    }
   };
 
   // Submit Stockist Payment
@@ -1785,10 +1783,13 @@ export const StockistManagementView: React.FC = () => {
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Select Wholesaler / Stockist: *</label>
               <select
-                value={invoiceHeader.stockistId}
+                value={invoiceHeader.stockistId || stockists[0]?.id || ''}
                 onChange={(e) => setInvoiceHeader({ ...invoiceHeader, stockistId: e.target.value })}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900 focus:outline-hidden"
               >
+                {stockists.length === 0 && (
+                  <option value="">No stockists registered yet</option>
+                )}
                 {stockists.map(s => (
                   <option key={s.id} value={s.id}>{s.name} (PAN: {s.panNumber})</option>
                 ))}
@@ -1901,151 +1902,175 @@ export const StockistManagementView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {invoiceItems.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3">
-                        <input
-                          type="text"
-                          required
-                          placeholder="Medicine name"
-                          value={item.medicineName}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
-                          className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
-                        />
-                        <div className="mt-1 flex items-center gap-1">
-                          <select
-                            onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
-                            className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
+                  {invoiceItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={12} className="py-8 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <p className="text-xs text-slate-500 font-medium">No medicines added to this bill yet.</p>
+                          <button
+                            type="button"
+                            onClick={handleAddInvoiceItemRow}
+                            className="bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
                           >
-                            <option value="">Or Pick Existing...</option>
-                            {medicines.map(m => (
-                              <option key={m.id} value={m.id}>
-                                {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
-                              </option>
-                            ))}
-                          </select>
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>+ Add Medicine Row</span>
+                          </button>
                         </div>
                       </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="text"
-                          placeholder="Batch"
-                          value={item.batchNumber}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { batchNumber: e.target.value })}
-                          className="w-20 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="date"
-                          value={item.expiryDate}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
-                          className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.packQty}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
-                          className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          placeholder="0"
-                          value={item.looseUnits || 0}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { looseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-indigo-700 font-bold"
-                          title="Loose tabs/units outside full packs"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.freePacks}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
-                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.costPrice}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
-                          className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="100"
-                          value={item.discountPercent}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseDecimalInput(e.target.value, 2) ?? 0 })}
-                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-right"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={item.mrpPrice}
-                          onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
-onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
-                          className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right font-bold text-slate-800"
-                        />
-                      </td>
-
-                      <td className="py-2 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            item.isVatApplicable 
-                              ? 'bg-blue-100 text-blue-800' 
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {item.isVatApplicable ? '13% VAT' : '0% Free'}
-                        </button>
-                      </td>
-
-                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
-                        Rs. {item.lineTotal.toFixed(2)}
-                      </td>
-
-                      <td className="py-2 px-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveInvoiceItem(idx)}
-                          className="p-1 text-rose-500 hover:bg-rose-50 rounded"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    invoiceItems.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-slate-50/50">
+                        <td className="py-2 px-3">
+                          <input
+                            type="text"
+                            required
+                            placeholder="Medicine name"
+                            value={item.medicineName}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
+                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
+                          />
+                          <div className="mt-1 flex items-center gap-1">
+                            <select
+                              onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
+                              className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
+                            >
+                              <option value="">Or Pick Existing...</option>
+                              {medicines.map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </td>
+
+                        <td className="py-2 px-2">
+                          <input
+                            type="text"
+                            placeholder="Batch"
+                            value={item.batchNumber}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { batchNumber: e.target.value })}
+                            className="w-20 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2">
+                          <input
+                            type="date"
+                            value={item.expiryDate}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
+                            className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            value={item.packQty === 0 ? '' : item.packQty}
+                            placeholder="0"
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { packQty: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
+                            className="w-14 border border-slate-300 rounded px-1 py-1 text-xs font-mono font-bold text-center"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={item.looseUnits === 0 ? '' : (item.looseUnits || '')}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { looseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                            className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-indigo-700 font-bold"
+                            title="Loose tabs/units outside full packs"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={item.freePacks === 0 ? '' : item.freePacks}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { freePacks: Math.max(0, parseIntegerInput(e.target.value, 6) ?? 0) })}
+                            className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-emerald-700"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={item.costPrice === 0 ? '' : item.costPrice}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { costPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
+                            className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            placeholder="0"
+                            value={item.discountPercent === 0 ? '' : item.discountPercent}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { discountPercent: parseDecimalInput(e.target.value, 2) ?? 0 })}
+                            className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-right"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0.00"
+                            value={item.mrpPrice === 0 ? '' : item.mrpPrice}
+                            onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                            onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.target.value, 2) ?? 0 })}
+                            className="w-16 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-right font-bold text-slate-800"
+                          />
+                        </td>
+
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              item.isVatApplicable 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {item.isVatApplicable ? '13% VAT' : '0% Free'}
+                          </button>
+                        </td>
+
+                        <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                          Rs. {item.lineTotal.toFixed(2)}
+                        </td>
+
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveInvoiceItem(idx)}
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 hover:text-rose-700 rounded-lg transition-colors cursor-pointer"
+                            title="Delete this medicine row"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -2087,10 +2112,20 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="submit"
-              className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-700/20 flex items-center gap-1.5 transition-all"
+              disabled={isSubmittingPurchaseInvoice}
+              className="px-6 py-2.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-teal-700/20 flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Record Purchase Bill &amp; Update Inventory Stock</span>
+              {isSubmittingPurchaseInvoice ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Recording Purchase Bill &amp; Updating Stock...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Record Purchase Bill &amp; Update Inventory Stock</span>
+                </>
+              )}
             </button>
           </div>
         </form>
