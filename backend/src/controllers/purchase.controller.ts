@@ -190,6 +190,25 @@ class PurchaseValidationError extends Error {
 const roundPurchaseMoney = (value: number): number =>
   Math.round((value + Number.EPSILON) * 100) / 100;
 
+// PostgreSQL NUMERIC limits used by the purchase schema.
+const MAX_DECIMAL_10_2 = 99_999_999.99;
+const MAX_DECIMAL_12_2 = 9_999_999_999.99;
+
+const assertPurchaseNumberFits = (
+  value: number,
+  max: number,
+  fieldLabel: string
+): void => {
+  if (!Number.isFinite(value) || Math.abs(value) > max) {
+    throw new PurchaseValidationError(
+      `${fieldLabel} exceeds the supported maximum of ${max.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}.`
+    );
+  }
+};
+
 
 const isValidPurchaseDateOnly = (
   value: unknown
@@ -393,6 +412,27 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         );
       }
 
+      assertPurchaseNumberFits(
+        packQty,
+        MAX_DECIMAL_10_2,
+        `Pack quantity for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        freePacks,
+        MAX_DECIMAL_10_2,
+        `Free / bonus pack quantity for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        costPrice,
+        MAX_DECIMAL_10_2,
+        `Cost price for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        mrpPrice,
+        MAX_DECIMAL_10_2,
+        `MRP / selling price for '${medicineName}'`
+      );
+
       if (
         !Number.isInteger(reorderLevel) ||
         reorderLevel < 0
@@ -422,6 +462,27 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       const lineVat = isVatApplicable
         ? roundPurchaseMoney(lineTotal * 0.13)
         : 0;
+
+      assertPurchaseNumberFits(
+        grossLine,
+        MAX_DECIMAL_12_2,
+        `Gross purchase amount for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        lineDiscount,
+        MAX_DECIMAL_12_2,
+        `Discount amount for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        lineTotal,
+        MAX_DECIMAL_12_2,
+        `Purchase line total for '${medicineName}'`
+      );
+      assertPurchaseNumberFits(
+        lineVat,
+        MAX_DECIMAL_12_2,
+        `VAT amount for '${medicineName}'`
+      );
 
       return {
         medicineName,
@@ -467,6 +528,12 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
     const calcGrandTotal = roundPurchaseMoney(
       normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0) + calcVat
     );
+
+    assertPurchaseNumberFits(calcSubtotal, MAX_DECIMAL_12_2, "Purchase subtotal");
+    assertPurchaseNumberFits(calcDiscount, MAX_DECIMAL_12_2, "Purchase discount");
+    assertPurchaseNumberFits(calcTaxable, MAX_DECIMAL_12_2, "Purchase taxable amount");
+    assertPurchaseNumberFits(calcVat, MAX_DECIMAL_12_2, "Purchase VAT amount");
+    assertPurchaseNumberFits(calcGrandTotal, MAX_DECIMAL_12_2, "Purchase grand total");
 
     const createdPurchase = await prisma.$transaction(async (tx) => {
       // Serialize duplicate checks for this supplier invoice number without
