@@ -86,6 +86,8 @@ export const InventoryView: React.FC = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [importMode, setImportMode] = useState<'merge' | 'replace' | 'skip'>('merge');
   const [isSubmittingImport, setIsSubmittingImport] = useState(false);
+  const medicineSaveLockRef = useRef(false);
+  const [isSavingMedicine, setIsSavingMedicine] = useState(false);
   const [importResult, setImportResult] = useState<{
     message: string;
     summary?: {
@@ -714,6 +716,11 @@ export const InventoryView: React.FC = () => {
       };
 
 
+      if (medicineSaveLockRef.current) return;
+
+      medicineSaveLockRef.current = true;
+      setIsSavingMedicine(true);
+
       try {
 
         const createdInvoice =
@@ -801,6 +808,9 @@ export const InventoryView: React.FC = () => {
         );
 
         return;
+      } finally {
+        medicineSaveLockRef.current = false;
+        setIsSavingMedicine(false);
       }
 
 
@@ -2364,9 +2374,13 @@ export const InventoryView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold shadow-xs"
+                  disabled={isSavingMedicine}
+                  aria-busy={isSavingMedicine}
+                  className="px-5 py-2 bg-teal-700 hover:bg-teal-800 disabled:bg-teal-500 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold shadow-xs"
                 >
-                  {editingMedicine ? 'Update Medicine' : 'Save to Inventory'}
+                  {isSavingMedicine
+                    ? (editingMedicine ? 'Updating...' : 'Saving...')
+                    : (editingMedicine ? 'Update Medicine' : 'Save to Inventory')}
                 </button>
               </div>
             </form>
