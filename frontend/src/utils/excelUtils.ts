@@ -404,7 +404,6 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       const rackResult = findRowValue(rowMap, FIELD_ALIASES.rackLocation);
       const vatResult = findRowValue(rowMap, FIELD_ALIASES.isVatApplicable);
       const prescriptionResult = findRowValue(rowMap, FIELD_ALIASES.prescriptionRequired);
-      const barcodeResult = findRowValue(rowMap, FIELD_ALIASES.barcode);
       const freePacksResult = findRowValue(rowMap, FIELD_ALIASES.freePacks);
       const discountPercentResult = findRowValue(rowMap, FIELD_ALIASES.discountPercent);
       const creditLimitResult = findRowValue(rowMap, FIELD_ALIASES.creditLimit);
