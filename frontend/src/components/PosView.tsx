@@ -1570,12 +1570,9 @@ export const PosView: React.FC = () => {
 
 
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
                     inputMode="numeric"
-                    step="1"
-                    value={discountValue || ''}
-                    placeholder="0"
+                    value={discountValue === 0 ? '' : discountValue}
                     onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
                     onChange={(event) => {
                       const parsedValue =

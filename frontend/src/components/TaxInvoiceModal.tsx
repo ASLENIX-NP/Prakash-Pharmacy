@@ -147,7 +147,9 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
               <img
                 src={settings.storeLogo || prakashLogo}
                 alt={`${settings.storeName || 'Pharmacy'} logo`}
-                className="mx-auto mb-1 h-12 max-w-24 object-contain"
+                className={`mx-auto mb-1 object-contain ${
+                  format === 'thermal' ? 'h-12 max-w-24' : 'h-24 max-w-40'
+                }`}
               />
               <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
                 TAX INVOICE / VAT BILL (कर बीजक)
