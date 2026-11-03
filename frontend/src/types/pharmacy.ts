@@ -35,7 +35,6 @@ export interface Medicine {
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
   prescriptionRequired?: boolean;
   hasvat?: boolean; // backend compatibility alias
-  barcode?: string;
   notes?: string;
   saleStatus?: MedicineSaleStatus;
   safetyStatus?: MedicineSaleStatus;
@@ -124,7 +123,6 @@ export interface StockistInvoiceItem {
 
   // Optional inventory metadata used when a purchase creates
   // a brand-new inventory medicine.
-  barcode?: string;
   reorderLevel?: number;
   inventoryNotes?: string;
 

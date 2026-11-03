@@ -7,7 +7,7 @@ A production-ready retail pharmacy management, Point of Sale (POS), and Outpatie
 ## Key Modules & Features
 
 ### 1. Point of Sale & Billing (POS)
-- **Fast Search**: Instant lookup by medicine brand name, generic molecule/salt, batch number, or barcode.
+- **Fast Search**: Instant lookup by medicine brand name, generic molecule/salt, batch number, or rack location.
 - **Pack & Loose Dispensing**: Dispenses full packs as well as loose tablets/units with automated stock deduction and pricing conversions.
 - **Statutory Billing**: Automatic computation of 13% VAT items versus VAT-free / exempt items, item discounts, and bill-level discounts.
 - **Sales Returns & Credit Notes**: Customer return processing with reason tracking, refund calculation, and inventory restocking.

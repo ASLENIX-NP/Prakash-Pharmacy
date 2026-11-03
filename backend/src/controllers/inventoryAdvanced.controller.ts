@@ -563,9 +563,14 @@ export const bulkImportInventory = async (
           ? Boolean(provided.isVatApplicable)
           : (item.hasvat !== undefined || item.isVatApplicable !== undefined);
 
-        const hasBarcode = provided
-          ? Boolean(provided.barcode)
-          : Boolean(cleanString(item.barcode));
+        const hasPrescriptionRequired = provided
+          ? Boolean(provided.prescriptionRequired)
+          : (
+              item.prescriptionRequired !== undefined &&
+              item.prescriptionRequired !== null &&
+              item.prescriptionRequired !== ""
+            );
+
 
         const hasNotes = provided
           ? Boolean(provided.notes)
@@ -722,8 +727,6 @@ export const bulkImportInventory = async (
             const hasvat = hasVat
               ? toBoolean(item.hasvat ?? item.isVatApplicable, false)
               : false;
-
-            const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
             const notes = hasNotes ? cleanString(item.notes) || null : null;
             const distributorId = targetDistId;
 
@@ -782,7 +785,12 @@ export const bulkImportInventory = async (
                         costPrice,
                         sellingPrice,
                         hasvat,
-                        barcode,
+                        prescriptionRequired: hasPrescriptionRequired
+                          ? toBoolean(
+                              item.prescriptionRequired,
+                              Boolean(existing.prescriptionRequired)
+                            )
+                          : Boolean(existing.prescriptionRequired),
                         notes,
                       },
 
@@ -938,8 +946,12 @@ export const bulkImportInventory = async (
             );
           }
 
-          if (hasBarcode) {
-            updateData.barcode = cleanString(item.barcode) || null;
+
+          if (hasPrescriptionRequired) {
+            updateData.prescriptionRequired = toBoolean(
+              item.prescriptionRequired,
+              Boolean(existing.prescriptionRequired)
+            );
           }
 
           if (hasNotes) {
@@ -1125,8 +1137,6 @@ export const bulkImportInventory = async (
         const hasvat = hasVat
           ? toBoolean(item.hasvat ?? item.isVatApplicable, false)
           : false;
-
-        const barcode = hasBarcode ? cleanString(item.barcode) || null : null;
         const notes = hasNotes ? cleanString(item.notes) || null : null;
         const distributorId = targetDistId;
 
@@ -1166,7 +1176,9 @@ export const bulkImportInventory = async (
               costPrice,
               sellingPrice,
               hasvat,
-              barcode,
+              prescriptionRequired: hasPrescriptionRequired
+                ? toBoolean(item.prescriptionRequired, false)
+                : false,
               notes,
             },
             include: {

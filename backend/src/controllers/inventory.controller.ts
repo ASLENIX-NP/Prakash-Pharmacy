@@ -268,8 +268,6 @@ export const formatInventoryItem = (inv: any) => {
     supplierName:
       inv.distributor?.name ?? "",
 
-    barcode:
-      inv.barcode ?? "",
 
     prescriptionRequired:
       Boolean(inv.prescriptionRequired),
@@ -626,13 +624,6 @@ export const createInventory = async (req: Request, res: Response): Promise<void
         ? distributorResolutionOnCreate.id
         : null;
 
-    const normalizedBarcode =
-      req.body.barcode === undefined ||
-      req.body.barcode === null
-        ? null
-        : String(
-            req.body.barcode
-          ).trim() || null;
 
     const normalizedNotes =
       req.body.notes === undefined ||
@@ -800,7 +791,6 @@ export const createInventory = async (req: Request, res: Response): Promise<void
           categoryId: finalCategoryId,
           rackId: finalRackId,
           distributorId: finalDistributorId,
-          barcode: normalizedBarcode,
           notes: normalizedNotes,
           unitPerPack: finalUnitPerPack,
           packInStock: finalPackInStock,
@@ -1328,19 +1318,6 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
         distributorResolutionOnUpdate.id;
     }
 
-    if (
-      Object.prototype.hasOwnProperty.call(
-        req.body,
-        "barcode"
-      )
-    ) {
-      updateData.barcode =
-        req.body.barcode === null
-          ? null
-          : String(
-              req.body.barcode
-            ).trim() || null;
-    }
 
     if (
       Object.prototype.hasOwnProperty.call(

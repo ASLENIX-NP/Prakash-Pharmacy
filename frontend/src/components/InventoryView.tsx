@@ -351,9 +351,6 @@ export const InventoryView: React.FC = () => {
       expiryDate: String(formData.expiryDate).trim()
     };
 
-    // Barcode is intentionally dormant for now and must not be sent by
-    // normal Add/Edit Medicine workflows.
-    delete normalizedFormData.barcode;
 
     const requiredNumbers = [
       formData.unitsPerPack,
@@ -926,12 +923,9 @@ export const InventoryView: React.FC = () => {
 
         const invoiceItems: StockistInvoiceItem[] = parsedImportItems.map((item, idx) => {
           const packs = Number(item.stockPacks) || 0;
-          const loose = Number(item.stockLooseUnits) || 0;
           const upp = Number(item.unitsPerPack) > 0 ? Number(item.unitsPerPack) : 10;
           const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
-          const looseCost = upp > 1 ? (cost / upp) : cost;
-          const lineTotal = Math.round(((packs * cost) + (loose * looseCost)) * 100) / 100;
-
+          const lineTotal = Math.round((packs * cost) * 100) / 100;
           return {
             id: `row-${Date.now()}-${idx}`,
             medicineName: item.name,
@@ -940,12 +934,13 @@ export const InventoryView: React.FC = () => {
             batchNumber: item.batchNumber || '',
             expiryDate: item.expiryDate || '',
             packQty: packs,
-            looseUnits: loose,
+            looseUnits: 0,
             freePacks: 0,
             unitsPerPack: upp,
             costPrice: cost,
             discountPercent: 0,
             isVatApplicable: Boolean(item.isVatApplicable),
+            prescriptionRequired: Boolean(item.prescriptionRequired),
             mrpPrice: item.mrpPrice || (cost > 0 ? Math.round(cost * 1.25 * 100) / 100 : 0),
             rackLocation: item.rackLocation || 'Unassigned',
             lineTotal
@@ -1738,7 +1733,6 @@ export const InventoryView: React.FC = () => {
                             <div className="font-mono text-right">
                               <span className="text-slate-700">
                                 {item.stockPacks} pk
-                                {item.stockLooseUnits && item.stockLooseUnits > 0 ? ` + ${item.stockLooseUnits} tabs` : ''}
                               </span>
                               {(item.costPrice > 0 || item.mrpPrice > 0) && (
                                 <span className="text-teal-700 ml-2">@ Rs. {item.costPrice > 0 ? item.costPrice : item.mrpPrice}</span>

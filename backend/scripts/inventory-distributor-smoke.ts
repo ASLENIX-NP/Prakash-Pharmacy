@@ -1,4 +1,4 @@
-﻿import "dotenv/config";
+import "dotenv/config";
 import app from "../src/app.js";
 import { prisma } from "../src/db.js";
 
@@ -51,7 +51,7 @@ async function main() {
     "=============================================="
   );
   console.log(
-    " Distributor + Barcode + Notes Smoke Test"
+    " Distributor + Prescription + Notes Smoke Test"
   );
   console.log(
     "=============================================="
@@ -103,12 +103,10 @@ async function main() {
     `DIST-${stamp}`;
 
 
-  const firstBarcode =
-    `BARCODE-${stamp}-A`;
+  const firstPrescriptionRequired = true;
 
 
-  const updatedBarcode =
-    `BARCODE-${stamp}-B`;
+  const updatedPrescriptionRequired = false;
 
 
   const firstNotes =
@@ -331,8 +329,8 @@ async function main() {
                   distributorId
                 ),
 
-              barcode:
-                firstBarcode,
+              prescriptionRequired:
+                firstPrescriptionRequired,
 
               notes:
                 firstNotes,
@@ -388,9 +386,9 @@ async function main() {
 
 
     assert(
-      created?.barcode ===
-      firstBarcode,
-      "Create response did not return barcode."
+      created?.prescriptionRequired ===
+      firstPrescriptionRequired,
+      "Create response prescription requirement mismatch."
     );
 
 
@@ -402,7 +400,7 @@ async function main() {
 
 
     console.log(
-      `PASS 3/8  Medicine created with distributor + barcode + notes (${createdCode})`
+      `PASS 3/8  Medicine created with distributor + prescription + notes (${createdCode})`
     );
 
 
@@ -445,9 +443,9 @@ async function main() {
 
 
     assert(
-      dbMedicine.barcode ===
-      firstBarcode,
-      "Barcode was not persisted in PostgreSQL."
+      dbMedicine.prescriptionRequired ===
+      firstPrescriptionRequired,
+      "Prescription requirement was not persisted in PostgreSQL."
     );
 
 
@@ -496,9 +494,9 @@ async function main() {
 
 
     assert(
-      fetched?.barcode ===
-      firstBarcode,
-      "GET response barcode mismatch."
+      fetched?.prescriptionRequired ===
+      firstPrescriptionRequired,
+      "GET response prescription requirement mismatch."
     );
 
 
@@ -510,12 +508,12 @@ async function main() {
 
 
     console.log(
-      "PASS 5/8  GET medicine returns supplier + barcode + notes"
+      "PASS 5/8  GET medicine returns supplier + prescription + notes"
     );
 
 
     // ========================================================
-    // 6/8 UPDATE BARCODE + NOTES
+    // 6/8 UPDATE PRESCRIPTION + NOTES
     // ========================================================
 
     const update =
@@ -529,8 +527,8 @@ async function main() {
 
           body:
             JSON.stringify({
-              barcode:
-                updatedBarcode,
+              prescriptionRequired:
+                updatedPrescriptionRequired,
 
               notes:
                 updatedNotes,
@@ -557,9 +555,9 @@ async function main() {
 
 
     assert(
-      updated?.barcode ===
-      updatedBarcode,
-      "Updated barcode was not returned."
+      updated?.prescriptionRequired ===
+      updatedPrescriptionRequired,
+      "Updated prescription requirement was not returned."
     );
 
 
@@ -578,7 +576,7 @@ async function main() {
 
 
     console.log(
-      "PASS 6/8  Barcode + notes update works"
+      "PASS 6/8  Prescription + notes update works"
     );
 
 
@@ -601,9 +599,9 @@ async function main() {
 
 
     assert(
-      updatedDb?.barcode ===
-      updatedBarcode,
-      "Updated barcode not persisted in database."
+      updatedDb?.prescriptionRequired ===
+      updatedPrescriptionRequired,
+      "Updated prescription requirement not persisted in database."
     );
 
 
@@ -682,9 +680,9 @@ async function main() {
 
 
     assert(
-      listMedicine.barcode ===
-      updatedBarcode,
-      "Inventory list barcode missing."
+      listMedicine.prescriptionRequired ===
+      updatedPrescriptionRequired,
+      "Inventory list prescription requirement mismatch."
     );
 
 
@@ -696,7 +694,7 @@ async function main() {
 
 
     console.log(
-      "PASS 8/8  Inventory list DTO includes distributor + barcode + notes"
+      "PASS 8/8  Inventory list DTO includes distributor + prescription + notes"
     );
 
 
@@ -705,7 +703,7 @@ async function main() {
       "=============================================="
     );
     console.log(
-      " ALL DISTRIBUTOR / BARCODE / NOTES TESTS PASSED"
+      " ALL DISTRIBUTOR / PRESCRIPTION / NOTES TESTS PASSED"
     );
     console.log(
       "=============================================="
@@ -778,7 +776,7 @@ main()
 
       console.error("");
       console.error(
-        "DISTRIBUTOR / BARCODE / NOTES SMOKE TEST FAILED:"
+        "DISTRIBUTOR / PRESCRIPTION / NOTES SMOKE TEST FAILED:"
       );
 
       console.error(
