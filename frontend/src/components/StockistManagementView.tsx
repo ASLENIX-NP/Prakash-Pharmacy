@@ -225,7 +225,7 @@ export const StockistManagementView: React.FC = () => {
   const [debitNoteNumber, setDebitNoteNumber] = useState(`DN-${Date.now().toString().slice(-4)}`);
   const [returnItems, setReturnItems] = useState<StockistReturnItem[]>([]);
   const [selectedReturnMedId, setSelectedReturnMedId] = useState<string>('');
-  const [returnPacks, setReturnPacks] = useState<number>(1);
+  const [returnPacks, setReturnPacks] = useState<number>(0);
   const [returnLoose, setReturnLoose] = useState<number>(0);
 
 
@@ -1298,7 +1298,7 @@ export const StockistManagementView: React.FC = () => {
 
     setSelectedReturnMedId('');
     setSelectedReturnPurchaseItemId('');
-    setReturnPacks(1);
+    setReturnPacks(0);
     setReturnLoose(0);
 
 
@@ -2507,7 +2507,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 <input
                   type="number"
                   min="0"
-                  value={returnPacks}
+                  value={returnPacks || ''}
                   onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
 onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs font-mono font-bold"
@@ -3200,7 +3200,11 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                   value={paymentAmount || ''}
                   onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
 onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
-                  placeholder={currentSelectedStockist.currentBalance.toFixed(2)}
+                  placeholder={
+                    currentSelectedStockist.currentBalance > 0
+                      ? currentSelectedStockist.currentBalance.toFixed(2)
+                      : ''
+                  }
                   className="w-full border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900 text-sm"
                 />
               </div>

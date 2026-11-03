@@ -645,9 +645,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                               <Minus className="h-3.5 w-3.5" />
                             </button>
                             <input
-                              type="number"
-                              min="0"
-                              step="1"
+                              type="text"
                               inputMode="numeric"
                               aria-label={`Counted packs for ${medicine.name}`}
                               value={count.packs || ''}
@@ -671,10 +669,7 @@ export const PhysicalStockWorksheetView: React.FC = () => {
                         </td>
                         <td className="border-r border-teal-100 bg-teal-50/40 px-3 py-3.5">
                           <input
-                            type="number"
-                            min="0"
-                            max={medicine.unitsPerPack - 1}
-                            step="1"
+                            type="text"
                             inputMode="numeric"
                             aria-label={`Loose units counted for ${medicine.name}`}
                             value={count.loose || ''}
