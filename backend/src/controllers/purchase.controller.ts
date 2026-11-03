@@ -318,9 +318,10 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       }
 
       const packQty = Number(item.packQty ?? 0);
-      const looseUnits = Number(
+      const submittedLooseUnits = Number(
         item.looseUnits ?? item.stockLooseUnits ?? item.unitInStock ?? 0
       );
+      const looseUnits = 0;
       const freePacks = Number(item.freePacks ?? 0);
       const unitsPerPack = Number(item.unitsPerPack ?? 10);
       const costPrice = Number(item.costPrice ?? 0);
@@ -331,17 +332,24 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         "isVatApplicable"
       );
 
+      const prescriptionRequiredProvided =
+        item.prescriptionRequired !== undefined &&
+        item.prescriptionRequired !== null &&
+        String(item.prescriptionRequired).trim() !== "";
+
+      const prescriptionRequired =
+        prescriptionRequiredProvided
+          ? parsePurchaseBoolean(
+              item.prescriptionRequired,
+              "prescriptionRequired"
+            )
+          : false;
+
       const reorderLevel = Number(
         item.reorderLevel ??
         item.packAlertLevel ??
         15
       );
-
-      const barcode =
-        item.barcode === undefined ||
-        item.barcode === null
-          ? null
-          : String(item.barcode).trim() || null;
 
       const inventoryNotes =
         item.inventoryNotes === undefined ||
@@ -351,11 +359,17 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
 
       if (
         !Number.isInteger(packQty) || packQty < 0 ||
-        !Number.isInteger(looseUnits) || looseUnits < 0 ||
+        !Number.isInteger(submittedLooseUnits) || submittedLooseUnits < 0 ||
         !Number.isInteger(freePacks) || freePacks < 0
       ) {
         throw new PurchaseValidationError(
           `Purchase quantities for '${medicineName}' must be whole, non-negative numbers.`
+        );
+      }
+
+      if (submittedLooseUnits !== 0) {
+        throw new PurchaseValidationError(
+          `Loose-unit purchasing is not supported for '${medicineName}'. Receive wholesaler stock as complete packs only.`
         );
       }
       if (!Number.isInteger(unitsPerPack) || unitsPerPack <= 0) {
@@ -363,14 +377,9 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           `Units per pack for '${medicineName}' must be a positive whole number.`
         );
       }
-      if (looseUnits >= unitsPerPack) {
+      if (packQty + freePacks === 0) {
         throw new PurchaseValidationError(
-          `Loose units for '${medicineName}' must be less than units per pack; convert complete loose packs into pack quantity.`
-        );
-      }
-      if (packQty + freePacks === 0 && looseUnits === 0) {
-        throw new PurchaseValidationError(
-          `Purchase row for '${medicineName}' must receive at least one pack or loose unit.`
+          `Purchase row for '${medicineName}' must receive at least one complete pack.`
         );
       }
       if (!Number.isFinite(costPrice) || costPrice < 0) {
@@ -403,9 +412,8 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         );
       }
 
-      const looseCost = costPrice / unitsPerPack;
       const grossLine = roundPurchaseMoney(
-        packQty * costPrice + looseUnits * looseCost
+        packQty * costPrice
       );
       const lineDiscount = roundPurchaseMoney(
         grossLine * discountPercent / 100
@@ -427,6 +435,8 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         mrpPrice: roundPurchaseMoney(mrpPrice),
         discountPercent,
         isVatApplicable,
+        prescriptionRequired,
+        prescriptionRequiredProvided,
         grossLine,
         lineDiscount,
         lineTotal,
@@ -434,7 +444,6 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
         genericName: String(item.genericName || medicineName).trim(),
         categoryName: String(item.category || item.categoryName || "Tablet").trim(),
         rackLocation: String(item.rackLocation || "General Shelf").trim(),
-        barcode,
         reorderLevel,
         inventoryNotes,
       };
@@ -537,11 +546,12 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           mrpPrice,
           discountPercent,
           isVatApplicable,
+          prescriptionRequired,
+          prescriptionRequiredProvided,
           lineTotal,
           genericName,
           categoryName,
           rackLocation,
-          barcode,
           reorderLevel,
           inventoryNotes,
         } = item;
@@ -619,7 +629,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           }
 
           const incomingUnits =
-            totalPacksReceived * existingUnitsPerPack + looseUnits;
+            totalPacksReceived * existingUnitsPerPack;
 
           const rows = await tx.$queryRaw<Array<{ id: number }>>`
             UPDATE inventory_tbl
@@ -627,7 +637,13 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
                      ((pack_in_stock * unit_per_pack + unit_in_stock + ${incomingUnits}) / unit_per_pack),
                    unit_in_stock =
                      MOD(pack_in_stock * unit_per_pack + unit_in_stock + ${incomingUnits}, unit_per_pack),
-                   distributor_id = COALESCE(distributor_id, ${targetDistributorId})
+                   distributor_id = COALESCE(distributor_id, ${targetDistributorId}),
+                   prescription_required =
+                     CASE
+                       WHEN ${prescriptionRequiredProvided}
+                         THEN ${prescriptionRequired}
+                       ELSE prescription_required
+                     END
              WHERE id = ${existingInventory.id}
             RETURNING id
           `;
@@ -652,12 +668,12 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
               distributorId: targetDistributorId,
               unitPerPack: unitsPerPack,
               packInStock: totalPacksReceived,
-              unitInStock: looseUnits,
+              unitInStock: 0,
               packAlertLevel: reorderLevel,
               costPrice,
               sellingPrice: mrpPrice,
               hasvat: isVatApplicable,
-              barcode,
+              prescriptionRequired,
               notes:
                 inventoryNotes ||
                 `Purchased via Inward Invoice #${cleanInvoiceNumber}`,

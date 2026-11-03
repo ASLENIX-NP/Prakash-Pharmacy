@@ -792,10 +792,8 @@ export const StockistManagementView: React.FC = () => {
     const updated = [...invoiceItems];
     const current = { ...updated[index], ...updates };
 
-    // Calculate line total: (packQty * costPrice + looseUnits * (costPrice / unitsPerPack)) * (1 - discountPercent/100)
-    const upp = (current.unitsPerPack && current.unitsPerPack > 0) ? current.unitsPerPack : 1;
-    const looseCost = upp > 1 ? (current.costPrice / upp) : current.costPrice;
-    const baseAmount = (current.packQty * current.costPrice) + ((current.looseUnits || 0) * looseCost);
+    // Calculate line total from purchased packs only.
+    const baseAmount = current.packQty * current.costPrice;
     const discountAmt = (baseAmount * (current.discountPercent || 0)) / 100;
     current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
 
@@ -826,6 +824,7 @@ export const StockistManagementView: React.FC = () => {
       costPrice,
       mrpPrice: med.mrpPrice,
       isVatApplicable: med.isVatApplicable,
+      prescriptionRequired: Boolean(med.prescriptionRequired),
       rackLocation: med.rackLocation
     });
   };
@@ -845,11 +844,9 @@ export const StockistManagementView: React.FC = () => {
 
       const importedRows: StockistInvoiceItem[] = res.success.map((m, idx) => {
         const packQty = m.stockPacks || 0;
-        const looseUnits = m.stockLooseUnits || 0;
         const costPrice = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
         const unitsPerPack = m.unitsPerPack || 10;
-        const looseCost = unitsPerPack > 1 ? (costPrice / unitsPerPack) : costPrice;
-        const lineTotal = Math.round(((packQty * costPrice) + (looseUnits * looseCost)) * 100) / 100;
+        const lineTotal = Math.round((packQty * costPrice) * 100) / 100;
 
         return {
           id: `imp-${Date.now()}-${idx}`,
@@ -858,13 +855,13 @@ export const StockistManagementView: React.FC = () => {
           category: m.category || 'Tablet',
           batchNumber: m.batchNumber || '',
           expiryDate: m.expiryDate || '',
-          packQty: packQty > 0 ? packQty : (looseUnits > 0 ? 0 : 1),
-          looseUnits,
+          packQty: packQty > 0 ? packQty : 1,
           freePacks: 0,
           unitsPerPack,
           costPrice,
           discountPercent: 0,
           isVatApplicable: Boolean(m.isVatApplicable),
+          prescriptionRequired: Boolean(m.prescriptionRequired),
           mrpPrice: m.mrpPrice || (costPrice > 0 ? Math.round(costPrice * 1.25 * 100) / 100 : 0),
           rackLocation: m.rackLocation || 'Unassigned',
           lineTotal
@@ -900,9 +897,7 @@ export const StockistManagementView: React.FC = () => {
     let vatAmount = 0;
 
     invoiceItems.forEach(it => {
-      const upp = (it.unitsPerPack && it.unitsPerPack > 0) ? it.unitsPerPack : 1;
-      const looseCost = upp > 1 ? (it.costPrice / upp) : it.costPrice;
-      const gross = (it.packQty * it.costPrice) + ((it.looseUnits || 0) * looseCost);
+      const gross = it.packQty * it.costPrice;
       const disc = (gross * (it.discountPercent || 0)) / 100;
       const net = gross - disc;
 
@@ -955,12 +950,12 @@ export const StockistManagementView: React.FC = () => {
       showToast('Units per pack must be a positive whole number for every purchase row.', 'warning', 'Validation');
       return;
     }
-    if (invoiceItems.some(it => !Number.isInteger(it.packQty) || it.packQty < 0 || !Number.isInteger(it.looseUnits || 0) || (it.looseUnits || 0) < 0 || (it.looseUnits || 0) >= it.unitsPerPack)) {
-      showToast('Purchase quantities must be whole numbers, non-negative, and loose units must be less than one full pack.', 'warning', 'Validation');
+    if (invoiceItems.some(it => !Number.isInteger(it.packQty) || it.packQty < 0 || !Number.isInteger(it.freePacks || 0) || (it.freePacks || 0) < 0)) {
+      showToast('Pack and free-pack quantities must be whole, non-negative numbers.', 'warning', 'Validation');
       return;
     }
-    if (invoiceItems.some(it => (it.packQty + (it.freePacks || 0)) <= 0 && (it.looseUnits || 0) <= 0)) {
-      showToast('Every purchase row must receive at least one pack or loose unit.', 'warning', 'Validation');
+    if (invoiceItems.some(it => (it.packQty + (it.freePacks || 0)) <= 0)) {
+      showToast('Every purchase row must receive at least one complete pack.', 'warning', 'Validation');
       return;
     }
 
@@ -985,7 +980,7 @@ export const StockistManagementView: React.FC = () => {
         date: invoiceHeader.date || localDateString(),
         paymentMode: invoiceHeader.paymentMode,
         dueDate: invoiceHeader.dueDate || undefined,
-        items: invoiceItems,
+        items: invoiceItems.map(item => ({ ...item, looseUnits: 0 })),
         subtotal: purchaseInvoiceTotals.subtotal,
         totalDiscount: purchaseInvoiceTotals.totalDiscount,
         taxableAmount: purchaseInvoiceTotals.taxableAmount,
@@ -1663,7 +1658,7 @@ export const StockistManagementView: React.FC = () => {
                         <span>Edit</span>
                       </button>
                     </div>
-                    <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || '—'}</span>
+                    <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || 'â€”'}</span>
                   </div>
                   <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
                     stk.currentBalance > 0
@@ -1975,16 +1970,6 @@ export const StockistManagementView: React.FC = () => {
                         />
                       </td>
 
-                      <td className="py-2 px-2 text-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={item.looseUnits || ''}
-                          onChange={(e) => handleUpdateInvoiceItem(idx, { looseUnits: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                          className="w-12 border border-slate-300 rounded px-1 py-1 text-xs font-mono text-center text-indigo-700 font-bold"
-                          title="Loose tabs/units outside full packs"
-                        />
-                      </td>
 
                       <td className="py-2 px-2 text-center">
                         <input
@@ -2034,19 +2019,35 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                         />
                       </td>
 
-                        <td className="py-2 px-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                              item.isVatApplicable 
-                                ? 'bg-blue-100 text-blue-800' 
-                                : 'bg-emerald-100 text-emerald-800'
-                            }`}
-                          >
-                            {item.isVatApplicable ? '13% VAT' : '0% Free'}
-                          </button>
-                        </td>
+                      <td className="py-2 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateInvoiceItem(idx, { isVatApplicable: !item.isVatApplicable })}
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            item.isVatApplicable
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}
+                        >
+                          {item.isVatApplicable ? '13% VAT' : '0% Free'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleUpdateInvoiceItem(idx, {
+                              prescriptionRequired: !Boolean(item.prescriptionRequired)
+                            })
+                          }
+                          className={`mt-1 block w-full text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            item.prescriptionRequired
+                              ? 'bg-amber-100 text-amber-900'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                          title="Whether this medicine requires a doctor prescription at POS"
+                        >
+                          {item.prescriptionRequired ? 'Rx: Yes' : 'Rx: No'}
+                        </button>
+                      </td>
 
                         <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
                           Rs. {item.lineTotal.toFixed(2)}
@@ -2225,10 +2226,10 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    PAN: {currentSelectedStockist.panNumber || '—'} <span className="px-1">·</span>
-                    Phone: {currentSelectedStockist.phone || '—'} <span className="px-1">·</span>
+                    PAN: {currentSelectedStockist.panNumber || 'â€”'} <span className="px-1">Â·</span>
+                    Phone: {currentSelectedStockist.phone || 'â€”'} <span className="px-1">Â·</span>
                     {currentSelectedStockist.address || 'Address not provided'}
-                    {currentSelectedStockist.notes ? ` · Note: ${currentSelectedStockist.notes}` : ''}
+                    {currentSelectedStockist.notes ? ` Â· Note: ${currentSelectedStockist.notes}` : ''}
                   </p>
                 </div>
                 <div className="min-w-44 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:text-right">
@@ -2317,10 +2318,10 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                             {entry.description}
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-emerald-700">
-                            {entry.debit > 0 ? currency(entry.debit) : '—'}
+                            {entry.debit > 0 ? currency(entry.debit) : 'â€”'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-rose-700">
-                            {entry.credit > 0 ? currency(entry.credit) : '—'}
+                            {entry.credit > 0 ? currency(entry.credit) : 'â€”'}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-extrabold text-slate-900">
                             {currency(entry.balance)}
@@ -2476,7 +2477,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                   </option>
                   {(showAllMedsInReturn ? medicines : eligibleReturnMedicines).map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.name} • Batch: {m.batchNumber || 'N/A'} • Exp: {m.expiryDate || 'N/A'} • Stock: {m.stockPacks} pk
+                      {m.name} â€¢ Batch: {m.batchNumber || 'N/A'} â€¢ Exp: {m.expiryDate || 'N/A'} â€¢ Stock: {m.stockPacks} pk
                     </option>
                   ))}
                 </select>
@@ -2557,19 +2558,19 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                         value={option.purchaseItemId}
                       >
                         #{option.invoiceNumber}
-                        {' • '}
+                        {' â€¢ '}
                         {option.invoiceDate}
-                        {' • Remaining: '}
+                        {' â€¢ Remaining: '}
                         {remainingPacks} pk
                         {remainingLoose > 0
                           ? ` + ${remainingLoose} loose`
                           : ''}
-                        {' • Net Rs. '}
+                        {' â€¢ Net Rs. '}
                         {option.effectiveNetCostPerPack.toFixed(2)}
                         /pk
                         {option.isVatApplicable
                           ? ' + VAT'
-                          : ' • Non-VAT'}
+                          : ' â€¢ Non-VAT'}
                       </option>
                     );
                   })}
@@ -2596,25 +2597,25 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                           Original invoice #{selectedPurchase.invoiceNumber}
                         </strong>
 
-                        {' • Cost Rs. '}
+                        {' â€¢ Cost Rs. '}
                         {Number(
                           selectedPurchase.item.costPrice ||
                             0
                         ).toFixed(2)}
                         /pk
 
-                        {' • Discount '}
+                        {' â€¢ Discount '}
                         {Number(
                           selectedPurchase.item.discountPercent ||
                             0
                         ).toFixed(2)}
                         %
 
-                        {' • Net Rs. '}
+                        {' â€¢ Net Rs. '}
                         {selectedPurchase.effectiveNetCostPerPack.toFixed(2)}
                         /pk
 
-                        {' • '}
+                        {' â€¢ '}
                         {selectedPurchase.isVatApplicable
                           ? 'VAT 13%'
                           : 'Non-VAT'}
@@ -2816,7 +2817,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
           <div className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Register New Wholesaler / Stockist</h4>
-              <button onClick={() => setShowAddStockistModal(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button onClick={() => setShowAddStockistModal(false)} className="text-slate-400 hover:text-white">âœ•</button>
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div>
@@ -2995,7 +2996,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                 onClick={() => setShowEditStockistModal(false)} 
                 className="text-slate-400 hover:text-white text-base"
               >
-                ✕
+                âœ•
               </button>
             </div>
             
@@ -3182,7 +3183,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
           <form onSubmit={handleRecordPayment} className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Record Payment to {currentSelectedStockist.name}</h4>
-              <button type="button" onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white">✕</button>
+              <button type="button" onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white">âœ•</button>
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between">
@@ -3277,7 +3278,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
-                      {settings?.storeName || 'Prakash Pharmacy'} • Inward Tax Invoice
+                      {settings?.storeName || 'Prakash Pharmacy'} â€¢ Inward Tax Invoice
                     </span>
                     <span className="font-mono text-xs font-bold bg-white/10 px-2 py-0.5 rounded-lg border border-white/10 text-white">
                       #{viewingPurchaseBill.invoiceNumber}
@@ -3287,7 +3288,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
                         : 'bg-amber-500/20 text-amber-300 border-amber-400/30'
                     }`}>
-                      {viewingPurchaseBill.paymentMode === 'cash' ? '💵 Cash Bill (Paid)' : '📑 Credit Bill (Payable)'}
+                      {viewingPurchaseBill.paymentMode === 'cash' ? 'ðŸ’µ Cash Bill (Paid)' : 'ðŸ“‘ Credit Bill (Payable)'}
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-extrabold text-white mt-0.5">
@@ -3295,7 +3296,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                   </h3>
                   <p className="text-xs text-slate-300 mt-0.5 flex flex-wrap items-center gap-2">
                     {viewingPurchaseBill.stockistPan && <span>PAN: <strong className="text-white font-mono">{viewingPurchaseBill.stockistPan}</strong></span>}
-                    {viewingPurchaseBill.date && <span>• Date: <strong className="text-white font-mono">{viewingPurchaseBill.date}</strong></span>}
+                    {viewingPurchaseBill.date && <span>â€¢ Date: <strong className="text-white font-mono">{viewingPurchaseBill.date}</strong></span>}
                   </p>
                 </div>
               </div>
@@ -3360,7 +3361,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                   className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition text-base font-bold cursor-pointer"
                   title="Close"
                 >
-                  ✕
+                  âœ•
                 </button>
               </div>
             </div>
@@ -3375,7 +3376,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                     {viewingPurchaseBill.stockistName}
                   </strong>
                   <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
-                    PAN: {viewingPurchaseBill.stockistPan || '—'}
+                    PAN: {viewingPurchaseBill.stockistPan || 'â€”'}
                   </span>
                 </div>
                 <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
@@ -3384,7 +3385,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                     Bill #{viewingPurchaseBill.invoiceNumber}
                   </strong>
                   <span className="text-[10px] text-slate-500 block mt-0.5">
-                    Date: {viewingPurchaseBill.date || '—'}
+                    Date: {viewingPurchaseBill.date || 'â€”'}
                   </span>
                 </div>
                 <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl">
@@ -3489,11 +3490,11 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                             </td>
                             <td className="py-2.5 px-2 font-mono text-[11px] font-semibold text-slate-700">
                               <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                {item.batchNumber || '—'}
+                                {item.batchNumber || 'â€”'}
                               </span>
                             </td>
                             <td className="py-2.5 px-2 font-mono text-[11px] text-slate-600">
-                              {item.expiryDate || '—'}
+                              {item.expiryDate || 'â€”'}
                             </td>
                             <td className="py-2.5 px-2 text-center font-bold font-mono text-slate-800">
                               <span>{item.packQty} pk</span>
@@ -3520,7 +3521,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                                   +{margin}%
                                 </span>
                               ) : (
-                                <span className="text-slate-400">—</span>
+                                <span className="text-slate-400">â€”</span>
                               )}
                             </td>
                             <td className="py-2.5 px-2 text-center font-mono text-[10px]">
