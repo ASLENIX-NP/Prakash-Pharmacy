@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Banknote,
   ChevronDown,
@@ -20,6 +20,64 @@ import {
   Medicine,
   SaleItem,
 } from '../types/pharmacy';
+
+interface CartQtyInputProps {
+  value: number;
+  onUpdate: (qty: number) => void;
+}
+
+const CartQtyInput: React.FC<CartQtyInputProps> = ({ value, onUpdate }) => {
+  const [localVal, setLocalVal] = useState<string>(String(value));
+
+  useEffect(() => {
+    setLocalVal(String(value));
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    if (raw === '') {
+      setLocalVal('');
+      return;
+    }
+    const parsed = parseIntegerInput(raw, 5);
+    if (parsed !== undefined) {
+      setLocalVal(String(parsed));
+      if (parsed > 0) {
+        onUpdate(parsed);
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseIntegerInput(localVal, 5);
+    if (!parsed || parsed <= 0) {
+      setLocalVal(String(value || 1));
+      onUpdate(value || 1);
+    } else {
+      setLocalVal(String(value));
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    preventInvalidNumberKeys(e, false);
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={localVal}
+      onFocus={(e) => e.target.select()}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={handleKeyDown}
+      className="h-6 w-11 rounded-md border border-slate-200 text-center font-mono text-[11px] font-bold outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+    />
+  );
+};
 
 export const PosView: React.FC = () => {
   const { showToast, confirmDialog } = useDialog();
@@ -1485,19 +1543,9 @@ export const PosView: React.FC = () => {
                       <Minus className="h-3 w-3" />
                     </button>
 
-                    <input
-                      type="number"
-                      min="1"
-                      inputMode="numeric"
+                    <CartQtyInput
                       value={item.quantity}
-                      onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
-                      onChange={(event) =>
-                        handleUpdateQty(
-                          index,
-                          parseIntegerInput(event.target.value, 6) ?? 1
-                        )
-                      }
-                      className="h-6 w-8 rounded-md border border-slate-200 text-center font-mono text-[11px] font-bold outline-none"
+                      onUpdate={(newQty) => handleUpdateQty(index, newQty)}
                     />
 
                     <button
