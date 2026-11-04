@@ -55,6 +55,10 @@ const MEDICINE_CATEGORIES: MedicineCategory[] = [
   'Other'
 ];
 
+// Wholesalers without a status are treated as active for legacy compatibility.
+const isActiveStockist = (status?: string) =>
+  !status || status.trim().toLowerCase() === 'active';
+
 export const InventoryView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
@@ -252,6 +256,7 @@ export const InventoryView: React.FC = () => {
 
   // Handle open Add Modal
   const handleOpenAdd = () => {
+    const defaultStockist = stockists.find(s => isActiveStockist(s.status));
     setEditingMedicine(null);
     setManualDistributorMode('select');
     setManualNewDistributorName('');
@@ -275,8 +280,8 @@ export const InventoryView: React.FC = () => {
       unitsPerPack: undefined,
       costPrice: undefined,
       mrpPrice: undefined,
-      supplierId: stockists[0]?.id || '',
-      supplierName: stockists[0]?.name || '',
+      supplierId: defaultStockist?.id || '',
+      supplierName: defaultStockist?.name || '',
       reorderLevel: undefined,
       rackLocation: 'Rack A-1',
       isVatApplicable: false,
@@ -452,6 +457,22 @@ export const InventoryView: React.FC = () => {
         return;
       }
 
+
+      if (manualDistributorMode === 'select') {
+        const selectedStockist = stockists.find(s =>
+          s.id === formData.supplierId ||
+          String((s as any).distributorId) === String(formData.supplierId)
+        );
+
+        if (!selectedStockist || !isActiveStockist(selectedStockist.status)) {
+          showToast(
+            'The selected wholesaler is inactive or unavailable. Please select an active wholesaler.',
+            'warning',
+            'Active Wholesaler Required'
+          );
+          return;
+        }
+      }
 
       if (
         manualDistributorMode ===
@@ -1908,6 +1929,9 @@ export const InventoryView: React.FC = () => {
                       onChange={(e) => {
                         const val = e.target.value;
                         const found = stockists.find(s => s.id === val || String((s as any).distributorId) === String(val));
+                        if (found && !isActiveStockist(found.status)) {
+                          return;
+                        }
                         setFormData({
                           ...formData,
                           supplierId: found ? found.id : val,
@@ -1918,10 +1942,10 @@ export const InventoryView: React.FC = () => {
                     >
                       <option value="">Unassigned (No Distributor Selected)</option>
                       {stockists.map(s => {
-                        const isInactive = Boolean(s.status && s.status.toLowerCase() !== 'active');
+                        const isInactive = !isActiveStockist(s.status);
                         return (
-                          <option key={s.id} value={s.id}>
-                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()} {isInactive ? ' • [Inactive]' : ' • [Active]'}
+                          <option key={s.id} value={s.id} disabled={isInactive}>
+                            {s.name} {s.panNumber ? `(PAN: ${s.panNumber})` : ''} - Balance: Rs. {s.currentBalance.toLocaleString()} {isInactive ? ' • [Inactive — cannot select]' : ' • [Active]'}
                           </option>
                         );
                       })}
