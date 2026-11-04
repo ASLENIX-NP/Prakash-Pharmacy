@@ -25,7 +25,8 @@ import {
   Eye,
   Edit3,
   Gift,
-  TrendingUp
+  TrendingUp,
+  X
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
@@ -1716,7 +1717,7 @@ export const StockistManagementView: React.FC = () => {
                         <span>Edit</span>
                       </button>
                     </div>
-                    <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || 'â€”'}</span>
+                    <span className="mt-1 block font-mono text-[11px] text-slate-500">PAN: {stk.panNumber || '—'}</span>
                   </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
@@ -2340,10 +2341,10 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                     </button>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    PAN: {currentSelectedStockist.panNumber || 'â€”'} <span className="px-1">Â·</span>
-                    Phone: {currentSelectedStockist.phone || 'â€”'} <span className="px-1">Â·</span>
+                    PAN: {currentSelectedStockist.panNumber || '—'} <span className="px-1">·</span>
+                    Phone: {currentSelectedStockist.phone || '—'} <span className="px-1">·</span>
                     {currentSelectedStockist.address || 'Address not provided'}
-                    {currentSelectedStockist.notes ? ` Â· Note: ${currentSelectedStockist.notes}` : ''}
+                    {currentSelectedStockist.notes ? ` · Note: ${currentSelectedStockist.notes}` : ''}
                   </p>
                 </div>
                 <div className="min-w-44 rounded-xl border border-slate-200 bg-white px-4 py-2.5 sm:text-right">
@@ -2432,10 +2433,10 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                             {entry.description}
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-emerald-700">
-                            {entry.debit > 0 ? currency(entry.debit) : 'â€”'}
+                            {entry.debit > 0 ? currency(entry.debit) : '—'}
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 text-right font-mono font-semibold text-rose-700">
-                            {entry.credit > 0 ? currency(entry.credit) : 'â€”'}
+                            {entry.credit > 0 ? currency(entry.credit) : '—'}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right font-mono font-extrabold text-slate-900">
                             {currency(entry.balance)}
@@ -2591,7 +2592,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                   </option>
                   {(showAllMedsInReturn ? medicines : eligibleReturnMedicines).map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.name} â€¢ Batch: {m.batchNumber || 'N/A'} â€¢ Exp: {m.expiryDate || 'N/A'} â€¢ Stock: {m.stockPacks} pk
+                      {m.name} • Batch: {m.batchNumber || 'N/A'} • Exp: {m.expiryDate || 'N/A'} • Stock: {m.stockPacks} pk
                     </option>
                   ))}
                 </select>
@@ -2672,19 +2673,19 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                         value={option.purchaseItemId}
                       >
                         #{option.invoiceNumber}
-                        {' â€¢ '}
+                        {' • '}
                         {option.invoiceDate}
-                        {' â€¢ Remaining: '}
+                        {' • Remaining: '}
                         {remainingPacks} pk
                         {remainingLoose > 0
                           ? ` + ${remainingLoose} loose`
                           : ''}
-                        {' â€¢ Net Rs. '}
+                        {' • Net Rs. '}
                         {option.effectiveNetCostPerPack.toFixed(2)}
                         /pk
                         {option.isVatApplicable
                           ? ' + VAT'
-                          : ' â€¢ Non-VAT'}
+                          : ' • Non-VAT'}
                       </option>
                     );
                   })}
@@ -2711,25 +2712,25 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                           Original invoice #{selectedPurchase.invoiceNumber}
                         </strong>
 
-                        {' â€¢ Cost Rs. '}
+                        {' • Cost Rs. '}
                         {Number(
                           selectedPurchase.item.costPrice ||
                             0
                         ).toFixed(2)}
                         /pk
 
-                        {' â€¢ Discount '}
+                        {' • Discount '}
                         {Number(
                           selectedPurchase.item.discountPercent ||
                             0
                         ).toFixed(2)}
                         %
 
-                        {' â€¢ Net Rs. '}
+                        {' • Net Rs. '}
                         {selectedPurchase.effectiveNetCostPerPack.toFixed(2)}
                         /pk
 
-                        {' â€¢ '}
+                        {' • '}
                         {selectedPurchase.isVatApplicable
                           ? 'VAT 13%'
                           : 'Non-VAT'}
@@ -2948,7 +2949,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
           <div className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Register New Wholesaler / Stockist</h4>
-              <button onClick={() => setShowAddStockistModal(false)} className="text-slate-400 hover:text-white">âœ•</button>
+              <button onClick={() => setShowAddStockistModal(false)} className="text-slate-400 hover:text-white" title="Close" aria-label="Close"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div>
@@ -3127,7 +3128,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
                 onClick={() => setShowEditStockistModal(false)} 
                 className="text-slate-400 hover:text-white text-base"
               >
-                âœ•
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -3314,7 +3315,7 @@ onChange={(e) => setReturnPacks(parseIntegerInput(e.target.value, 6) ?? 0)}
           <form onSubmit={handleRecordPayment} className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
             <div className="bg-slate-900 text-white px-5 py-3 flex justify-between items-center">
               <h4 className="font-bold text-sm">Record Payment to {currentSelectedStockist.name}</h4>
-              <button type="button" onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white">âœ•</button>
+              <button type="button" onClick={() => setShowPaymentModal(false)} className="text-slate-400 hover:text-white" title="Close" aria-label="Close"><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-3 text-xs">
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex justify-between">
@@ -3409,7 +3410,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
-                      {settings?.storeName || 'Prakash Pharmacy'} â€¢ Inward Tax Invoice
+                      {settings?.storeName || 'Prakash Pharmacy'} • Inward Tax Invoice
                     </span>
                     <span className="font-mono text-xs font-bold bg-white/10 px-2 py-0.5 rounded-lg border border-white/10 text-white">
                       #{viewingPurchaseBill.invoiceNumber}
@@ -3419,7 +3420,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                         ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
                         : 'bg-amber-500/20 text-amber-300 border-amber-400/30'
                     }`}>
-                      {viewingPurchaseBill.paymentMode === 'cash' ? 'ðŸ’µ Cash Bill (Paid)' : 'ðŸ“‘ Credit Bill (Payable)'}
+                      {viewingPurchaseBill.paymentMode === 'cash' ? '💵 Cash Bill (Paid)' : '📑 Credit Bill (Payable)'}
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-extrabold text-white mt-0.5">
@@ -3427,7 +3428,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                   </h3>
                   <p className="text-xs text-slate-300 mt-0.5 flex flex-wrap items-center gap-2">
                     {viewingPurchaseBill.stockistPan && <span>PAN: <strong className="text-white font-mono">{viewingPurchaseBill.stockistPan}</strong></span>}
-                    {viewingPurchaseBill.date && <span>â€¢ Date: <strong className="text-white font-mono">{viewingPurchaseBill.date}</strong></span>}
+                    {viewingPurchaseBill.date && <span>• Date: <strong className="text-white font-mono">{viewingPurchaseBill.date}</strong></span>}
                   </p>
                 </div>
               </div>
@@ -3492,7 +3493,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                   className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition text-base font-bold cursor-pointer"
                   title="Close"
                 >
-                  âœ•
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -3654,11 +3655,11 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                             </td>
                             <td className="py-2.5 px-2 font-mono text-[11px] font-semibold text-slate-700">
                               <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                                {item.batchNumber || 'â€”'}
+                                {item.batchNumber || '—'}
                               </span>
                             </td>
                             <td className="py-2.5 px-2 font-mono text-[11px] text-slate-600">
-                              {item.expiryDate || 'â€”'}
+                              {item.expiryDate || '—'}
                             </td>
                             <td className="py-2.5 px-2 text-center font-bold font-mono text-slate-800">
                               <span>{item.packQty} pk</span>
@@ -3697,7 +3698,7 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                                   )}
                                 </div>
                               ) : (
-                                <span className="text-slate-400">â€”</span>
+                                <span className="text-slate-400">—</span>
                               )}
                             </td>
                             <td className="py-2.5 px-2 text-center font-mono text-[10px]">

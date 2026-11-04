@@ -994,11 +994,11 @@ export const PosView: React.FC = () => {
                       <p className="mt-1 truncate text-[11px] text-slate-500">
                         {medicine.genericName}
                         <span className="mx-1.5 text-slate-300">
-                          â€¢
+                          •
                         </span>
                         Batch {medicine.batchNumber}
                         <span className="mx-1.5 text-slate-300">
-                          â€¢
+                          •
                         </span>
                         Rack {medicine.rackLocation}
                       </p>
@@ -1020,11 +1020,11 @@ export const PosView: React.FC = () => {
                         {' + '}
                         {medicine.stockLooseUnits} units
                         {isSafetyBlocked
-                          ? ` Â· ${saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}`
+                          ? ` · ${saleStatus === 'RECALLED' ? 'Recalled' : 'Quarantined'}`
                           : isExpired
-                            ? ' Â· Expired'
+                            ? ' · Expired'
                             : isLowStock
-                              ? ' Â· Low'
+                              ? ' · Low'
                               : ''}
                       </p>
 
@@ -1043,7 +1043,7 @@ export const PosView: React.FC = () => {
                       <p className="mt-0.5 text-[10px] font-medium text-slate-500">
                         {medicine.unitsPerPack > 1 ? (
                           <>
-                            Pack Ã‚Â· <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
+                            Pack · <span className="font-bold text-teal-700 font-mono">Rs. {(medicine.mrpPrice / medicine.unitsPerPack).toFixed(2)}</span> / tab
                           </>
                         ) : (
                           'MRP / pack'
@@ -1534,7 +1534,7 @@ export const PosView: React.FC = () => {
                     <div className="mt-1 space-y-0.5">
                       {totals.vatTaxableItemsDetail.map((detail, idx) => (
                         <p key={idx} className="text-[10.5px] text-blue-700 font-medium">
-                          â€¢ {detail.name}: <span className="font-mono font-bold">Rs. {detail.vat.toFixed(2)}</span>
+                          • {detail.name}: <span className="font-mono font-bold">Rs. {detail.vat.toFixed(2)}</span>
                         </p>
                       ))}
                     </div>
