@@ -155,8 +155,8 @@ export const SettingsView: React.FC = () => {
       return;
     }
 
-    if (!/^\d{10}$/.test(formData.phoneNumber)) {
-      setFormError('Phone number must contain exactly 10 digits.');
+    if (!/^\d{7,10}$/.test(formData.phoneNumber.trim())) {
+      setFormError('Phone number must contain between 7 and 10 digits.');
       return;
     }
 
@@ -288,14 +288,16 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-slate-700">Official Phone Number *</label>
+              <label className="mb-1.5 block text-xs font-semibold text-slate-700">Official Phone / Telephone Number *</label>
               <input
                 type="tel"
                 inputMode="numeric"
+                placeholder="7 to 10 digits (e.g. 056594646 or 98XXXXXXXX)"
                 value={formData.phoneNumber}
                 onChange={(e) => setFormData({ ...formData, phoneNumber: normalizePhoneNumber(e.target.value) })}
                 className={fieldClass}
               />
+              <p className="mt-1 text-[10px] text-slate-500">Supports landline (7–9 digits) and mobile (10 digits).</p>
             </div>
 
             <div className="md:col-span-2">

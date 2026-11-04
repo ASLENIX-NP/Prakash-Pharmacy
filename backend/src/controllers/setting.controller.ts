@@ -114,10 +114,10 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
 
     if (phoneNumber !== undefined) {
       const cleanPhone = String(phoneNumber).trim().replace(/\D/g, "");
-      if (cleanPhone && (cleanPhone.length < 8 || cleanPhone.length > 10)) {
+      if (cleanPhone && (cleanPhone.length < 7 || cleanPhone.length > 10)) {
         res.status(400).json({
           success: false,
-          message: "Official phone number must be between 8 and 10 digits.",
+          message: "Official phone number must be between 7 and 10 digits.",
         });
         return;
       }
