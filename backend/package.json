@@ -16,7 +16,8 @@
     "cleanup:inventory-smoke": "tsx scripts/cleanup-inventory-smoke.ts",
     "smoke:stock-adjustment": "tsx scripts/stock-adjustment-smoke.ts",
     "smoke:inventory-distributor": "tsx scripts/inventory-distributor-smoke.ts",
-    "smoke:distributor-purchase": "tsx scripts/distributor-purchase-smoke.ts"
+    "smoke:distributor-purchase": "tsx scripts/distributor-purchase-smoke.ts",
+    "reset:sales": "tsx scripts/reset-sales-data.ts"
   },
   "keywords": [],
   "author": "",
