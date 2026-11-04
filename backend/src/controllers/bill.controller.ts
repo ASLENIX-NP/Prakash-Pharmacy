@@ -558,6 +558,7 @@ export const formatBillResponse = (bill: any) => {
     time: timeStr,
     customerName: bill.customerName || "Counter Customer",
     customerPhone: bill.customerPhone || undefined,
+    customerAddress: bill.customerAddress || undefined,
     customerPan: bill.customerPan || undefined,
     doctorName: bill.prescribingDoctor || undefined,
     paymentMode: bill.paymentMethod || "cash",
@@ -575,6 +576,16 @@ export const formatBillResponse = (bill: any) => {
     changeGiven: Number(bill.changeReturned),
     cashierName: cashierDisplayName,
     cashierId: bill.cashierId,
+    salesReturns: Array.isArray(bill.salesReturns)
+      ? bill.salesReturns.map((sr: any) => ({
+          id: sr.id,
+          creditNoteNumber: sr.creditNoteNumber,
+          returnDate: sr.returnDate instanceof Date ? sr.returnDate.toISOString() : String(sr.returnDate || ""),
+          refundAmount: Number(sr.refundAmount || 0),
+          reason: sr.reason || "",
+          recordedBy: sr.recordedBy || "",
+        }))
+      : undefined,
     createdAt: bill.transactionDate.toISOString(),
   };
 };
@@ -590,6 +601,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       clientRequestId,
       customerName,
       customerPhone,
+      customerAddress,
       customerPan,
       doctorName,
       prescribingDoctor,
@@ -605,6 +617,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
     } = req.body;
 
     const cleanCustomerPhone = customerPhone ? String(customerPhone).trim() : "";
+    const cleanCustomerAddress = customerAddress ? String(customerAddress).trim() : "";
     const cleanCustomerPan = customerPan ? String(customerPan).trim() : "";
     const cleanDoctorName =
       doctorName === undefined || doctorName === null
@@ -703,6 +716,39 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       );
     }
 
+    const isCredit = finalPaymentMethod === "credit";
+
+    if (isCredit) {
+      const cleanCustomerName = customerName ? String(customerName).trim() : "";
+      if (
+        !cleanCustomerName ||
+        cleanCustomerName.toLowerCase() === "counter customer" ||
+        cleanCustomerName.toLowerCase() === "counter patient"
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "Customer full name is compulsory for credit purchases. Please enter the customer's name.",
+        });
+        return;
+      }
+
+      if (!cleanCustomerPhone || !/^\d{7,10}$/.test(cleanCustomerPhone)) {
+        res.status(400).json({
+          success: false,
+          message: "A valid customer phone number (7 to 10 digits) is compulsory for credit purchases.",
+        });
+        return;
+      }
+
+      if (!cleanCustomerAddress) {
+        res.status(400).json({
+          success: false,
+          message: "Customer address is compulsory for credit purchases.",
+        });
+        return;
+      }
+    }
+
     if (finalPaymentMethod === "cash" && authoritativeFinancials.grandTotal > 0) {
       const rawCash = cashTendered ?? amountReceived;
       if (rawCash === undefined || rawCash === null || rawCash === "" || Number(rawCash) <= 0) {
@@ -718,7 +764,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       Number(
         cashTendered ??
         amountReceived ??
-        authoritativeFinancials.grandTotal
+        (isCredit ? 0 : authoritativeFinancials.grandTotal)
       );
 
     if (
@@ -750,16 +796,14 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
     }
 
     const calculatedReceived =
-      finalPaymentMethod ===
-      "cash"
-        ? roundMoney(
-            requestedReceived
-          )
-        : authoritativeFinancials.grandTotal;
+      isCredit
+        ? 0
+        : finalPaymentMethod === "cash"
+          ? roundMoney(requestedReceived)
+          : authoritativeFinancials.grandTotal;
 
     const calculatedChange =
-      finalPaymentMethod ===
-      "cash"
+      finalPaymentMethod === "cash"
         ? roundMoney(
             Math.max(
               0,
@@ -911,10 +955,11 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           clientRequestId: cleanClientRequestId || null,
           customerName: customerName ? String(customerName).trim() : "Counter Patient",
           customerPhone: cleanCustomerPhone || null,
+          customerAddress: cleanCustomerAddress || null,
           customerPan: cleanCustomerPan || null,
           prescribingDoctor: cleanPrescribingDoctor || null,
           paymentMethod: finalPaymentMethod,
-          paymentStatus: "paid",
+          paymentStatus: isCredit ? "unpaid" : "paid",
           subTotal:
             authoritativeFinancials.grossSubtotal,
 
@@ -1441,6 +1486,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         where: { id: bill.id },
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
               salesReturnItems: true,
@@ -1617,6 +1663,7 @@ export const getAllBills = async (req: Request, res: Response): Promise<void> =>
         where,
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
               salesReturnItems: true,
@@ -1678,6 +1725,7 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
         where: { id: parsedId },
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
               salesReturnItems: true,
@@ -1699,6 +1747,7 @@ export const getBillById = async (req: Request, res: Response): Promise<void> =>
         where: { invoiceNumber: param },
         include: {
           cashier: true,
+          salesReturns: true,
           items: {
             include: {
               salesReturnItems: true,
@@ -1750,6 +1799,8 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
           subTotal: true,
           discountAmount: true,
           paymentMethod: true,
+          paymentStatus: true,
+          amountReceived: true,
           transactionDate: true,
         },
       }),
@@ -1760,6 +1811,7 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
           invoice: {
             select: {
               paymentMethod: true,
+              paymentStatus: true,
             },
           },
           items: {
@@ -1780,10 +1832,16 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
     const todayStart =
       startOfNepalDay();
 
-    let totalRevenue = 0;
+    let totalRevenue = 0; // Gross sales total
+    let totalReceivedRevenue = 0; // Paid/collected revenue
     let totalVat = 0;
-    let todayRevenue = 0;
+    let todayRevenue = 0; // Gross today sales
+    let todayReceivedRevenue = 0; // Paid/collected today revenue
     let todayBillsCount = 0;
+    let totalOutstandingCredit = 0;
+    let todayCredit = 0;
+    let todayCreditBillsCount = 0;
+
     const paymentBreakdown: Record<string, number> = {
       cash: 0,
       fonepay_qr: 0,
@@ -1793,8 +1851,24 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
 
     for (const b of allBills) {
       const grand = Number(b.grandTotal);
+      const isUnpaidCredit = (b.paymentMethod || "").toLowerCase() === "credit" && b.paymentStatus !== "paid";
+      const due = isUnpaidCredit ? Math.max(0, grand - Number(b.amountReceived || 0)) : 0;
+
       totalRevenue += grand;
       totalVat += Number(b.vatAmount);
+
+      if (isUnpaidCredit) {
+        totalOutstandingCredit += due;
+        if (b.transactionDate >= todayStart) {
+          todayCredit += due;
+          todayCreditBillsCount++;
+        }
+      } else {
+        totalReceivedRevenue += grand;
+        if (b.transactionDate >= todayStart) {
+          todayReceivedRevenue += grand;
+        }
+      }
 
       if (b.transactionDate >= todayStart) {
         todayRevenue += grand;
@@ -1805,13 +1879,27 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
       paymentBreakdown[method] = (paymentBreakdown[method] || 0) + grand;
     }
 
-    // Credit notes reduce revenue on the date the return is processed.
-    // VAT is reversed proportionally from the immutable monetary values on
-    // the original bill line rather than from today's inventory metadata.
+    // Credit notes reduce revenue (or credit debt if unpaid credit)
     for (const salesReturn of allReturns) {
       const refund = Number(salesReturn.refundAmount || 0);
-      totalRevenue -= refund;
+      const isCreditInvoice = (salesReturn.invoice.paymentMethod || "").toLowerCase() === "credit";
+      const isUnpaidCredit = isCreditInvoice && salesReturn.invoice.paymentStatus !== "paid";
 
+      // If the customer took medicine on credit and hasn't paid, the return reduces their credit debt, NOT cash revenue!
+      if (isUnpaidCredit) {
+        totalOutstandingCredit = Math.max(0, totalOutstandingCredit - refund);
+        if (salesReturn.returnDate >= todayStart) {
+          todayCredit = Math.max(0, todayCredit - refund);
+        }
+      } else {
+        // If the customer actually paid cash/QR/card, the return reduces actual collected cash revenue:
+        totalReceivedRevenue -= refund;
+        if (salesReturn.returnDate >= todayStart) {
+          todayReceivedRevenue -= refund;
+        }
+      }
+
+      totalRevenue -= refund;
       if (salesReturn.returnDate >= todayStart) {
         todayRevenue -= refund;
       }
@@ -1837,9 +1925,14 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
       data: {
         totalBillsCount: allBills.length,
         totalRevenueNPR: Math.round(totalRevenue * 100) / 100,
+        totalReceivedRevenueNPR: Math.round(Math.max(0, totalReceivedRevenue) * 100) / 100,
         totalVatNPR: Math.round(totalVat * 100) / 100,
         todayBillsCount,
         todayRevenueNPR: Math.round(todayRevenue * 100) / 100,
+        todayReceivedRevenueNPR: Math.round(Math.max(0, todayReceivedRevenue) * 100) / 100,
+        totalOutstandingCreditNPR: Math.round(totalOutstandingCredit * 100) / 100,
+        todayCreditNPR: Math.round(todayCredit * 100) / 100,
+        todayCreditBillsCount,
         paymentBreakdown,
       },
     });
@@ -1849,6 +1942,81 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
       success: false,
       message: "Failed to calculate billing summary metrics.",
     });
+  }
+};
+
+// ==========================================
+// 4B. SETTLE CUSTOMER CREDIT (Mark Credit Invoice Paid)
+// ==========================================
+export const settleBillCredit = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const rawId = req.params.id;
+    const { paymentMethod = "cash" } = req.body;
+    const parsedId = parseInt(String(rawId || ""), 10);
+    if (isNaN(parsedId)) {
+      res.status(400).json({ success: false, message: "Invalid invoice ID." });
+      return;
+    }
+
+    const bill = await prisma.bill.findUnique({
+      where: { id: parsedId },
+      include: {
+        salesReturns: true,
+      },
+    });
+
+    if (!bill) {
+      res.status(404).json({ success: false, message: "Invoice not found." });
+      return;
+    }
+
+    if (bill.paymentStatus === "paid") {
+      res.status(400).json({ success: false, message: "This invoice is already marked as paid." });
+      return;
+    }
+
+    const totalReturnsOnBill = (bill.salesReturns || []).reduce(
+      (sum: number, r: any) => sum + Number(r.refundAmount || 0),
+      0
+    );
+    const remainingToPay = roundMoney(
+      Math.max(0, Number(bill.grandTotal) - totalReturnsOnBill)
+    );
+
+    const validSettlementMethods = ["cash", "fonepay_qr", "card"];
+    const chosenMethod = validSettlementMethods.includes(String(paymentMethod).toLowerCase())
+      ? String(paymentMethod).toLowerCase()
+      : "cash";
+
+    const updated = await prisma.bill.update({
+      where: { id: parsedId },
+      data: {
+        paymentStatus: "paid",
+        amountReceived: remainingToPay,
+        changeReturned: 0,
+      },
+      include: {
+        cashier: true,
+        salesReturns: true,
+        items: {
+          include: {
+            salesReturnItems: true,
+            inventory: {
+              include: { generic: true, category: true, rack: true },
+            },
+          },
+        },
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Invoice ${bill.invoiceNumber} credit marked as settled via ${chosenMethod.toUpperCase()}.`,
+      data: formatBillResponse(updated),
+    });
+  } catch (error) {
+    console.error("Error settling credit bill:", error);
+    res.status(500).json({ success: false, message: "Failed to settle credit bill." });
   }
 };
 
@@ -2112,6 +2280,27 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
         },
       });
 
+      // If this bill was an unpaid credit sale, check if the return clears the entire debt:
+      if (bill.paymentMethod === "credit" && bill.paymentStatus === "unpaid") {
+        const priorReturnsSum = (bill.salesReturns || []).reduce(
+          (sum: number, r: any) => sum + Number(r.refundAmount || 0),
+          0
+        );
+        const cumulativeReturns = roundMoney(priorReturnsSum + totalRefundAmount);
+        const netDue = roundMoney(
+          Math.max(0, Number(bill.grandTotal) - cumulativeReturns - Number(bill.amountReceived || 0))
+        );
+
+        if (netDue <= 0.001) {
+          await tx.bill.update({
+            where: { id: bill.id },
+            data: {
+              paymentStatus: "paid",
+            },
+          });
+        }
+      }
+
       const returnedLineSummaries = [];
 
       for (const val of validatedItems) {
@@ -2270,6 +2459,8 @@ export const getAllSalesReturns = async (
               customerName: true,
               customerPhone: true,
               grandTotal: true,
+              paymentMethod: true,
+              paymentStatus: true,
             },
           },
 
@@ -2356,6 +2547,14 @@ export const getAllSalesReturns = async (
             Number(
               sr.invoice.grandTotal
             ),
+
+          paymentMode:
+            sr.invoice.paymentMethod ||
+            "cash",
+
+          paymentStatus:
+            sr.invoice.paymentStatus ||
+            "paid",
         },
 
         items:

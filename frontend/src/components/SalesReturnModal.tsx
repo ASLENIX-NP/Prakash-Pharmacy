@@ -26,6 +26,8 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const isUnpaidCredit = invoice.paymentMode === 'credit' && invoice.paymentStatus !== 'paid';
+
   // Calculate estimated refund
   const estimatedRefund = invoice.items.reduce((sum, item, index) => {
     const entry = returnQtys[`${item.medicineId}-${index}`] || { packs: 0, loose: 0 };
@@ -95,9 +97,16 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
               <RotateCcw className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-extrabold">Sales Return &amp; Customer Refund</h3>
+              <h3 className="text-base font-extrabold">
+                {isUnpaidCredit ? 'Sales Return & Credit Debt Reduction' : 'Sales Return & Customer Refund'}
+              </h3>
               <p className="text-xs text-slate-400">
                 Invoice #{invoice.invoiceNumber} • {invoice.customerName}
+                {isUnpaidCredit && (
+                  <span className="ml-1.5 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300">
+                    Credit Sale
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -113,6 +122,15 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
+            {isUnpaidCredit && (
+              <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                <span>
+                  <strong>Unpaid Credit Bill:</strong> This medicine was taken on credit and has not been paid yet. This return directly reduces the customer's credit debt; no cash will be refunded from the register.
+                </span>
+              </div>
+            )}
+
             {error && (
               <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
                 <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
@@ -230,9 +248,11 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
           {/* Modal Footer */}
           <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4">
             <div>
-              <div className="text-[11px] text-slate-500">Total Refund Payable:</div>
-              <div className="font-mono text-lg font-black text-slate-900">
-                Rs. {estimatedRefund.toFixed(2)}
+              <div className="text-[11px] font-semibold text-slate-500">
+                {isUnpaidCredit ? 'Credit Debt Reduction (Udhaaro Katne):' : 'Total Refund Payable:'}
+              </div>
+              <div className={`font-mono text-lg font-black ${isUnpaidCredit ? 'text-amber-900' : 'text-slate-900'}`}>
+                {isUnpaidCredit && estimatedRefund > 0 ? '- ' : ''}Rs. {estimatedRefund.toFixed(2)}
               </div>
             </div>
 
@@ -247,10 +267,12 @@ export const SalesReturnModal: React.FC<SalesReturnModalProps> = ({
               <button
                 type="submit"
                 disabled={loading || totalReturnCount === 0}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-5 py-2 text-xs font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-50"
+                className={`inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-xs font-bold text-white shadow-xs disabled:opacity-50 ${
+                  isUnpaidCredit ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700'
+                }`}
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                <span>{loading ? 'Processing...' : 'Confirm Return'}</span>
+                <span>{loading ? 'Processing...' : isUnpaidCredit ? 'Confirm Debt Reduction' : 'Confirm Return'}</span>
               </button>
             </div>
           </div>

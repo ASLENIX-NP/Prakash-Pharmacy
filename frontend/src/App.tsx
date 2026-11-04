@@ -55,6 +55,11 @@ const ClinicView = lazy(() =>
     default: ClinicView,
   }))
 );
+const CustomerCreditView = lazy(() =>
+  import('./components/CustomerCreditView').then(({ CustomerCreditView }) => ({
+    default: CustomerCreditView,
+  }))
+);
 
 const ReportsView = lazy(() =>
   import('./components/ReportsView').then(({ ReportsView }) => ({
@@ -113,6 +118,7 @@ const PharmacyAppContent: React.FC = () => {
       if (
         activeTab !== 'pos' &&
         activeTab !== 'sales_history' &&
+        activeTab !== 'customer_credit' &&
         activeTab !== 'clinic'
       ) {
         setActiveTab('pos');
@@ -248,6 +254,12 @@ const PharmacyAppContent: React.FC = () => {
 
                 {activeTab === 'sales_history' && (
                   <SalesHistoryView />
+                )}
+
+                {/* Customer Credit */}
+
+                {activeTab === 'customer_credit' && (
+                  <CustomerCreditView />
                 )}
 
                 {/* Clinic / OPD */}

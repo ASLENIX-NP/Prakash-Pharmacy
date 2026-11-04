@@ -256,7 +256,11 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                 </div>
                 <div>
                   <span className="text-slate-500">Payment:</span>{' '}
-                  <strong className="font-semibold uppercase text-slate-900">{invoice.paymentMode.replace('_', ' ')}</strong>
+                  <strong className="font-semibold uppercase text-slate-900">
+                    {invoice.paymentMode === 'credit'
+                      ? `CREDIT (${invoice.paymentStatus === 'paid' ? 'SETTLED' : 'DUE'})`
+                      : invoice.paymentMode.replace('_', ' ')}
+                  </strong>
                 </div>
                 {invoice.cashierName && (
                   <div>
@@ -275,6 +279,12 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                   <div>
                     <span className="text-slate-500">Phone:</span>{' '}
                     <span className="font-mono text-slate-800">{invoice.customerPhone}</span>
+                  </div>
+                )}
+                {invoice.customerAddress && (
+                  <div>
+                    <span className="text-slate-500">Address:</span>{' '}
+                    <span className="text-slate-800">{invoice.customerAddress}</span>
                   </div>
                 )}
                 {invoice.customerPan && (
@@ -381,6 +391,24 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
                     <span>Grand Total:</span>
                     <span>Rs. {invoice.grandTotal.toFixed(2)}</span>
                   </div>
+                  {invoice.paymentMode === 'credit' && (() => {
+                    const returnsTotal = (invoice.salesReturns || []).reduce((sum, r) => sum + (r.refundAmount || 0), 0);
+                    const netCreditDue = Math.max(0, invoice.grandTotal - returnsTotal - (invoice.cashTendered || 0));
+                    return (
+                      <div className="text-[10px] space-y-0.5 pt-1">
+                        {returnsTotal > 0 && (
+                          <div className="flex justify-between text-rose-700 font-semibold">
+                            <span>Returns Deducted:</span>
+                            <span>- Rs. {returnsTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5">
+                          <span>Balance Due:</span>
+                          <span>{invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {invoice.paymentMode === 'cash' && (
                     <div className="text-[10px] text-slate-500 space-y-0.5 pt-0.5">
                       <div className="flex justify-between">

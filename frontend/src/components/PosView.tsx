@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
   Banknote,
+  ChevronDown,
+  ChevronUp,
   CreditCard,
   Minus,
   Plus,
@@ -57,8 +59,14 @@ export const PosView: React.FC = () => {
   const [customerPhone, setCustomerPhone] =
     useState('');
 
+  const [customerAddress, setCustomerAddress] =
+    useState('');
+
   const [customerPan, setCustomerPan] =
     useState('');
+
+  const [showPanField, setShowPanField] =
+    useState(false);
 
   const [doctorName, setDoctorName] =
     useState('');
@@ -673,6 +681,41 @@ export const PosView: React.FC = () => {
       return;
     }
 
+    if (paymentMode === 'credit') {
+      const cleanName = customerName.trim();
+      if (
+        !cleanName ||
+        cleanName.toLowerCase() === 'counter customer' ||
+        cleanName.toLowerCase() === 'counter patient'
+      ) {
+        showToast(
+          "Customer name is compulsory for credit purchases. Please enter the customer's full name.",
+          'warning',
+          'Customer Name Required'
+        );
+        return;
+      }
+
+      const cleanPhone = customerPhone.trim().replace(/\D/g, '');
+      if (!cleanPhone || cleanPhone.length < 7 || cleanPhone.length > 10) {
+        showToast(
+          'Customer phone number (7 to 10 digits) is compulsory for credit purchases.',
+          'warning',
+          'Phone Number Required'
+        );
+        return;
+      }
+
+      if (!customerAddress.trim()) {
+        showToast(
+          'Customer address is compulsory for credit purchases. Please enter the address.',
+          'warning',
+          'Address Required'
+        );
+        return;
+      }
+    }
+
     if (customerPhone && !/^\d{7,10}$/.test(customerPhone)) {
       showToast('Customer phone number must contain between 7 and 10 digits.', 'warning', 'Validation');
       return;
@@ -733,6 +776,10 @@ export const PosView: React.FC = () => {
           customerPhone.trim() ||
           undefined,
 
+        customerAddress:
+          customerAddress.trim() ||
+          undefined,
+
         customerPan:
           customerPan.trim() ||
           undefined,
@@ -778,7 +825,9 @@ export const PosView: React.FC = () => {
         cashTendered:
           paymentMode === 'cash'
             ? cashTendered
-            : totals.grandTotal,
+            : paymentMode === 'credit'
+              ? 0
+              : totals.grandTotal,
 
         changeGiven:
           paymentMode === 'cash'
@@ -802,7 +851,9 @@ export const PosView: React.FC = () => {
     );
 
     setCustomerPhone('');
+    setCustomerAddress('');
     setCustomerPan('');
+    setShowPanField(false);
     setDoctorName('');
     setPatientAge('');
 
@@ -1170,7 +1221,7 @@ export const PosView: React.FC = () => {
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">
-                Customer / Patient Name
+                Customer / Patient Name {paymentMode === 'credit' && <span className="font-bold text-rose-600">* (required)</span>}
               </label>
 
               <input
@@ -1181,14 +1232,18 @@ export const PosView: React.FC = () => {
                     event.target.value
                   )
                 }
-                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
+                className={`h-10 w-full rounded-lg border px-3 text-[13px] font-medium text-slate-800 outline-none focus:bg-white ${
+                  paymentMode === 'credit' && (!customerName.trim() || customerName.trim().toLowerCase() === 'counter customer')
+                    ? 'border-amber-400 bg-amber-50/60 focus:border-amber-500'
+                    : 'border-slate-200 bg-slate-50 focus:border-teal-400'
+                }`}
               />
             </div>
 
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">
-                Phone Number
+                Phone Number {paymentMode === 'credit' && <span className="font-bold text-rose-600">* (required)</span>}
               </label>
 
               <input
@@ -1201,7 +1256,30 @@ export const PosView: React.FC = () => {
                     normalizePhoneNumber(event.target.value)
                   )
                 }
-                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
+                className={`h-10 w-full rounded-lg border px-3 text-[13px] font-medium text-slate-800 outline-none focus:bg-white ${
+                  paymentMode === 'credit' && !customerPhone.trim()
+                    ? 'border-amber-400 bg-amber-50/60 focus:border-amber-500'
+                    : 'border-slate-200 bg-slate-50 focus:border-teal-400'
+                }`}
+              />
+            </div>
+
+
+            <div>
+              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                Customer Address {paymentMode === 'credit' ? <span className="font-bold text-rose-600">* (required)</span> : '(optional)'}
+              </label>
+
+              <input
+                type="text"
+                value={customerAddress}
+                placeholder="e.g. Hetauda-4, Chisapani"
+                onChange={(event) => setCustomerAddress(event.target.value)}
+                className={`h-10 w-full rounded-lg border px-3 text-[13px] font-medium text-slate-800 outline-none focus:bg-white ${
+                  paymentMode === 'credit' && !customerAddress.trim()
+                    ? 'border-amber-400 bg-amber-50/60 focus:border-amber-500'
+                    : 'border-slate-200 bg-slate-50 focus:border-teal-400'
+                }`}
               />
             </div>
 
@@ -1231,27 +1309,59 @@ export const PosView: React.FC = () => {
               )}
             </div>
 
+          </div>
 
-            <div>
-              <label className="mb-1 block text-[11px] font-semibold text-slate-600">
-                Buyer PAN (optional)
-              </label>
+          {/* Expandable Buyer PAN Option */}
+          <div className="mt-3 border-t border-slate-100 pt-2.5">
+            <button
+              type="button"
+              onClick={() => setShowPanField((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-teal-700 transition cursor-pointer select-none"
+            >
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+                {showPanField || Boolean(customerPan) ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </span>
+              <span>Buyer PAN (optional for tax invoice)</span>
+              {customerPan ? (
+                <span className="ml-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 font-mono text-[10px] font-bold text-teal-700">
+                  PAN: {customerPan}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-400">
+                  {showPanField ? '(click to collapse)' : '(click arrow to expand)'}
+                </span>
+              )}
+            </button>
 
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={9}
-                value={customerPan}
-                placeholder="Buyer PAN"
-                onChange={(event) =>
-                  setCustomerPan(
-                    digitsOnlyUpTo(event.target.value, 9)
-                  )
-                }
-                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
-              />
-            </div>
-
+            {(showPanField || Boolean(customerPan)) && (
+              <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-1 duration-150">
+                <div>
+                  <label className="mb-1 block text-[11px] font-semibold text-slate-600">
+                    Buyer PAN (9 digits)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={9}
+                    value={customerPan}
+                    placeholder="e.g. 123456789"
+                    onChange={(event) =>
+                      setCustomerPan(
+                        digitsOnlyUpTo(event.target.value, 9)
+                      )
+                    }
+                    className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-[13px] font-medium text-slate-800 outline-none focus:border-teal-400 focus:bg-white"
+                  />
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    Optional: Printed on statutory tax invoice if customer claims VAT expense.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -1776,6 +1886,17 @@ export const PosView: React.FC = () => {
                 </button>
 
               </div>
+
+              {paymentMode === 'credit' && (
+                <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2 shadow-sm">
+                  <span className="font-bold text-amber-800 shrink-0">⚠️ Credit Mode (Udhaaro):</span>
+                  <div>
+                    <span>
+                      Customer Name, Phone Number, and Address are <strong>compulsory</strong>. The bill amount of <strong>Rs. {totals.grandTotal.toFixed(2)}</strong> will be recorded as pending credit and excluded from today's received counter cash until settled.
+                    </span>
+                  </div>
+                </div>
+              )}
 
 
               <div

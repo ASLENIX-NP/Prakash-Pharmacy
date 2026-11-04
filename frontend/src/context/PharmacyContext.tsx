@@ -162,6 +162,11 @@ interface PharmacyContextType {
     creditNoteNumber?: string;
   }>;
 
+  settleCreditInvoice: (
+    billId: string | number,
+    paymentMethod?: string
+  ) => Promise<{ success: boolean; message: string; data?: SaleInvoice }>;
+
   refreshLiveBills:
     () => Promise<SaleInvoice[]>;
 
@@ -2614,6 +2619,7 @@ const response =
     const checkoutFingerprint = JSON.stringify({
       customerName: saleData.customerName || '',
       customerPhone: saleData.customerPhone || '',
+      customerAddress: saleData.customerAddress || '',
       customerPan: saleData.customerPan || '',
       doctorName: saleData.doctorName || '',
       paymentMode: saleData.paymentMode,
@@ -2920,6 +2926,37 @@ const response =
     }
   };
 
+  const settleCreditInvoice = async (
+    billId: string | number,
+    paymentMethod: string = 'cash'
+  ): Promise<{ success: boolean; message: string; data?: SaleInvoice }> => {
+    try {
+      const response = await apiRequest<{
+        success: boolean;
+        message: string;
+        data: SaleInvoice;
+      }>(`/bills/${billId}/settle-credit`, {
+        method: 'PATCH',
+        body: JSON.stringify({ paymentMethod }),
+      });
+
+      if (response?.data) {
+        setSalesInvoices(prev =>
+          prev.map(inv =>
+            String(inv.id) === String(billId) || inv.invoiceNumber === response.data.invoiceNumber
+              ? { ...inv, ...response.data, paymentStatus: 'paid' }
+              : inv
+          )
+        );
+      }
+
+      return response;
+    } catch (err: any) {
+      console.error('Failed to settle credit invoice:', err);
+      throw err;
+    }
+  };
+
   const clearLocalData = () => {
     setMedicines([]);
     setStockists([]);
@@ -3008,6 +3045,7 @@ const response =
         customerSalesReturns,
         completeSale,
         returnSaleItems,
+        settleCreditInvoice,
         refreshLiveBills,
         refreshLiveReturns,
 

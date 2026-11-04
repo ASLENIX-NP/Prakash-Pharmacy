@@ -4,10 +4,13 @@ import {
   FileText,
   ShieldAlert,
   CreditCard,
+  Users,
+  ArrowUpRight,
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { ActiveTab } from './Sidebar';
 import { localDateString } from '../utils/date';
+import { SaleInvoice } from '../types/pharmacy';
 
 interface DashboardViewProps {
   setActiveTab: (tab: ActiveTab) => void;
@@ -27,6 +30,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
   const todayStr = localDateString();
 
+  // Helper to get total returns recorded against a sale invoice
+  const getInvoiceReturns = (s: SaleInvoice): number => {
+    if (s.salesReturns && s.salesReturns.length > 0) {
+      return (s.salesReturns as Array<{ refundAmount: number }>).reduce(
+        (sum: number, r: { refundAmount: number }) => sum + (r.refundAmount || 0),
+        0
+      );
+    }
+    return (customerSalesReturns || [])
+      .filter((r) => r.invoiceNumber === s.invoiceNumber || String(r.invoiceId) === String(s.id))
+      .reduce((sum: number, r: { refundAmount: number }) => sum + (r.refundAmount || 0), 0);
+  };
+
   // Daily Sales & Returns KPI
   const todaySales = useMemo(() => {
     return salesInvoices.filter(s => s.date === todayStr);
@@ -39,22 +55,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
     });
   }, [customerSalesReturns, todayStr]);
 
+  // Distinguish cash refunds from credit returns:
+  // When a customer bought on credit and has not paid yet, returning items reduces their credit debt.
+  // It does NOT reduce counter revenue (since no cash was ever collected).
+  const { todayCashRefunds, todayCreditDebtReductions } = useMemo(() => {
+    let cashRefunds = 0;
+    let creditReductions = 0;
+
+    todayReturns.forEach(r => {
+      const origInv = salesInvoices.find(
+        s => s.invoiceNumber === r.invoiceNumber || String(s.id) === String(r.invoiceId)
+      );
+      const isUnpaidCredit = origInv
+        ? origInv.paymentMode === 'credit' && origInv.paymentStatus !== 'paid'
+        : ((r.invoice?.paymentMethod || r.invoice?.paymentMode || '').toLowerCase() === 'credit' &&
+           r.invoice?.paymentStatus !== 'paid');
+
+      const amount = Number(r.refundAmount || 0);
+      if (isUnpaidCredit) {
+        creditReductions += amount;
+      } else {
+        cashRefunds += amount;
+      }
+    });
+
+    return { todayCashRefunds: cashRefunds, todayCreditDebtReductions: creditReductions };
+  }, [todayReturns, salesInvoices]);
+
+  // Received Sales (Cash, Fonepay QR, Card, or Settled Credit)
+  const todayPaidSales = useMemo(() => {
+    return todaySales.filter(s => s.paymentMode !== 'credit' || s.paymentStatus === 'paid');
+  }, [todaySales]);
+
+  // Unpaid Credit Sales Today
+  const todayCreditSales = useMemo(() => {
+    return todaySales.filter(s => s.paymentMode === 'credit' && s.paymentStatus !== 'paid');
+  }, [todaySales]);
+
   const todayGrossRevenue = todaySales.reduce((acc, s) => acc + s.grandTotal, 0);
-  const todayRefunds = todayReturns.reduce((acc, r) => acc + (r.refundAmount || 0), 0);
-  const todayNetRevenue = Math.max(0, todayGrossRevenue - todayRefunds);
-  const avgBillValue = todaySales.length > 0 ? todayGrossRevenue / todaySales.length : 0;
+  const todayGrossReceived = todayPaidSales.reduce((acc, s) => acc + s.grandTotal, 0);
+  
+  // Net cash counter revenue only subtracts actual cash refunds given from the drawer:
+  const todayNetRevenue = Math.max(0, todayGrossReceived - todayCashRefunds);
+  
+  // Today's credit sales minus today's credit returns (debt reductions):
+  const todayGrossCreditAmount = todayCreditSales.reduce((acc, s) => acc + s.grandTotal, 0);
+  const todayCreditAmount = Math.max(0, todayGrossCreditAmount - todayCreditDebtReductions);
+  const avgBillValue = todayPaidSales.length > 0 ? todayGrossReceived / todayPaidSales.length : 0;
+
+  // All-time Outstanding Customer Credit (accounting for returns)
+  const allUnpaidCreditBills = useMemo(() => {
+    return salesInvoices.filter(s => s.paymentMode === 'credit' && s.paymentStatus !== 'paid');
+  }, [salesInvoices]);
+
+  const totalOutstandingCredit = useMemo(() => {
+    return allUnpaidCreditBills.reduce((acc, s) => {
+      const returnsTotal = getInvoiceReturns(s);
+      const netDue = Math.max(0, s.grandTotal - returnsTotal - (s.cashTendered || 0));
+      return acc + netDue;
+    }, 0);
+  }, [allUnpaidCreditBills, customerSalesReturns]);
+
+  const activeCreditDueBills = useMemo(() => {
+    return allUnpaidCreditBills.filter(s => {
+      const returnsTotal = getInvoiceReturns(s);
+      const netDue = Math.max(0, s.grandTotal - returnsTotal - (s.cashTendered || 0));
+      return netDue > 0.01;
+    });
+  }, [allUnpaidCreditBills, customerSalesReturns]);
+
+  const uniqueCreditCustomersCount = useMemo(() => {
+    const names = new Set(activeCreditDueBills.map(b => (b.customerPhone || b.customerName).toLowerCase()));
+    return names.size;
+  }, [activeCreditDueBills]);
 
   // Today's Gross Profit (Admin only)
   const todayProfitData = useMemo(() => {
-    let todayCogs = 0;
-    let todayRevenueExVat = 0;
+    let salesRevenueExVat = 0;
+    let salesCogs = 0;
 
     todaySales.forEach(inv => {
       const subtotalRev = (inv.taxableBaseSubtotal || 0) + (inv.vatExemptSubtotal || 0);
       const revExVat = subtotalRev > 0 
         ? subtotalRev 
         : Math.max(0, (inv.grandTotal || 0) - (inv.vatAmount || 0));
-      todayRevenueExVat += revExVat;
+      salesRevenueExVat += revExVat;
 
       (inv.items || []).forEach(it => {
         let cost = Number(it.costPrice) || 0;
@@ -70,16 +155,81 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
         const qty = Number(it.quantity) || 0;
         const unitsPerPack = Number(it.unitsPerPack) || 1;
         const lineCost = it.isLooseUnit ? (cost / unitsPerPack) * qty : cost * qty;
-        todayCogs += lineCost;
+        salesCogs += lineCost;
       });
     });
 
-    const netSalesExVat = Math.max(0, todayRevenueExVat - todayRefunds);
-    const grossProfit = Math.max(0, netSalesExVat - todayCogs);
+    // When medicines are returned, they are restocked into inventory!
+    // Therefore, the cost of goods of returned items must be deducted from COGS,
+    // so the business is NOT charged for the cost of restocked medicines.
+    let returnedCogs = 0;
+    let returnedRevenue = 0;
+
+    todayReturns.forEach(ret => {
+      // Find original invoice to check if it was an unpaid credit sale
+      const origInv = salesInvoices.find(
+        s => s.invoiceNumber === ret.invoiceNumber || String(s.id) === String(ret.invoiceId)
+      );
+      const isUnpaidCredit = origInv
+        ? origInv.paymentMode === 'credit' && origInv.paymentStatus !== 'paid'
+        : ((ret.invoice?.paymentMethod || ret.invoice?.paymentMode || '').toLowerCase() === 'credit' &&
+           ret.invoice?.paymentStatus !== 'paid');
+
+      // Unpaid credit returns do not affect counter cash sales/profit (they only reduce receivables)
+      if (!isUnpaidCredit) {
+        const refundAmt = Number(ret.refundAmount || 0);
+        returnedRevenue += refundAmt;
+
+        let retItemsCost = 0;
+        (ret.items || []).forEach(it => {
+          let cost = 0;
+          let upp = 1;
+
+          // 1. Match from inventory/medicines
+          const match = (medicines || []).find(m => 
+            m.name.toLowerCase() === (it.medicineName || '').toLowerCase() ||
+            (it.inventory?.brandName && m.name.toLowerCase() === it.inventory.brandName.toLowerCase())
+          );
+          if (match) {
+            cost = Number(match.costPrice) || 0;
+            upp = Number(match.unitsPerPack) || 1;
+          } else if (origInv) {
+            // 2. Match from original invoice line item
+            const origItem = (origInv.items || []).find(oi => 
+              oi.medicineName.toLowerCase() === (it.medicineName || '').toLowerCase()
+            );
+            if (origItem) {
+              cost = Number(origItem.costPrice) || 0;
+              upp = Number(origItem.unitsPerPack) || 1;
+            }
+          }
+
+          const qPack = Number(it.quantityInPack) || 0;
+          const qUnit = Number(it.quantityInUnit) || 0;
+          retItemsCost += (qPack * cost) + (qUnit * (cost / Math.max(1, upp)));
+        });
+
+        // Fallback: If individual batch cost is missing, estimate cost at typical cost ratio
+        if (retItemsCost <= 0 && refundAmt > 0) {
+          const costRatio = salesRevenueExVat > 0 ? (salesCogs / salesRevenueExVat) : 0.70;
+          retItemsCost = refundAmt * costRatio;
+        }
+
+        returnedCogs += retItemsCost;
+      }
+    });
+
+    const netSalesExVat = Math.max(0, salesRevenueExVat - returnedRevenue);
+    const netCogs = Math.max(0, salesCogs - returnedCogs);
+    const grossProfit = Math.max(0, netSalesExVat - netCogs);
     const marginPct = netSalesExVat > 0 ? (grossProfit / netSalesExVat) * 100 : 0;
 
-    return { todayCogs, grossProfit, marginPct };
-  }, [todaySales, todayRefunds, medicines]);
+    return { 
+      todayCogs: netCogs, 
+      grossProfit: Math.round(grossProfit * 100) / 100, 
+      marginPct: Math.round(marginPct * 10) / 10 
+    };
+  }, [todaySales, todayReturns, salesInvoices, medicines]);
 
   // Inventory Overview KPIs
   const totalPacks = medicines.reduce((acc, m) => acc + m.stockPacks, 0);
@@ -134,18 +284,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
 
 
       {/* KPI Stats Grid */}
-      <div className="dashboard-premium-kpis grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="dashboard-premium-kpis grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
 
-        {/* Today's Revenue */}
+        {/* Today's Received Counter Revenue */}
         <div className="premium-kpi-card premium-kpi-revenue rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-[0_3px_14px_rgba(15,23,42,0.05)]">
           <div>
             <div className="flex items-center justify-between">
               <p className="text-[12px] font-bold text-slate-600">
                 Today's Counter Revenue
               </p>
-              {todayRefunds > 0 && (
+              {todayCashRefunds > 0 ? (
                 <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-200">
-                  Net after returns
+                  Net after cash refunds
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 ring-1 ring-emerald-200">
+                  Received Cash/QR
                 </span>
               )}
             </div>
@@ -165,34 +319,71 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ setActiveTab }) =>
           </div>
 
           <div className="mt-4 border-t border-slate-200 pt-3">
-            {todayRefunds > 0 ? (
-              <div className="space-y-1 text-[11px]">
-                <div className="flex items-center justify-between text-slate-500">
-                  <span>Gross Sales ({todaySales.length} bills):</span>
-                  <span className="font-mono font-semibold text-slate-800">Rs. {todayGrossRevenue.toFixed(2)}</span>
-                </div>
+            <div className="space-y-1 text-[11px]">
+              <div className="flex items-center justify-between text-slate-500">
+                <span>
+                  Received ({todayPaidSales.length} bills):
+                </span>
+                <span className="font-mono font-semibold text-slate-800">Rs. {todayGrossReceived.toFixed(2)}</span>
+              </div>
+              {todayCashRefunds > 0 && (
                 <div className="flex items-center justify-between font-medium text-rose-600">
-                  <span>Customer Refunds ({todayReturns.length}):</span>
-                  <span className="font-mono font-bold">- Rs. {todayRefunds.toFixed(2)}</span>
+                  <span>Cash Refunds:</span>
+                  <span className="font-mono font-bold">- Rs. {todayCashRefunds.toFixed(2)}</span>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-4 text-[11px]">
-                <span className="text-slate-500">
-                  Bills
-                  <strong className="ml-1.5 font-bold text-slate-800">
-                    {todaySales.length}
-                  </strong>
-                </span>
+              )}
+              {todayCreditDebtReductions > 0 && (
+                <div className="flex items-center justify-between text-slate-500">
+                  <span>Credit Returns (Debt Reduced):</span>
+                  <span className="font-mono text-slate-700">Rs. {todayCreditDebtReductions.toFixed(2)}</span>
+                </div>
+              )}
+              {todayCreditSales.length > 0 && (
+                <div className="flex items-center justify-between text-amber-700 font-semibold pt-0.5">
+                  <span>Today's Credit Pending:</span>
+                  <span className="font-mono">Rs. {todayCreditAmount.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-                <span className="text-right text-slate-500">
-                  Avg Bill
-                  <strong className="ml-1.5 font-bold text-slate-800">
-                    Rs. {avgBillValue.toFixed(0)}
-                  </strong>
-                </span>
-              </div>
-            )}
+        {/* Customer Credit (Udhaaro) Container */}
+        <div 
+          onClick={() => setActiveTab('customer_credit')}
+          className="premium-kpi-card group cursor-pointer rounded-2xl border border-amber-200 bg-gradient-to-br from-white via-white to-amber-50/50 px-6 py-5 shadow-[0_3px_14px_rgba(245,158,11,0.06)] transition-all hover:border-amber-400 hover:shadow-md"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <p className="text-[12px] font-bold text-amber-900">
+                Customer Credit (Udhaaro)
+              </p>
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 ring-1 ring-amber-300">
+                {activeCreditDueBills.length} Due
+              </span>
+            </div>
+
+            <p className="mt-3 font-mono text-[28px] font-black leading-none tracking-tight text-amber-900">
+              Rs. {totalOutstandingCredit.toFixed(2)}
+            </p>
+
+            <div className="mt-2.5 flex items-center justify-between rounded-xl bg-amber-100/70 px-3 py-1.5 text-xs text-amber-900">
+              <span className="font-semibold">Today's Credit:</span>
+              <span className="font-mono font-extrabold text-amber-950">
+                Rs. {todayCreditAmount.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 border-t border-amber-200/60 pt-3">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-amber-800/80 font-medium">
+                {uniqueCreditCustomersCount} Customers
+              </span>
+              <span className="font-bold text-amber-900 group-hover:underline flex items-center gap-0.5">
+                View Report <ArrowUpRight className="h-3 w-3 inline" />
+              </span>
+            </div>
           </div>
         </div>
 

@@ -275,6 +275,10 @@ export interface CustomerSalesReturn {
     customerName?: string;
     customerPhone?: string;
     totalAmount?: number;
+    grandTotal?: number;
+    paymentMode?: string;
+    paymentMethod?: string;
+    paymentStatus?: string;
   };
   items: Array<{
     id: number;
@@ -301,6 +305,7 @@ export interface SaleInvoice {
   time: string; // HH:mm:ss
   customerName: string;
   customerPhone?: string;
+  customerAddress?: string;
   customerPan?: string; // Optional buyer PAN for statutory tax invoices
   doctorName?: string;
   patientAge?: string;
@@ -323,6 +328,7 @@ export interface SaleInvoice {
   discountAmount: number;
   grandTotal: number;
   paymentMode: 'cash' | 'fonepay_qr' | 'card' | 'credit';
+  paymentStatus?: 'paid' | 'unpaid' | 'partial';
   cashTendered: number;
   changeGiven: number;
   cashierName?: string;

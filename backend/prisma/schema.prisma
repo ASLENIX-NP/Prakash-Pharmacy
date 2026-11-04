@@ -164,6 +164,7 @@ model Bill {
   transactionDate   DateTime @default(now()) @map("transaction_date")
   customerName      String?  @map("customer_name")
   customerPhone     String?  @map("customer_phone")
+  customerAddress   String?  @map("customer_address")
   customerPan       String?  @map("customer_pan")
   prescribingDoctor String?  @map("prescribing_doctor")
   paymentMethod     String   @default("cash") @map("payment_method")

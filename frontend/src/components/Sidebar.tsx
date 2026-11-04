@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -18,6 +18,7 @@ export type ActiveTab =
   | 'pos'
   | 'stockists'
   | 'sales_history'
+  | 'customer_credit'
   | 'clinic'
   | 'reports'
   | 'users'
@@ -51,11 +52,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentUser,
     isAdmin,
     medicines,
+    salesInvoices,
     logout,
   } = usePharmacy();
 
   const lowStockCount = medicines.filter(
     (medicine) => medicine.stockPacks <= medicine.reorderLevel
+  ).length;
+
+  const unpaidCreditCount = (salesInvoices || []).filter(
+    (invoice) => invoice.paymentMode === 'credit' && invoice.paymentStatus !== 'paid'
   ).length;
 
   const menuItems: MenuItem[] = [
@@ -105,6 +111,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortCode: 'SR',
       tone: 'bg-slate-100 text-slate-700 border-slate-200',
       toneActive: 'bg-gradient-to-br from-slate-600 to-slate-800 text-white border-transparent',
+    },
+    {
+      id: 'customer_credit',
+      label: 'Customer Credit',
+      shortCode: 'CC',
+      badge: unpaidCreditCount > 0 ? unpaidCreditCount : undefined,
+      tone: 'bg-amber-50 text-amber-700 border-amber-200',
+      toneActive: 'bg-gradient-to-br from-amber-500 to-amber-600 text-white border-transparent',
     },
     {
       id: 'clinic',
