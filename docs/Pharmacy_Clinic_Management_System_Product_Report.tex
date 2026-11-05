@@ -1,0 +1,641 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[a4paper,margin=0.8in,top=0.85in,bottom=0.85in]{geometry}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+
+\setstretch{1.14}
+
+% Professional Executive Palette
+\definecolor{HeaderNavy}{HTML}{142D4C}
+\definecolor{SubHeader}{HTML}{27496D}
+\definecolor{BodyDark}{HTML}{1A1A1A}
+\definecolor{RuleGray}{HTML}{D1D5DB}
+\definecolor{BorderGray}{HTML}{CBD5E1}
+
+\captionsetup{
+    font={small,rm},
+    labelfont={bf,color=SubHeader},
+    textfont={color=BodyDark},
+    skip=5pt
+}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=HeaderNavy,
+    urlcolor=HeaderNavy,
+    citecolor=HeaderNavy,
+    pdftitle={Pharmacy and Clinic Management System - Product Features Report},
+    pdfauthor={Software Engineering Team}
+}
+
+% Section formatting
+\makeatletter
+\newcommand{\chaptertitle}[1]{%
+    \vspace*{0.2cm}%
+    {\normalfont\LARGE\bfseries\color{HeaderNavy} #1}%
+    \vspace*{0.3cm}\par%
+}
+\newcommand{\moduletitle}[1]{%
+    \vspace*{0.1cm}%
+    {\normalfont\Large\bfseries\color{HeaderNavy} #1}%
+    \vspace*{0.25cm}\par%
+}
+\newcommand{\subheading}[1]{%
+    \vspace*{0.2cm}%
+    {\normalfont\large\bfseries\color{SubHeader} #1}%
+    \vspace*{0.15cm}\par%
+}
+\makeatother
+
+% Running Headers and Footers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textsf{\textbf{\color{HeaderNavy}PHARMACY \& CLINIC MANAGEMENT SYSTEM} \textbar\ Product Features Report}}
+\fancyhead[R]{\small\textsf{\color{SubHeader}Product Demonstration Guide}}
+\fancyfoot[L]{\footnotesize\textsf{Pharmacy \& Outpatient Clinic Software Platform}}
+\fancyfoot[R]{\small\textsf{Page \thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\newcommand{\screenshotbox}[2]{
+    \begin{figure}[h!]
+        \centering
+        \fboxsep=0pt
+        \fboxrule=0.5pt
+        \fcolorbox{BorderGray}{white}{%
+            \includegraphics[width=0.92\textwidth,height=3.15in,keepaspectratio]{#1}%
+        }
+        \caption{#2}
+    \end{figure}
+}
+
+\begin{document}
+
+% ==============================================================================
+% COVER PAGE
+% ==============================================================================
+\begin{titlepage}
+\begin{center}
+    \vspace*{0.1cm}
+    {\fontsize{24}{28}\selectfont \textbf{\color{HeaderNavy}PHARMACY \& CLINIC MANAGEMENT SYSTEM}}\\[0.25cm]
+    {\fontsize{15}{18}\selectfont \textbf{\color{SubHeader}PRODUCT FEATURES REPORT}}\\[0.2cm]
+    {\large \textit{A reusable product overview for prospective pharmacies and outpatient clinics}}\\[0.45cm]
+
+    \fboxsep=0pt
+    \fboxrule=0.6pt
+    \fcolorbox{BorderGray}{white}{%
+        \includegraphics[width=0.95\textwidth,height=3.8in,keepaspectratio]{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/00_main_dashboard.png}%
+    }\\[0.55cm]
+
+    \begin{tabularx}{0.95\textwidth}{>{\bfseries}p{3.5cm}X}
+    \toprule
+    Prepared For: & Prospective pharmacy and clinic clients \\
+    Prepared By: & Healthcare Software Solutions \textbar\ Product Engineering Team \\
+    Date: & November 2026 \\
+    Document Type: & Generic Product Features Overview \& Live Verification Guide \\
+    Application: & Deployed Web-Based Pharmacy \& Clinic Management Platform \\
+    \bottomrule
+    \end{tabularx}
+\end{center}
+\end{titlepage}
+
+\newpage
+% ==============================================================================
+% TABLE OF CONTENTS & EXECUTIVE SUMMARY
+% ==============================================================================
+{\Large\bfseries\color{HeaderNavy} Table of Contents}
+\vspace*{0.3cm}
+
+\begin{tabularx}{\textwidth}{p{13.5cm}r}
+\textbf{Executive Summary} & \textbf{3} \\
+\textbf{Chapter 1. Introduction} & \textbf{4} \\
+\textbf{Chapter 2. System Modules} & \textbf{5} \\
+\hspace{0.5cm} 1. Admin Dashboard and Business Overview & 6 \\
+\hspace{0.5cm} 2. Point of Sale (POS) and Medicine Billing & 7 \\
+\hspace{0.5cm} 3. Sales History, Invoice Reprint and Customer Returns & 8 \\
+\hspace{0.5cm} 4. Medicine Inventory and Generic Drug Catalog & 9 \\
+\hspace{0.5cm} 5. Excel Templates, Bulk Import and Stock Export & 10 \\
+\hspace{0.5cm} 6. Physical Stock Verification and Reconciliation & 11 \\
+\hspace{0.5cm} 7. Wholesaler and Distributor Management & 12 \\
+\hspace{0.5cm} 8. Purchase Invoices and Inward Stock & 13 \\
+\hspace{0.5cm} 9. Wholesaler Ledger, Payments and Supplier Returns & 14 \\
+\hspace{0.5cm} 10. Patient Registration and Clinic Records & 15 \\
+\hspace{0.5cm} 11. OPD Visit Registration and Records & 16 \\
+\hspace{0.5cm} 12. Doctor Management and Clinic Reports & 17 \\
+\hspace{0.5cm} 13. OPD Sticker Printing & 18 \\
+\hspace{0.5cm} 14. Accounting, VAT and Management Reports & 19 \\
+\hspace{0.5cm} 15. Staff Accounts and Role-Based Access & 20 \\
+\hspace{0.5cm} 16. Pharmacy Settings, Branding and Data Backup & 21 \\
+\textbf{Chapter 3. Practical Benefits and Usage} & \textbf{22} \\
+\textbf{Chapter 4. Product Demonstration Checklist} & \textbf{23} \\
+\textbf{Conclusion} & \textbf{24} \\
+\bottomrule
+\end{tabularx}
+
+\vspace{0.6cm}
+\hrule height 0.6pt
+\vspace{0.6cm}
+
+{\Large\bfseries\color{HeaderNavy} Executive Summary}
+\vspace*{0.25cm}
+
+The Pharmacy \& Clinic Management System is a web-based solution for pharmacies and small pharmacy-linked outpatient clinics. It brings common administrative and operational activities into one application so that medicine sales, stock movement, purchasing, supplier records and OPD visits can be reviewed together.
+
+For the pharmacy counter, the system includes point-of-sale billing, medicine search, full-pack and loose-unit sales, tax classification, sales history and customer returns. For inventory, it maintains medicine and batch details, expiry information, physical stock checks and spreadsheet tools. For procurement, it records wholesaler information, inward purchase bills, payments, returns and ledger balances.
+
+Where outpatient consultations are provided, the clinic module supports patient registration, doctor management, OPD visit records, consultation charges and printed visit stickers. Administrators also have access to management reporting, staff account controls and business settings.
+
+This report explains the available functional modules in straightforward business language. It is intended for client meetings, software demonstrations and feature discussions. Each module includes a dedicated real screenshot captured directly from the deployed application so that prospective clients can evaluate the actual user interface rather than generic mockups.
+
+The system is a configurable software product, not a claim of universal hospital management, automated government certification or multi-branch SaaS capability. Any client-specific integration, workflow changes, hosting arrangements and support obligations should be agreed separately.
+
+\newpage
+% ==============================================================================
+% CHAPTER 1: INTRODUCTION
+% ==============================================================================
+\chaptertitle{Chapter 1. Introduction}
+
+Retail pharmacies manage medicines, suppliers, customers, sales invoices, prices, stock quantities and payment records each day. A pharmacy associated with a clinic may also maintain patient registrations, doctor information and consultation tickets. When these activities are managed through separate registers or spreadsheets, staff spend additional time searching for information and reconciling records.
+
+The Pharmacy \& Clinic Management System provides a connected interface for these routine activities. Its main purpose is to make counter operations more consistent, give staff access to the appropriate records and help owners monitor stock and business performance from the information entered into the system.
+
+Unlike a general retail billing tool, the application includes pharmacy-specific needs such as packs and loose units, batch and expiry details, VAT classifications, wholesaler purchase ledgers and physical stock counting. The clinic extension adds a basic OPD administrative workflow for practices that need it.
+
+\subheading{1.1 Objectives}
+\begin{itemize}
+    \item \textbf{Simplify daily billing:} Support clear medicine selection, receipt generation and recorded sales.
+    \item \textbf{Maintain organized inventory:} Track medicine details, quantities, batches, prices, rack locations and expiry.
+    \item \textbf{Connect purchases to supplier accounts:} Keep wholesaler bills, payments and related balances together.
+    \item \textbf{Support outpatient registration:} Manage basic patient and doctor information and consultation visits.
+    \item \textbf{Improve management visibility:} Provide relevant sales, purchasing, VAT and stock reports to authorized users.
+\end{itemize}
+
+\newpage
+% ==============================================================================
+% CHAPTER 2: SYSTEM MODULES
+% ==============================================================================
+\chaptertitle{Chapter 2. System Modules}
+
+The following modules describe the functionality available in the current pharmacy and OPD application. They share information through the same operating system, so the effect of a recorded sale, purchase or stock count can be reviewed through related screens.
+
+Each module begins on a new page and includes a dedicated screenshot captured from the deployed application.
+
+\subheading{Main Functional Areas}
+\begin{enumerate}
+    \item Admin Dashboard and Business Overview
+    \item Point of Sale (POS) and Medicine Billing
+    \item Sales History, Invoice Reprint and Customer Returns
+    \item Medicine Inventory and Generic Drug Catalog
+    \item Excel Templates, Bulk Import and Stock Export
+    \item Physical Stock Verification and Reconciliation
+    \item Wholesaler and Distributor Management
+    \item Purchase Invoices and Inward Stock
+    \item Wholesaler Ledger, Payments and Supplier Returns
+    \item Patient Registration and Clinic Records
+    \item OPD Visit Registration and Records
+    \item Doctor Management and Clinic Reports
+    \item OPD Sticker Printing
+    \item Accounting, VAT and Management Reports
+    \item Staff Accounts and Role-Based Access
+    \item Pharmacy Settings, Branding and Data Backup
+\end{enumerate}
+
+% ------------------------------------------------------------------------------
+% MODULE 1: ADMIN DASHBOARD
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{1. Admin Dashboard and Business Overview}
+
+The dashboard brings the most important daily pharmacy indicators into one screen. It is designed for owners and authorized staff who need to see what requires attention before opening a separate register.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/01_dashboard.png}{Figure 2.1: Admin Dashboard and Business Overview (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Daily operating overview:} Review high-level sales, transactions and stock indicators in one place, using information recorded by the application.
+    \item \textbf{Low-stock monitoring:} Identify medicines approaching reorder levels so that purchase planning can begin before shelves become empty.
+    \item \textbf{Expiry watch:} Highlight approaching medicine expiry dates and help staff prioritize batch review and stock handling.
+    \item \textbf{Wholesaler credit alerts:} Surface supplier balance or credit-limit concerns that may need payment or reconciliation.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+The dashboard reduces the need to consult several registers simply to understand the day's position. Its figures depend on the completeness and accuracy of data entered in the system.
+
+% ------------------------------------------------------------------------------
+% MODULE 2: POINT OF SALE (POS)
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{2. Point of Sale (POS) and Medicine Billing}
+
+The POS module supports day-to-day retail medicine sales. It is built around searching the inventory, assembling a bill, calculating the final amount and recording the completed transaction.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/02_pos_billing.png}{Figure 2.2: Point of Sale (POS) and Medicine Billing (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Medicine search and selection:} Locate medicines by available names and inventory attributes, including generic information and batch-related details.
+    \item \textbf{Full-pack and loose-unit sales:} Sell sealed packs or loose units such as tablets, with quantities and prices interpreted according to pack configuration.
+    \item \textbf{Discounts, VAT and totals:} Apply the supported item or bill discounts while distinguishing 13\% VAT-classified items from VAT-exempt ones.
+    \item \textbf{Customer and payment details:} Capture the information required for the selected sale and record supported payment modes such as cash, card, QR-reference and credit.
+    \item \textbf{Receipt printing:} Generate the completed bill for printing and later review in the sales register.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+A cashier can complete a medicine sale and have the corresponding stock movement reflected in the inventory without maintaining a separate paper ledger.
+
+% ------------------------------------------------------------------------------
+% MODULE 3: SALES HISTORY & RETURNS
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{3. Sales History, Invoice Reprint and Customer Returns}
+
+The sales register stores completed billing records for review and follow-up. It complements the POS screen by helping staff answer questions about past purchases and handle approved return requests.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/03_sales_history.png}{Figure 2.3: Sales History, Invoice Reprint and Customer Returns (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Sales register:} View recorded invoices and search or filter historical sales by relevant dates or identifiers.
+    \item \textbf{Invoice access:} Open or reprint a tax invoice where supported, using the recorded transaction details.
+    \item \textbf{Customer returns:} Record a permitted return against the original sale, including the returned quantity and relevant reason.
+    \item \textbf{Refund and stock effects:} Review refund calculations and applicable stock restoration within the return workflow.
+    \item \textbf{Sales-book export:} Export available sales information to a spreadsheet for management review or reconciliation.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+The pharmacy can refer to a documented sales record rather than reconstructing a transaction from memory. Actual return rules and refund approvals remain subject to pharmacy policy.
+
+% ------------------------------------------------------------------------------
+% MODULE 4: MEDICINE INVENTORY
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{4. Medicine Inventory and Generic Drug Catalog}
+
+The inventory module maintains the medicine catalog and on-hand stock information. It records pharmacy-specific fields that are essential for purchasing, dispensing and physical shelf management.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/04_inventory_catalog.png}{Figure 2.4: Medicine Inventory and Generic Drug Catalog (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Medicine master records:} Maintain medicine brand name, generic salt or molecule, category, rack position and other catalog identifiers.
+    \item \textbf{Batch and expiry details:} Record batch numbers and expiry information so staff can assess usable stock and near-expiry items.
+    \item \textbf{Pack-size and price records:} Store units per pack, purchase cost, selling MRP and VAT or prescription-required classification.
+    \item \textbf{Stock monitoring:} Review quantities, reorder thresholds and low-stock indicators; edit medicine information through the permitted workflow.
+    \item \textbf{Generic grouping:} Group or search available medicines by generic molecule to make equivalent-stock review easier.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+An organized digital catalog helps counter staff locate products and gives the owner a clearer view of available stock. Clinical substitution decisions remain the responsibility of qualified staff.
+
+% ------------------------------------------------------------------------------
+% MODULE 5: EXCEL IMPORT & EXPORT
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{5. Excel Templates, Bulk Import and Stock Export}
+
+For pharmacies with larger catalogs, the system includes spreadsheet tools to help prepare medicine lists and retrieve inventory information. This module reduces repetitive data entry when onboarding stock.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/05_excel_import_export.png}{Figure 2.5: Excel Templates, Bulk Import and Stock Export (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Excel template:} Download a structured medicine-import template as a guide to expected fields.
+    \item \textbf{Bulk catalog import:} Upload supported spreadsheet formats to preview medicines before creating or updating records.
+    \item \textbf{Supplier purchase import:} Use the supported purchase-bill import flow when the spreadsheet represents a wholesaler invoice.
+    \item \textbf{Stock export:} Download current medicine and stock data for checking, printing or offline reference.
+    \item \textbf{Import review:} Check validation errors, import modes and mapped quantities before confirming a database change.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Import and export are separate business operations: exported stock is a snapshot, not automatically a purchase bill. Re-importing the same quantities through a merge operation can increase stock, so staff must verify the file type and import mode.
+
+% ------------------------------------------------------------------------------
+% MODULE 6: PHYSICAL STOCK VERIFICATION
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{6. Physical Stock Verification and Reconciliation}
+
+Physical stock counting compares the quantity found on shelves with the quantity recorded in the application. The dedicated worksheet helps pharmacies document discrepancies systematically.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/06_stock_verification.png}{Figure 2.6: Physical Stock Verification and Reconciliation (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Rack-wise verification:} Choose an inventory rack or a subset of medicines for a focused count.
+    \item \textbf{Count entry:} Record counted packs and loose units beside system quantities.
+    \item \textbf{Difference review:} Identify matches, shortages and excess quantities before posting an adjustment.
+    \item \textbf{Authorized correction:} Save approved stock corrections through the built-in reconciliation workflow.
+    \item \textbf{Audit history:} Review previously recorded stock adjustments and export available audit information.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Periodic physical verification helps identify loss, damage, incorrect entry and counting mistakes. A count should be checked and approved according to the pharmacy's internal controls.
+
+% ------------------------------------------------------------------------------
+% MODULE 7: WHOLESALER MANAGEMENT
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{7. Wholesaler and Distributor Management}
+
+The wholesaler directory keeps supplier information together and connects it to purchases, balances and account activity. This is especially useful when a pharmacy works with multiple distributors.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/07_wholesalers.png}{Figure 2.7: Wholesaler and Distributor Management (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Wholesaler profiles:} Record business name, contacts, PAN and related account information.
+    \item \textbf{Active/inactive status:} Manage availability of wholesalers for relevant selection workflows.
+    \item \textbf{Supplier account overview:} Inspect balances and other recorded wholesaler account indicators.
+    \item \textbf{Supplier lookup:} Find and select a wholesaler when preparing eligible inward purchase records.
+    \item \textbf{Related activity:} Navigate from a wholesaler to its purchasing, ledger or payment information.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Keeping supplier profiles separate from medicine records makes procurement and follow-up more consistent, especially when staff need to identify which distributor supplied an item.
+
+% ------------------------------------------------------------------------------
+% MODULE 8: PURCHASE INVOICES
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{8. Purchase Invoices and Inward Stock}
+
+The purchase invoice module documents medicines received from wholesalers and links purchase values to stock records. It helps replace separate notebooks for purchases and stock entry.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/08_purchase_invoices.png}{Figure 2.8: Purchase Invoices and Inward Stock (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Supplier invoices:} Record invoice number, supplier, date and purchased medicine lines.
+    \item \textbf{Batch-level receiving:} Enter received medicine batches, expiry dates, quantities, cost and MRP.
+    \item \textbf{Purchase calculations:} Record VAT, discounts, free or bonus packs and supported quantity formats.
+    \item \textbf{Payment selection:} Record a purchase as cash or credit according to the supported workflow.
+    \item \textbf{Purchase history:} Review existing purchase bills and their item details as needed.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+A properly entered purchase provides a traceable record of stock received and the related supplier account amount. The correct quantity, cost and invoice totals should be verified against the supplier's original bill.
+
+% ------------------------------------------------------------------------------
+% MODULE 9: WHOLESALER LEDGER & RETURNS
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{9. Wholesaler Ledger, Payments and Supplier Returns}
+
+The supplier ledger gives management a consolidated view of amounts owed, amounts paid and return-related adjustments. It supports routine reconciliation with distributors.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/09_wholesaler_ledger.png}{Figure 2.9: Wholesaler Ledger, Payments and Supplier Returns (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Running balances:} Review recorded payable balance and ledger activity for a selected wholesaler.
+    \item \textbf{Supplier payments:} Record payments against the supplier account using the supported payment flow.
+    \item \textbf{Supplier returns:} Prepare return transactions for medicines being sent back to wholesalers.
+    \item \textbf{Debit-note adjustments:} Track the relevant supplier return adjustment and accompanying transaction record.
+    \item \textbf{Ledger export and analysis:} Export available ledger or item-wise wholesaler information for review.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+This module makes it easier to answer how much the pharmacy owes a supplier and why. Financial adjustments should still be checked against accepted supplier statements and return documentation.
+
+% ------------------------------------------------------------------------------
+% MODULE 10: PATIENT REGISTRATION
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{10. Patient Registration and Clinic Records}
+
+The clinic extension adds a patient register for outpatient operations. It is suitable for pharmacy-linked consultation desks that need basic identification and visit administration.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/10_patient_registration.png}{Figure 2.10: Patient Registration and Clinic Records (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Patient profiles:} Maintain patient name, phone and other available registration information.
+    \item \textbf{Patient identifiers:} Associate the patient with an identifying clinic number for future visit lookup.
+    \item \textbf{Age representation:} Support age entry appropriate to adults, children and infants, including years, months or days.
+    \item \textbf{Visit history:} Connect existing patient information with subsequent OPD records.
+    \item \textbf{Record lookup:} Search for existing patients to help avoid unnecessary duplicate registration.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+A central patient register reduces repeated manual form filling during routine consultations. This is an OPD administration feature, not a complete electronic medical record.
+
+% ------------------------------------------------------------------------------
+% MODULE 11: OPD VISITS
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{11. OPD Visit Registration and Records}
+
+OPD registration allows a receptionist to create a dated consultation visit for a patient and assign a doctor. It also supports consultation charging and visit-history review.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/11_opd_visits.png}{Figure 2.11: OPD Visit Registration and Records (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{New OPD visit:} Select an existing patient or register a new patient, then choose the consulting doctor.
+    \item \textbf{Consultation amounts:} Record the relevant fee and supported additional service charges.
+    \item \textbf{Visit numbering:} Create a distinct OPD visit number that can be used on receipts and stickers.
+    \item \textbf{Status tracking:} Review the visit state using the available Open, Completed and Cancelled statuses.
+    \item \textbf{OPD records:} Access the list of recorded visits for review and permitted follow-up actions.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+The receptionist can connect patient identity, doctor and consultation billing in one workflow. Clinical diagnosis, prescriptions and detailed case notes are outside the demonstrated scope of this feature report.
+
+% ------------------------------------------------------------------------------
+% MODULE 12: DOCTOR MANAGEMENT
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{12. Doctor Management and Clinic Reports}
+
+Doctor management stores professional details used in OPD registration and consultation charges. Reporting tools then help authorized staff examine recorded clinic activity.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/12_doctor_management.png}{Figure 2.12: Doctor Management and Clinic Reports (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Doctor profiles:} Manage doctors and their specialties, qualifications and registration-related information.
+    \item \textbf{Consultation fee setup:} Maintain default consultation fees for eligible OPD workflows.
+    \item \textbf{Doctor selection:} Use the recorded doctor profile when creating an OPD visit.
+    \item \textbf{Clinic activity reports:} Review available consultation totals, visits and doctor-related summaries.
+    \item \textbf{Restricted management data:} Limit selected doctor management and clinic reporting functions to authorized administrators.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Clinic staff can process registrations more consistently while the administrator retains oversight of doctor records and available consultation revenue summaries.
+
+% ------------------------------------------------------------------------------
+% MODULE 13: OPD STICKER PRINTING
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{13. OPD Sticker Printing}
+
+The OPD sticker gives patients a compact printed record of their visit and helps the clinic desk identify the consultation. The current implemented layout is horizontal and optimized for a 60 mm by 50 mm label.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/13_opd_sticker.png}{Figure 2.13: OPD Sticker Printing (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Readable visit details:} Show the pharmacy or clinic name, OPD number, patient ID, patient name and other selected registration details.
+    \item \textbf{Doctor and fee display:} Print the consulting doctor and recorded consultation amount.
+    \item \textbf{Large screen preview:} Open an enlarged preview so staff can inspect the label before choosing to print.
+    \item \textbf{Printer-sized output:} Use print CSS intended for 60 $\times$ 50 mm labels; actual print size depends on paper and printer settings.
+    \item \textbf{Barcode representation:} Encode supported OPD visit numbers in Code 39; the scanner-to-record lookup workflow is a separate potential enhancement.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+A compact label can support patient flow at the clinic counter. Printer compatibility, paper setup and barcode scan reliability must be tested for each client's hardware.
+
+% ------------------------------------------------------------------------------
+% MODULE 14: ACCOUNTING & MANAGEMENT REPORTS
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{14. Accounting, VAT and Management Reports}
+
+The reports area combines information recorded by the billing, purchasing and inventory modules. It helps owners review activity without manually adding every register.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/14_reports.png}{Figure 2.14: Accounting, VAT and Management Reports (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Sales and purchase summaries:} Review recorded sales and purchasing totals across relevant time ranges.
+    \item \textbf{VAT summaries:} Inspect classified taxable and exempt amounts, using the application's VAT-related fields and calculations.
+    \item \textbf{Inventory valuation:} View available stock valuation indicators based on stored quantities and costs.
+    \item \textbf{Filter and date review:} Select relevant periods for supported report screens.
+    \item \textbf{Operational exports:} Export selected stock, sales-book and supplier information when the corresponding function is available.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Reports support internal oversight and reconciliation. The presence of VAT calculations does not itself constitute government certification or replace review by a qualified accountant.
+
+% ------------------------------------------------------------------------------
+% MODULE 15: STAFF ACCOUNTS & ROLE-BASED ACCESS
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{15. Staff Accounts and Role-Based Access}
+
+Staff management is intended for businesses where the owner and employees have different responsibilities. Accounts help attribute work and restrict sensitive administrative actions.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/15_staff_accounts.png}{Figure 2.15: Staff Accounts and Role-Based Access (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{User accounts:} Create, edit and manage staff profiles for supported application roles.
+    \item \textbf{Admin and staff permissions:} Differentiate access to specified management and operational functions.
+    \item \textbf{Account activation:} Manage whether a staff account is active.
+    \item \textbf{Password administration:} Allow authorized administrative changes to staff passwords using the available tools.
+    \item \textbf{User accountability:} Associate transactions and relevant operations with the corresponding logged-in user when captured.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+The owner can delegate daily billing and clinic tasks without giving every employee the same access. Actual access policies and secure deployment settings should be reviewed during client onboarding.
+
+% ------------------------------------------------------------------------------
+% MODULE 16: SETTINGS, BRANDING & DATA BACKUP
+% ------------------------------------------------------------------------------
+\newpage
+\moduletitle{16. Pharmacy Settings, Branding and Data Backup}
+
+The settings area lets administrators maintain key pharmacy identity and operating configuration values used across printed documents and workflows.
+
+\screenshotbox{/Users/safalbhatta/Prakash-Pharmacy/docs/screenshots/16_settings_backup.png}{Figure 2.16: Pharmacy Settings, Branding and Data Backup (deployed interface)}
+
+\subheading{Main Features}
+\begin{itemize}
+    \item \textbf{Business information:} Maintain pharmacy name, contact details and available registration or tax-related settings.
+    \item \textbf{Store identity:} Configure applicable logo and print-facing details.
+    \item \textbf{Rack configuration:} Maintain available shelf and rack labels used by inventory records.
+    \item \textbf{Invoice and fiscal settings:} Review the relevant invoice and fiscal-year configuration used by the application.
+    \item \textbf{Backup utility:} Access the available data-export or backup function for an additional copy of business records.
+\end{itemize}
+
+\subheading{Benefit to the Pharmacy}
+Configuration makes the product adaptable to a new customer's identity. Backup exports should be tested and supplemented by a reliable database-level backup and recovery procedure.
+
+\newpage
+% ==============================================================================
+% CHAPTER 3: PRACTICAL BENEFITS AND USAGE
+% ==============================================================================
+\chaptertitle{Chapter 3. Practical Benefits and Usage}
+
+The value of a connected pharmacy system is best demonstrated through everyday activities. The following examples show how the modules can work together when staff enter accurate data and follow approved business procedures.
+
+\subheading{3.1 A medicine sale at the counter}
+The cashier searches a medicine, selects the appropriate batch and pack or loose quantity, completes the bill and prints the receipt. The recorded sale becomes visible in the sales register and affects the stock quantity.
+
+\subheading{3.2 Receiving stock from a wholesaler}
+The authorized user selects a supplier, records the original purchase invoice and received medicine details, and checks the resulting supplier account position. If a return is required later, it can be recorded against the relevant workflow.
+
+\subheading{3.3 Monthly shelf count}
+The inventory operator reviews each rack, compares physical quantities against system balances, records differences and requests the appropriate adjustment. Historical audit records can then be reviewed.
+
+\subheading{3.4 Outpatient consultation visit}
+The receptionist retrieves or registers a patient, selects a doctor, records a consultation visit and prints an OPD sticker. The resulting visit is available in OPD records and permitted clinic reports.
+
+\subheading{3.5 Owner and administrator oversight}
+The owner reviews stock shortages, approaching expiry, supplier balances, sales and VAT-related reporting, and staff account access. This supports follow-up decisions based on recorded activity.
+
+\subheading{Suitable Clients}
+Independent retail pharmacies, neighborhood pharmacies with regular wholesale purchasing, dispensaries that manage batch-based medicine stock, and pharmacy-linked outpatient clinics with basic patient registration and doctor consultations. The precise fit should be confirmed during a demonstration using the client's own workflow.
+
+\newpage
+% ==============================================================================
+% CHAPTER 4: PRODUCT DEMONSTRATION CHECKLIST
+% ==============================================================================
+\chaptertitle{Chapter 4. Product Demonstration and Screenshot Checklist}
+
+Before sharing this report with a prospective client, replace the screenshot placeholders with actual images captured from a deployed demonstration environment. Use sample or anonymized records; do not reveal real patient details, passwords, private telephone numbers or confidential supplier prices.
+
+\vspace{0.4cm}
+
+\begin{center}
+\begin{tabularx}{\textwidth}{p{1.2cm}p{5.5cm}X}
+\toprule
+\textbf{No.} & \textbf{Module} & \textbf{Verified Live Application Feature} \\
+\midrule
+1 & Admin Dashboard and Business Overview & Dashboard home screen showing alerts and key totals \\
+2 & Point of Sale (POS) and Medicine Billing & POS screen with medicine cart and billing summary \\
+3 & Sales History, Invoice Reprint and Customer Returns & Sales register and customer return view \\
+4 & Medicine Inventory and Generic Drug Catalog & Inventory list and generic grouping screen \\
+5 & Excel Templates, Bulk Import and Stock Export & Excel upload preview and export controls \\
+6 & Physical Stock Verification and Reconciliation & Physical stock worksheet with variance columns \\
+7 & Wholesaler and Distributor Management & Wholesaler directory and supplier profile \\
+8 & Purchase Invoices and Inward Stock & New purchase invoice and item entry screen \\
+9 & Wholesaler Ledger, Payments and Supplier Returns & Supplier ledger, payment and return sections \\
+10 & Patient Registration and Clinic Records & Patient registration form and saved patient details \\
+11 & OPD Visit Registration and Records & New OPD form and OPD records screen \\
+12 & Doctor Management and Clinic Reports & Doctor management and clinic reporting interface \\
+13 & OPD Sticker Printing & Enlarged OPD sticker preview and 60 $\times$ 50 mm print \\
+14 & Accounting, VAT and Management Reports & Sales, purchase, VAT and inventory report tabs \\
+15 & Staff Accounts and Role-Based Access & Staff list, roles and permissions interface \\
+16 & Pharmacy Settings, Branding and Data Backup & Store settings and backup controls \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\newpage
+% ==============================================================================
+% CONCLUSION
+% ==============================================================================
+\chaptertitle{Conclusion}
+
+The Pharmacy \& Clinic Management System combines the routine workflows of a medicine retailer and the administrative needs of a small outpatient desk in one web-based application. Its key functional areas cover medicine inventory, billing, customer returns, supplier purchasing and ledger management, stock verification, patients, doctors, OPD visits, reporting, staff accounts and pharmacy configuration.
+
+These features can help a pharmacy maintain organized operational records and reduce reliance on disconnected registers. The strongest demonstration is a real workflow: receive a medicine purchase, sell a pack or loose unit, inspect the inventory change, and then review the corresponding report. For clinic users, the patient-to-OPD-to-sticker workflow offers a similar example.
+
+Before this document is used as a final commercial proposal, the supplier should add genuine deployment screenshots, confirm the customer's exact requirements, agree the service and support scope, and validate printer, invoicing, VAT configuration and backup arrangements for that client. Features beyond the current implementation should be quoted separately rather than presented as already delivered.
+
+\vspace{1.5cm}
+\begin{center}
+\textbf{--- END OF REPORT ---}
+\end{center}
+
+\end{document}

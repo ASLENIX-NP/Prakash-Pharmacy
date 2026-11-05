@@ -98,10 +98,24 @@ const PharmacyAppContent: React.FC = () => {
   } = usePharmacy();
 
   const [activeTab, setActiveTab] =
-    useState<ActiveTab>('dashboard');
+    useState<ActiveTab>(() => {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const t = params.get('tab') as ActiveTab;
+        if (t) return t;
+      }
+      return 'dashboard';
+    });
 
   const [mobileSidebarOpen, setMobileSidebarOpen] =
     useState(false);
+
+  useEffect(() => {
+    (window as any).__setActiveTab = (tab: ActiveTab) => {
+      setActiveTab(tab);
+    };
+    (window as any).__currentActiveTab = activeTab;
+  }, [activeTab]);
 
   /*
    * Staff users should only have access to:
