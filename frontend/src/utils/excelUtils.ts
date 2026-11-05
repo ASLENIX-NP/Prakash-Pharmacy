@@ -26,7 +26,7 @@ export async function downloadMedicineExcelTemplate(): Promise<void> {
       { value: 'Reorder Alert Level', ...HEADER_STYLE },
       { value: 'Shelf / Rack Location', ...HEADER_STYLE },
       { value: '13% VAT Applicable (YES/NO)', ...HEADER_STYLE },
-      { value: 'Doctor Prescription Required (YES/NO)', ...HEADER_STYLE },
+      { value: 'Prescription / Rx Required (YES/NO)', ...HEADER_STYLE },
       { value: 'Notes', ...HEADER_STYLE },
     ],
     [
@@ -150,7 +150,14 @@ const FIELD_ALIASES = {
     'doctorprescriptionrequired',
     'prescriptionrequired',
     'requiresprescription',
-    'rxrequired'
+    'rxrequired',
+    'prescription',
+    'prescriptionyesno',
+    'prescriptionrxrequiredyesno',
+    'prescriptiondoctorprescriptionrequired',
+    'prescriptionrx',
+    'rx',
+    'rxonly'
   ],
   freePacks: [
     'freepacks', 'freebonus', 'free', 'bonus', 'bonuspacks', 'freepack', 'scheme', 'bonusqty', 'freeqty', 'bonusquantity', 'freequantity', 'freebonuspacks', 'freebonuspcks', 'freebonusqty', 'bonuspks', 'freepks'
@@ -573,6 +580,7 @@ export function exportInventoryToExcel(medicines: Medicine[], storeName: string)
       'Batch Number': m.batchNumber,
       'Expiry Date': m.expiryDate,
       'Packs in Stock': m.stockPacks,
+      'Free / Bonus (Packs)': m.freePacks || 0,
       'Loose Tablets / Units': m.stockLooseUnits,
       'Units Per Pack': m.unitsPerPack,
       'Total Equivalent Units': totalLoose,
@@ -582,6 +590,7 @@ export function exportInventoryToExcel(medicines: Medicine[], storeName: string)
       'Inventory Value Cost (NPR)': parseFloat(stockValuationCost),
       'Inventory Value MRP (NPR)': parseFloat(stockValuationMRP),
       'VAT Classification': m.isVatApplicable ? '13% VAT Applicable' : 'VAT Free / 0% Exempt',
+      'Prescription (Doctor Prescription Required)': m.prescriptionRequired ? 'YES' : 'NO',
       'Rack / Shelf Location': m.rackLocation,
       'Reorder Alert Level': m.reorderLevel,
       'Supplier / Wholesaler': m.supplierName,
