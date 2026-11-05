@@ -1,0 +1,659 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[a4paper,margin=0.75in,top=0.85in,bottom=0.85in]{geometry}
+\usepackage{fontspec}
+\setmainfont{Helvetica Neue}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{calc,shapes.geometric,arrows.meta,positioning}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{microtype}
+\usepackage{hyperref}
+
+\setstretch{1.15}
+
+% Warm, Client-Friendly Medical Corporate Palette
+\definecolor{NavyDark}{HTML}{0F2A4A}       % Deep Medical Navy
+\definecolor{PrimaryBlue}{HTML}{1A5694}   % Professional Royal Blue
+\definecolor{TealAccent}{HTML}{0D9488}     % Medical Teal
+\definecolor{EmeraldGreen}{HTML}{0D7A5F}   % Pharmacy Green
+\definecolor{EmeraldLight}{HTML}{ECFDF5}   % Soft Green
+\definecolor{AmberWarn}{HTML}{B45309}      % Warm Amber
+\definecolor{AmberLight}{HTML}{FFFBEB}     % Soft Amber
+\definecolor{RoseDanger}{HTML}{E11D48}     % Soft Red
+\definecolor{RoseLight}{HTML}{FFF1F2}      % Soft Red Light
+\definecolor{SlateDark}{HTML}{334155}      % Charcoal Text
+\definecolor{SlateLight}{HTML}{F8FAFC}     % Background Tint
+\definecolor{BorderGray}{HTML}{CBD5E1}     % Border Gray
+\definecolor{CardBg}{HTML}{F1F5F9}         % Soft Slate
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=PrimaryBlue,
+    urlcolor=TealAccent,
+    citecolor=PrimaryBlue,
+    pdftitle={Prakash Pharmacy - Complete System Features & User Guide},
+    pdfauthor={Software Development Team},
+    pdfsubject={Client Feature Handbook & Operations Guide}
+}
+
+% Headers and Footers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textsf{\textbf{\color{NavyDark}PRAKASH PHARMACY} \textbar\ \color{EmeraldGreen}Complete Feature Guide \& Handbook}}
+\fancyhead[R]{\small\textsf{\color{PrimaryBlue}Client User Guide \textbar\ 2026}}
+\fancyfoot[L]{\footnotesize\textsf{\color{SlateDark}Prepared for: \textbf{Prakash Dulal \& Pharmacy Team} \textbar\ Hetauda, Nepal}}
+\fancyfoot[R]{\small\textsf{\textbf{\color{NavyDark}Page \thepage}}}
+\renewcommand{\headrulewidth}{0.5pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% Section Numbering
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+
+% Feature Card Command
+\newcommand{\featurecard}[3]{
+    \vspace{0.25cm}
+    \begin{center}
+    \begin{tikzpicture}
+    \node[
+        fill=SlateLight,
+        draw=BorderGray,
+        line width=0.8pt,
+        rounded corners=5pt,
+        inner sep=10pt,
+        text width=0.94\textwidth,
+        align=left
+    ] {
+        {\large\textbf{\color{NavyDark}#1}} \hfill {\footnotesize\textbf{\colorbox{EmeraldLight}{\color{EmeraldGreen}#2}}} \\[0.2cm]
+        \textsf{\small #3}
+    };
+    \end{tikzpicture}
+    \end{center}
+    \vspace{0.15cm}
+}
+
+% How It Helps You Callout Box
+\newcommand{\benefitbox}[1]{
+    \begin{center}
+    \begin{tikzpicture}
+    \node[
+        fill=EmeraldLight,
+        draw=EmeraldGreen,
+        line width=0.8pt,
+        rounded corners=4pt,
+        inner sep=8pt,
+        text width=0.94\textwidth,
+        align=left
+    ] {
+        \textbf{\color{EmeraldGreen}$\checkmark$ HOW THIS HELPS YOUR PHARMACY:}\\[0.1cm]
+        \textsf{\small #1}
+    };
+    \end{tikzpicture}
+    \end{center}
+}
+
+% Step Box
+\newcommand{\stepbox}[2]{
+    \begin{center}
+    \begin{tikzpicture}
+    \node[
+        fill=CardBg,
+        draw=BorderGray,
+        line width=0.6pt,
+        rounded corners=3pt,
+        inner sep=7pt,
+        text width=0.94\textwidth,
+        align=left
+    ] {
+        \textbf{\color{PrimaryBlue}#1}\quad \textsf{\small #2}
+    };
+    \end{tikzpicture}
+    \end{center}
+}
+
+\begin{document}
+
+% ==============================================================================
+% COVER PAGE
+% ==============================================================================
+\thispagestyle{empty}
+
+\begin{tikzpicture}[remember picture,overlay]
+    % Top Medical Green Banner
+    \fill[NavyDark] (current page.north west) rectangle ($(current page.north east)+(0,-3.4cm)$);
+    \fill[EmeraldGreen] ($(current page.north west)+(0,-3.4cm)$) rectangle ($(current page.north east)+(0,-3.55cm)$);
+    
+    % Header text inside banner
+    \node[anchor=west, text=white] at ($(current page.north west)+(1.0in,-1.7cm)$) {
+        {\fontsize{24}{28}\selectfont \textbf{PRAKASH PHARMACY}}
+    };
+    \node[anchor=west, text=EmeraldLight] at ($(current page.north west)+(1.0in,-2.5cm)$) {
+        {\fontsize{11}{14}\selectfont \textbf{COMMUNITY PHARMACY \& OUTPATIENT CLINIC MANAGEMENT SYSTEM}}
+    };
+    \node[anchor=east, text=white] at ($(current page.north east)+(-1.0in,-2.1cm)$) {
+        \textsf{\textbf{CLIENT USER GUIDE}}
+    };
+\end{tikzpicture}
+
+\vspace{2.6cm}
+
+\begin{center}
+{\fontsize{22}{26}\selectfont \textbf{\color{NavyDark}COMPLETE SYSTEM FUNCTIONALITY GUIDE}} \\[0.25cm]
+{\fontsize{12}{15}\selectfont \textsf{\color{PrimaryBlue}Everything Your New Pharmacy \& Clinic Software Does for You}} \\[0.35cm]
+\textsf{\color{SlateDark}A Simple, Step-by-Step Feature Handbook Prepared for Prakash Dulal and Staff}
+\end{center}
+
+\vspace{0.4cm}
+
+% Welcome Banner Box
+\begin{center}
+\begin{tikzpicture}
+\node[
+    fill=EmeraldLight,
+    draw=EmeraldGreen,
+    line width=1pt,
+    rounded corners=6pt,
+    inner sep=14pt,
+    text width=0.94\textwidth
+] {
+    \begin{center}
+    {\large \textbf{\color{EmeraldGreen}Welcome to Your Custom-Built Pharmacy \& Clinic System!}} \\[0.2cm]
+    \textsf{\color{NavyDark}This software was built specifically for \textbf{Prakash Pharmacy} in Hetauda, Nepal. It simplifies daily counter sales, automatically monitors drug expiries, tracks customer credit (\textit{Udharo}), manages medicine distributors, and seamlessly connects doctor consultations directly to your dispensing counter.}
+    \end{center}
+};
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.5cm}
+
+% Pharmacy Profile Summary
+\begin{center}
+\begin{tabularx}{0.96\textwidth}{>{\bfseries\color{NavyDark}}p{4.0cm}X>{\bfseries\color{NavyDark}}p{3.8cm}X}
+\toprule
+\multicolumn{4}{l}{\textbf{\color{PrimaryBlue}SYSTEM PROFILE \& STORE DETAILS}} \\
+\midrule
+Pharmacy Name: & Prakash Pharmacy & Proprietor / Lead: & Prakash Dulal (NPC-1425) \\
+Location: & Hetauda-5, Makwanpur, Nepal & Phone Contact: & +977-057-521480 \\
+PAN Number: & 123798907 & DDA License: & 3780516073935 \\
+Tax Status: & 13\% VAT Registered \& Exempt & Currency: & Nepalese Rupee (NPR) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\vspace{0.6cm}
+
+% Quick Overview Grid
+\begin{center}
+\begin{tikzpicture}
+    % Card 1
+    \node[fill=EmeraldLight, draw=EmeraldGreen, rounded corners=4pt, text width=3.3cm, minimum height=1.8cm, align=center] at (0,0) {
+        {\Large \textbf{\color{EmeraldGreen}Fast POS}} \\[0.1cm]
+        {\footnotesize \textbf{\color{NavyDark}Sub-Second Billing}} \\
+        {\scriptsize \color{SlateDark}Cash, Card, QR \& Credit}
+    };
+    % Card 2
+    \node[fill=SlateLight, draw=PrimaryBlue, rounded corners=4pt, text width=3.3cm, minimum height=1.8cm, align=center] at (4.0,0) {
+        {\Large \textbf{\color{PrimaryBlue}Zero Waste}} \\[0.1cm]
+        {\footnotesize \textbf{\color{NavyDark}Batch \& Expiry}} \\
+        {\scriptsize \color{SlateDark}FEFO Auto Prioritization}
+    };
+    % Card 3
+    \node[fill=SlateLight, draw=TealAccent, rounded corners=4pt, text width=3.3cm, minimum height=1.8cm, align=center] at (8.0,0) {
+        {\Large \textbf{\color{TealAccent}Digital Khata}} \\[0.1cm]
+        {\footnotesize \textbf{\color{NavyDark}Customer Credit}} \\
+        {\scriptsize \color{SlateDark}Simple Balance Tracking}
+    };
+    % Card 4
+    \node[fill=AmberLight, draw=AmberWarn, rounded corners=4pt, text width=3.3cm, minimum height=1.8cm, align=center] at (12.0,0) {
+        {\Large \textbf{\color{AmberWarn}Clinic EMR}} \\[0.1cm]
+        {\footnotesize \textbf{\color{NavyDark}Doctor OPD}} \\
+        {\scriptsize \color{SlateDark}1-Click Counter Handoff}
+    };
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.8cm}
+
+\begin{center}
+\begin{tabularx}{0.96\textwidth}{p{6.5cm}Xp{6.5cm}}
+\textbf{\color{NavyDark}Prepared For:} & & \textbf{\color{NavyDark}Prepared By:} \\[1.2cm]
+\rule{6.5cm}{0.5pt} & & \rule{6.5cm}{0.5pt} \\
+\textsf{Prakash Dulal \& Management Team} & & \textsf{Software Engineering \& Handover Team} \\
+\textsf{Prakash Pharmacy, Hetauda} & & \textsf{Date: November 5, 2026} \\
+\end{tabularx}
+\end{center}
+
+\newpage
+
+% ==============================================================================
+% TABLE OF CONTENTS
+% ==============================================================================
+\vspace*{0.2cm}
+{\Large \textbf{\color{NavyDark}TABLE OF CONTENTS}}
+\vspace{0.2cm}
+\hrule height 0.6pt
+\vspace{0.4cm}
+
+\tableofcontents
+
+\vspace{0.6cm}
+
+\begin{center}
+\begin{tikzpicture}
+\node[
+    fill=SlateLight,
+    draw=BorderGray,
+    line width=0.8pt,
+    rounded corners=4pt,
+    inner sep=10pt,
+    text width=0.94\textwidth
+] {
+    \textbf{\color{PrimaryBlue}HOW TO USE THIS HANDBOOK:}\\
+    This guide explains \textbf{every single feature} we created for your pharmacy in simple, everyday language. There is no technical jargon or complex code explanations. Keep this handbook at your front billing counter and doctor consultation room as a quick reference for your staff.
+};
+\end{tikzpicture}
+\end{center}
+
+\newpage
+
+% ==============================================================================
+% SECTION 1: POINT-OF-SALE (POS) BILLING TERMINAL
+% ==============================================================================
+\section{Fast Point-of-Sale (POS) Billing Terminal}
+
+The Point-of-Sale (POS) terminal is the heart of your pharmacy. It is built to make customer checkouts fast, accurate, and completely stress-free during rush hours.
+
+\featurecard{1. Lightning-Fast Drug Search (Brand, Generic \& Barcode)}{Instant Search}{
+You can find any medicine in less than a second simply by typing the first few letters of the brand name (e.g., \textit{Amox...}), the generic molecule name (e.g., \textit{Paracetamol}), or scanning its barcode with a handheld scanner.
+}
+
+\featurecard{2. Automatic Expiry Prioritization (FEFO)}{Smart Shelf Clearing}{
+When multiple batches of the same medicine are in stock, the system automatically selects the batch expiring earliest (\textit{First-Expired, First-Out}). This ensures your oldest stock is dispensed first, preventing medicines from expiring unnoticed on your shelves. Cashiers can also click to pick a different batch if a customer specifically requests it.
+}
+
+\featurecard{3. Sell Full Packs or Loose Tablets with Instant Unit Math}{Dual Packaging}{
+You never have to manually calculate price-per-tablet using a pocket calculator:
+\begin{itemize}
+    \item When a customer asks for 1 strip or box, enter the pack quantity.
+    \item When a customer asks for loose tablets (e.g., 3 tablets of an antibiotic), enter the tablet quantity.
+    \item The system automatically divides the MRP by the pack size (\textit{Units Per Pack}) to give the exact fair price and deducts the correct loose tablets from your inventory.
+\end{itemize}
+}
+
+\featurecard{4. Multiple Flexible Payment Methods}{All Payment Tenders}{
+Customers can pay using whatever method they prefer:
+\begin{itemize}
+    \item \textbf{Cash:} Enter cash tendered; the system displays the exact change to return to the customer.
+    \item \textbf{Fonepay / QR Code:} Select QR Code to record mobile digital payments.
+    \item \textbf{Card:} Record debit or credit card payments.
+    \item \textbf{Customer Credit (Udharo):} Bill directly to the customer's digital Khata account.
+    \item \textbf{Split Payments:} Customers can pay part in cash and part in Fonepay (e.g., Rs. 500 Cash + Rs. 350 QR).
+\end{itemize}
+}
+
+\featurecard{5. Instant Line-Item or Bill-Level Discounts}{Easy Discounts}{
+Apply a flat discount (e.g., Rs. 20 off) or a percentage discount (e.g., 10\% off) to individual medicines or the entire bill with a single keystroke.
+}
+
+\featurecard{6. Professional Nepal Tax Receipts (Thermal 80mm or Full A4/A5)}{Print Ready}{
+Print professional receipts immediately upon billing. Formatted with your pharmacy name, address, PAN number (\texttt{123798907}), DDA registration, sequential invoice number, and customized thank-you note. Works seamlessly with standard 80mm thermal receipt printers and standard desktop printers.
+}
+
+\benefitbox{
+Prevents long customer queues, stops pricing mistakes on loose tablets, ensures your oldest batches sell first, and creates professional tax receipts in seconds.
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 2: COMPLETE INVENTORY & DRUG CONTROL
+% ==============================================================================
+\section{Complete Inventory, Batch \& Expiry Control}
+
+Never lose track of your stock or let medicines expire on your shelves. The inventory system keeps an accurate, real-time count of every single pack and loose tablet in your store.
+
+\featurecard{1. Real-Time Pack \& Loose Unit Tracking}{Accurate Stock}{
+The inventory dashboard shows exactly what you have in stock at any moment:
+\begin{itemize}
+    \item \textbf{Full Packs:} Number of unopened boxes or strips.
+    \item \textbf{Loose Units:} Number of loose tablets, capsules, or ampoules currently in opened packs.
+    \item \textbf{Automatic Box Opening:} When you sell loose tablets, the system automatically breaks open a full pack and moves the remaining units into your loose unit count.
+\end{itemize}
+}
+
+\featurecard{2. Color-Coded Expiry Visualizer}{Zero Waste}{
+Your inventory is color-coded so you can spot near-expiry medicines from across the room:
+\begin{itemize}
+    \item \colorbox{RoseLight}{\textbf{\color{RoseDanger}Expired (Red):}} Date has passed. Selling is blocked automatically to protect patients and keep your pharmacy safe.
+    \item \colorbox{AmberLight}{\textbf{\color{AmberWarn}Expiring in $\le$ 30 Days (Orange):}} Urgent alert! Dispense first or return to your distributor for replacement/credit.
+    \item \colorbox{AmberLight}{\textbf{\color{AmberWarn}Expiring in $\le$ 90 Days (Yellow):}} Early warning to prioritize these medicines.
+    \item \colorbox{EmeraldLight}{\textbf{\color{EmeraldGreen}Safe Stock (Green):}} Healthy stock with plenty of shelf life remaining.
+\end{itemize}
+}
+
+\featurecard{3. DDA Regulatory Flags (Prescription Required \& Narcotic Drugs)}{Government Compliance}{
+The system clearly marks:
+\begin{itemize}
+    \item \textbf{Prescription / Rx Required:} Reminds staff to check and keep a doctor's prescription before dispensing.
+    \item \textbf{Narcotic / Psychotropic Drugs:} Flags controlled medicines to satisfy Department of Drug Administration (DDA) inspection rules.
+\end{itemize}
+}
+
+\featurecard{4. Rack and Shelf Location Finder}{Instant Shelf Finding}{
+Every medicine can be tagged with its physical location in your shop (e.g., \textit{Rack A-2}, \textit{Fridge}, \textit{Emergency Counter}, \textit{Ointment Shelf 1}). New staff can locate any medicine immediately without having to ask where it is kept.
+}
+
+\featurecard{5. Distributor Bonus Goods Tracking (Free / Bonus Packs)}{Free Scheme Goods}{
+When a distributor gives you free medicines (such as 10+1 free schemes), you can record the \textbf{Free / Bonus Packs} separately. This ensures your stock count is 100\% accurate without messing up your purchase cost valuation.
+}
+
+\featurecard{6. Physical Stock Audit Worksheet}{Monthly Shelf Count}{
+A built-in digital worksheet lets you walk down your aisles, count shelf stock, and enter actual counts. The system flags any discrepancy (breakages, damaged bottles, shrinkage) and logs the adjustment with a reason for permanent record-keeping.
+}
+
+\benefitbox{
+Cuts financial losses from expired drugs, ensures strict DDA regulatory compliance, helps new staff find medicines immediately, and keeps shelf counts 100\% accurate.
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 3: CUSTOMER CREDIT (UDHARO / KHATA) LEDGER
+% ==============================================================================
+\section{Customer Credit (\textit{Udharo / Khata}) Ledger}
+
+In community pharmacies, trusted regular customers often buy medicines on credit (*Udharo*). Instead of writing in paper copy notebooks where pages tear and calculations get lost, your software provides a modern, automated **Digital Khata**.
+
+\featurecard{1. Complete Customer Khata Directory}{Digital Ledger}{
+Create customer profiles with their name, mobile phone number, home address, and a customized maximum credit limit (e.g., Rs. 5,000 max credit).
+}
+
+\featurecard{2. Automatic Debt Posting at POS Counter}{Zero Double-Entry}{
+When a regular customer purchases medicines on credit, the cashier simply selects **Payment Method: Credit** and picks the customer's name. The bill completes immediately, and the total amount is automatically added to that customer's digital ledger debt. You never have to manually write in a paper notebook again.
+}
+
+\featurecard{3. Fast Payment Settlements (Full or Partial)}{Simple Balance Clearing}{
+When the customer comes to clear their balance:
+\begin{itemize}
+    \item Open the 	extbf{Customer Credit} view and find their name.
+    \item See their exact total outstanding balance.
+    \item Click 	extbf{Settle Payment}, enter the amount paid (full or partial payment), choose Cash or QR Code, and save.
+    \item Their balance updates instantly, and an official payment receipt is generated.
+\end{itemize}
+}
+
+\featurecard{4. Clear Customer Account Statements}{Printable Account History}{
+Print or show an itemized ledger statement showing every bill taken on credit, every payment made, dates, bill numbers, and the running balance. This eliminates customer disputes over bill amounts.
+}
+
+\benefitbox{
+Eliminates lost credit notebooks, prevents customers from exceeding their credit limits, avoids awkward calculation arguments, and speeds up debt collection.
+}
+
+% ==============================================================================
+% SECTION 4: HASSLE-FREE SALES RETURNS & CREDIT NOTES
+% ==============================================================================
+\section{Hassle-Free Sales Returns \& Credit Notes}
+
+Customers occasionally return unopened medicines (e.g., when a patient's prescription is changed by their doctor). Your software handles this cleanly and accurately.
+
+\featurecard{1. Quick Invoice-Linked or Ad-Hoc Returns}{Simple Return Entry}{
+Search the customer's original bill number to view the exact items they purchased and return specific quantities, or process an ad-hoc counter return if they brought the medicine without an invoice.
+}
+
+\featurecard{2. Automatic Inventory Restocking}{Accurate Stock Return}{
+Returned medicines are automatically restocked back into your live inventory with their original batch number and pack/unit counts.
+}
+
+\featurecard{3. Proper Credit (*Udharo*) Reversal}{No Cash Drawer Errors}{
+If a customer returns medicine that was purchased on credit and has not yet been paid for, the system automatically **reduces their outstanding debt in their Khata** instead of taking physical cash out of your cash drawer.
+}
+
+\featurecard{4. Official Credit Notes \& 13\% VAT Adjustment}{Tax Compliant}{
+Generates a sequentially numbered Credit Note and automatically reverses the 13\% VAT collected on taxable items, keeping your tax records in perfect order.
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 5: STOCKIST & INWARD SUPPLY CHAIN MANAGEMENT
+% ==============================================================================
+\section{Stockist \& Inward Supply Chain Management}
+
+Keep all your medicine distributor relationships, inward purchase bills, scheme bonuses, and supplier payments organized in one place.
+
+\featurecard{1. Wholesaler Directory with PAN \& Contacts}{Distributor Master}{
+Save distributor company names, contact numbers, sales representative details, PAN numbers, and agreed credit terms (e.g., 30-day payment cycle).
+}
+
+\featurecard{2. Fast Inward Purchase Bill Entry}{Stock Inwarding}{
+When a distributor delivers a shipment of medicines:
+\begin{itemize}
+    \item Select the distributor and enter their invoice number and date.
+    \item Add each delivered medicine with its Batch Number, Expiry Date, Units Per Pack, Purchase Cost Price, and MRP.
+    \item As soon as you save, all stock is immediately added to your shelves and available for billing at the counter.
+\end{itemize}
+}
+
+\featurecard{3. Free Bonus Scheme Tracking (e.g., 10+1 / 10+2)}{Scheme Accuracy}{
+Enter free bonus goods received on promotional schemes. The system records the free stock into inventory without artificially distorting your purchase cost price per pack.
+}
+
+\featurecard{4. Distributor Returns (Debit Notes)}{Returning to Supplier}{
+If a shipment arrives with damaged bottles, broken strips, or short-expiry stock:
+\begin{itemize}
+    \item Create a **Distributor Return (Debit Note)**.
+    \item The medicines are deducted from your stock, and your account balance with that distributor is automatically reduced.
+\end{itemize}
+}
+
+\benefitbox{
+Maintains complete proof of purchases, prevents overpaying distributors, tracks supplier credit balances, and manages bonus scheme stock accurately.
+}
+
+% ==============================================================================
+% SECTION 6: CLINIC OPD & DOCTOR EMR INTEGRATION
+% ==============================================================================
+\section{Integrated Outpatient Clinic \& Doctor EMR}
+
+If you have doctors consulting at your pharmacy polyclinic, this feature connects the doctor's consultation room directly to your medicine dispensing counter.
+
+\featurecard{1. Doctor Profiles, Consultation Fees \& OPD Queue}{Doctor Roster}{
+Set up visiting doctors with their NMC registration numbers, specialties, consultation rooms, and fees. Staff can add arriving patients directly to the doctor's live waiting queue.
+}
+
+\featurecard{2. Digital Patient Medical Records}{Patient History}{
+Keep track of patient names, age, phone numbers, known drug allergies, and past medical conditions for personalized community healthcare.
+}
+
+\featurecard{3. Vitals Check-In (BP, Pulse, Temp, SpO2, Weight)}{Vital Signs}{
+Pharmacy staff or clinic nurses can record patient vitals during check-in: Blood Pressure (BP), Pulse Rate, Body Temperature, Respiratory Rate, Blood Oxygen (SpO2), and Body Weight.
+}
+
+\featurecard{4. Digital Doctor Prescriptions with 1-Click Pharmacy Handoff}{No Duplicate Typing}{
+The doctor selects medicines, dosages (e.g., \textit{1 tablet twice daily}), and duration (e.g., \textit{5 days}). When the doctor clicks 	extbf{Save Prescription}:
+\begin{center}
+\textbf{\color{EmeraldGreen}The prescribed medicines immediately appear on the pharmacy front counter!}
+\end{center}
+The cashier simply clicks the prescription, and the medicines are instantly loaded into the POS billing cart with the correct batches. **No reading difficult doctor handwriting, and zero retyping!**
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 7: FINANCIAL REPORTS & PROFIT ANALYTICS
+% ==============================================================================
+\section{Financial Reports \& Real-Time Profit Analytics}
+
+Understand exactly how your business is performing every single day with accurate, real-time reports.
+
+\featurecard{1. Real-Time Gross Profit in Rupees (NPR)}{Know Your Earnings}{
+See your exact daily, weekly, and monthly Gross Profit calculated automatically as:
+\[
+\text{Net Profit} = \text{Total Sales Revenue} - \text{Purchase Cost of Sold Medicines} + \text{Cost of Restocked Returns}
+\]
+You can see exactly how much profit you made today after accounting for all discounts, tender modes, and customer returns.
+}
+
+\featurecard{2. End-of-Day Cash Drawer Reconciliation}{Daily Cash Balancing}{
+At closing time, print the 	extbf{Daily Summary}. It shows exact breakdowns of:
+\begin{itemize}
+    \item Physical Cash collected at the counter drawer.
+    \item Fonepay / QR Code digital payments received.
+    \item Card payments processed.
+    \item New Credit (\textit{Udharo}) extended to customers.
+    \item Credit payments collected.
+\end{itemize}
+Match the physical cash in your drawer against the report to ensure zero cashier discrepancies before locking up for the night.
+}
+
+\featurecard{3. IRD-Compliant 13\% VAT Sales Register}{Tax Accountant Ready}{
+Provides an official sales register broken down into:
+\begin{itemize}
+    \item Taxable Sales (medicines with 13\% VAT).
+    \item Non-Taxable / Exempt Sales (VAT-free medicines).
+    \item Total 13\% VAT collected.
+\end{itemize}
+Hand this report directly to your tax auditor or accountant at the end of every month.
+}
+
+\featurecard{4. Total Inventory Asset Valuation at Cost \& MRP}{Know Your Worth}{
+See the total rupee value of all medicines sitting on your shelves, calculated at both your **Purchase Cost Price** and your **Maximum Retail Price (MRP)**.
+}
+
+\featurecard{5. Fast-Moving vs. Slow-Moving Medicine Reports}{Smart Stock Ordering}{
+Identify your top 20 best-selling drugs and see which dormant medicines have not sold in 60 days. This prevents dead capital from sitting locked up on your shelves.
+}
+
+\benefitbox{
+Gives you complete clarity over daily profits, eliminates cash drawer shortages, keeps tax filing stress-free, and ensures you invest only in fast-selling medicines.
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 8: BULK EXCEL TOOLS, SECURITY & STORE SETTINGS
+% ==============================================================================
+\section{Bulk Excel Tools, Security \& Store Settings}
+
+\subsection{1. Bulk Excel Import \& Stock Export}
+\begin{itemize}
+    \item \textbf{Excel Template Download:} Click \textbf{Excel Template} in the Inventory view to download the template (\texttt{Import\_Template.xlsx}). The sheet comes pre-formatted with example rows and includes dedicated columns for \textbf{Free / Bonus (Packs)} and \textbf{Prescription / Rx Required (YES/NO)}.
+    \item \textbf{1-Click Bulk Upload:} Fill in your stock from a distributor price list or warehouse spreadsheet and upload hundreds of medicines into the system in a few seconds.
+    \item \textbf{Full Stock Backup (.xlsx):} Click \textbf{Export Stock} at any time to download your complete live inventory into an Excel spreadsheet for offline records or distributor ordering.
+\end{itemize}
+
+\subsection{2. Multi-User Staff Roles \& Security}
+Keep your sensitive financial data private while giving your team the tools they need:
+\begin{itemize}
+    \item \textbf{Administrator (Owner / In-Charge):} Full control over profit margins, purchase costs, store settings, staff accounts, and financial reports.
+    \item \textbf{Cashier (Front Counter):} Can search drugs, process bills, print receipts, and accept credit payments. **Cashiers cannot view your distributor purchase costs, view total profit margins, or alter store tax settings.**
+    \item \textbf{Pharmacist:} Manages drug catalog, batch updates, inward distributor shipments, and dispensing.
+    \item \textbf{Doctor:} Dedicated access to the outpatient clinic queue, patient vitals, and digital prescription creation.
+\end{itemize}
+
+\subsection{3. Store Profile \& Tax Settings}
+All your business information is pre-configured and fully customizable under **Settings**:
+\begin{itemize}
+    \item Pharmacy Name: \textbf{Prakash Pharmacy}
+    \item Address: \textbf{Hetauda-5, Sanopokhara, Makwanpur, Nepal}
+    \item PAN Number: \textbf{123798907} \textbar\ DDA License: \textbf{3780516073935}
+    \item Pharmacist In-Charge: \textbf{Prakash Dulal (NPC-1425)}
+    \item Customizable Receipt Footer: \textit{Thank you for choosing Prakash Pharmacy! Medicines cannot be refunded after 7 days without bill.}
+    \item Sequential Starting Invoice Number control.
+\end{itemize}
+
+\newpage
+
+% ==============================================================================
+% SECTION 9: QUICK STEP-BY-STEP DAILY WORKFLOW GUIDE
+% ==============================================================================
+\section{Quick Step-by-Step Daily Workflow Guide}
+
+Here is a quick operational reference for your staff for standard daily tasks:
+
+\stepbox{Workflow 1: How to Bill a Customer at Counter}{
+1. Click 	extbf{POS Billing} in the left menu.\\
+2. Type the medicine name or scan the barcode $\rightarrow$ click on the medicine.\\
+3. Enter the quantity (packs or loose tablets) $\rightarrow$ click Add to Cart.\\
+4. If giving a discount, enter the flat amount or percentage.\\
+5. Select payment mode: **Cash**, **Fonepay / QR**, **Card**, or **Credit**.\\
+6. Click **Complete Sale \& Print** $\rightarrow$ receipt prints automatically.
+}
+
+\stepbox{Workflow 2: How to Sell Medicine on Customer Credit (Udharo)}{
+1. At POS Billing, add medicines to the cart.\\
+2. Under Customer, select an existing customer or click 	extbf{Add New Customer}.\\
+3. Select Payment Method: **Credit**.\\
+4. Click 	extbf{Complete Sale} $\rightarrow$ bill prints, and debt is automatically posted to their Khata.
+}
+
+\stepbox{Workflow 3: How to Settle a Customer Credit Payment}{
+1. Click 	extbf{Customer Credit} in the left menu.\\
+2. Search customer by name or phone number $\rightarrow$ see their current balance.\\
+3. Click 	extbf{Settle Payment} $\rightarrow$ enter amount paid (Cash or QR) $\rightarrow$ save.\\
+4. Balance updates instantly, and a payment receipt is generated.
+}
+
+\stepbox{Workflow 4: How to Handle a Doctor Clinic Patient}{
+1. Arriving patient: Click 	extbf{Clinic} $\rightarrow$ click 	extbf{Register Patient} $\rightarrow$ enter name, age, and phone.\\
+2. Check vitals (BP, Pulse, Temp, Weight) $\rightarrow$ assign patient to Doctor's Queue.\\
+3. Doctor opens patient, writes diagnosis, selects prescribed medicines, and clicks **Save**.\\
+4. Front counter cashier opens POS $\rightarrow$ clicks **Load Clinic Prescription** $\rightarrow$ bills customer with zero typing.
+}
+
+\stepbox{Workflow 5: End-of-Day Cash Balancing Routine}{
+1. At closing time, open 	extbf{Reports} $\rightarrow$ 	extbf{Daily Summary}.\\
+2. Read the **Total Cash Collected (NPR)**.\\
+3. Count the physical cash in your drawer $\rightarrow$ ensure it matches the report.\\
+4. Log out of the counter terminal.
+}
+
+\newpage
+
+% ==============================================================================
+% SECTION 10: FORMAL HANDOVER ACKNOWLEDGEMENT
+% ==============================================================================
+\section{Formal Handover Acknowledgement}
+
+The Prakash Pharmacy Management System (PMS) has been completely built, customized, and verified to meet all daily operational and regulatory requirements of \textbf{Prakash Pharmacy}.
+
+\vspace{0.4cm}
+
+\begin{center}
+\begin{tikzpicture}
+\node[
+    fill=EmeraldLight,
+    draw=EmeraldGreen,
+    line width=1pt,
+    rounded corners=6pt,
+    inner sep=14pt,
+    text width=0.94\textwidth
+] {
+    \begin{center}
+    {\large \textbf{\color{EmeraldGreen}Ready for Live Pharmacy Operations!}} \\[0.2cm]
+    \textsf{\color{NavyDark}All features detailed in this handbook are fully active and available. We are confident this system will bring speed, accuracy, profit visibility, and peace of mind to your daily pharmacy management.}
+    \end{center}
+};
+\end{tikzpicture}
+\end{center}
+
+\vspace{1.5cm}
+
+\begin{center}
+\begin{tabularx}{0.96\textwidth}{p{6.5cm}Xp{6.5cm}}
+\textbf{\color{NavyDark}Delivered By:} & & \textbf{\color{NavyDark}Received \& Accepted By:} \\[1.5cm]
+\rule{6.5cm}{0.5pt} & & \rule{6.5cm}{0.5pt} \\
+\textbf{Software Engineering Team} & & \textbf{Prakash Dulal} \\
+System Developer \& Handover Lead & & Proprietor / Lead Pharmacist, Prakash Pharmacy \\
+Date: November 5, 2026 & & Date: November 5, 2026 \\
+\end{tabularx}
+\end{center}
+
+\end{document}
