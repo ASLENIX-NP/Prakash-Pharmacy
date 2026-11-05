@@ -534,6 +534,9 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
           <p className="text-[12px] font-medium text-slate-500/90 sm:text-[13px]">
             © {new Date().getFullYear()} {settings.storeName || 'Prakash Pharmacy'}. All rights reserved.
           </p>
+          <p className="mt-1 text-[11px] font-medium tracking-wide text-slate-400/75">
+            Powered by Aslenix tech and Solution
+          </p>
         </footer>
       </section>
     </main>

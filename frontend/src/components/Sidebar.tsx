@@ -371,6 +371,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
           )}
+          <div className="mt-2 text-center pb-1">
+            <span className="text-[10px] font-medium tracking-wide text-slate-400/75">
+              Powered by Aslenix tech and Solution
+            </span>
+          </div>
         </div>
       </div>
     </div>

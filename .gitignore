@@ -46,6 +46,10 @@ Thumbs.db
 # Prisma generated client
 backend/src/generated/prisma/
 
+# Documentation & PDFs
+docs/
+*.pdf
+
 # Coverage
 coverage/
 

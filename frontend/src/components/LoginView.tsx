@@ -476,6 +476,9 @@ export const LoginView: React.FC = () => {
             © {new Date().getFullYear()}{' '}
             {settings.storeName || 'Prakash Pharmacy'}. All rights reserved.
           </p>
+          <p className="mt-1 text-[11px] font-medium tracking-wide text-slate-400/75">
+            Powered by Aslenix tech and Solution
+          </p>
         </footer>
       </section>
     </main>

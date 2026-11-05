@@ -318,10 +318,15 @@ const PharmacyAppContent: React.FC = () => {
               No PAN / DDA / address clutter here.
           =================================================== */}
 
-          <footer className="border-t border-slate-200 bg-white px-6 py-3 text-center text-[11px] text-slate-400 print:hidden">
-            © {new Date().getFullYear()}{' '}
-            {settings.storeName}.
-            All rights reserved.
+          <footer className="border-t border-slate-200 bg-white px-6 py-2.5 text-center text-[11px] print:hidden">
+            <p className="text-slate-500/80">
+              © {new Date().getFullYear()}{' '}
+              {settings.storeName}.
+              All rights reserved.
+            </p>
+            <p className="mt-0.5 text-[10.5px] font-medium tracking-wide text-slate-400/75">
+              Powered by Aslenix tech and Solution
+            </p>
           </footer>
         </div>
       </div>
