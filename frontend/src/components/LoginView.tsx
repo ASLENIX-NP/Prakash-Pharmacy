@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useState } from 'react';
 import prakashLogo from '../assets/pharmacy-login-logo.png';
+import { AslenixCredit } from './AslenixCredit';
 import {
   AlertCircle,
   ArrowRight,
@@ -91,7 +92,7 @@ export const LoginView: React.FC = () => {
   }
 
   return (
-    <main className="relative h-full min-h-0 overflow-x-hidden overflow-y-auto bg-[#f3fbfc] font-sans text-slate-900">
+    <main className="relative h-full min-h-0 overflow-hidden bg-[#f3fbfc] font-sans text-slate-900">
       {/* ============================================================
           BACKGROUND
       ============================================================ */}
@@ -189,27 +190,27 @@ export const LoginView: React.FC = () => {
           PAGE CONTENT
       ============================================================ */}
 
-      <section className="relative z-10 flex min-h-full flex-col items-center justify-center px-4 py-5 sm:px-6">
+      <section className="relative z-10 flex h-full min-h-0 flex-col items-center overflow-y-auto px-4 py-3 sm:px-6 sm:py-4">
         {/* ============================================================
             LOGIN CARD
         ============================================================ */}
 
-        <div className="w-full max-w-[560px] rounded-[30px] border border-white/80 bg-white/95 px-7 py-7 shadow-[0_25px_70px_rgba(15,118,110,0.12)] backdrop-blur-md sm:px-10 sm:py-8">
+        <div className="my-auto w-full max-w-[540px] shrink-0 rounded-[28px] border border-white/80 bg-white/95 px-6 py-5 shadow-[0_25px_70px_rgba(15,118,110,0.12)] backdrop-blur-md sm:px-9 sm:py-6">
           {/* Brand */}
           <header className="text-center">
             {/* Logo */}
             <img
               src={settings.storeLogo || prakashLogo}
               alt={`${settings.storeName || 'Prakash Pharmacy'} logo`}
-              className="mx-auto h-[100px] w-[142px] object-contain"
+              className="mx-auto h-[68px] w-[112px] object-contain"
             />
 
             {/* Pharmacy name */}
-            <h1 className="mt-5 text-[30px] font-black leading-tight tracking-[-0.025em] text-slate-900 sm:text-[34px]">
+            <h1 className="mt-3 text-[27px] font-black leading-tight tracking-[-0.025em] text-slate-900 sm:text-[30px]">
               {settings.storeName || 'Prakash Pharmacy'}
             </h1>
 
-            <p className="mt-2 text-[15px] font-medium tracking-[0.01em] text-slate-500 sm:text-base">
+            <p className="mt-1.5 text-[13px] font-medium tracking-[0.01em] text-slate-500 sm:text-[14px]">
               Secure staff login
             </p>
           </header>
@@ -219,7 +220,7 @@ export const LoginView: React.FC = () => {
           ======================================================== */}
 
           <form
-            className="mt-8 space-y-5"
+            className="mt-5 space-y-4"
             onSubmit={handleSubmit}
             noValidate
           >
@@ -242,7 +243,7 @@ export const LoginView: React.FC = () => {
             <div>
               <label
                 htmlFor="username"
-                className="mb-2 block text-[16px] font-bold text-slate-800"
+                className="mb-1.5 block text-[14px] font-bold text-slate-800"
               >
                 Username
               </label>
@@ -270,7 +271,7 @@ export const LoginView: React.FC = () => {
                   }}
                   placeholder="Enter your username"
                   className="
-                    h-[56px]
+                    h-[50px]
                     w-full
                     rounded-[17px]
                     border
@@ -300,7 +301,7 @@ export const LoginView: React.FC = () => {
             <div>
               <label
                 htmlFor="password"
-                className="mb-2 block text-[16px] font-bold text-slate-800"
+                className="mb-1.5 block text-[14px] font-bold text-slate-800"
               >
                 Password
               </label>
@@ -327,7 +328,7 @@ export const LoginView: React.FC = () => {
                   }}
                   placeholder="Enter your password"
                   className="
-                    h-[56px]
+                    h-[50px]
                     w-full
                     rounded-[17px]
                     border
@@ -392,18 +393,15 @@ export const LoginView: React.FC = () => {
               </div>
             </div>
 
-            {/* Forgot password section with admin note */}
-            <div className="flex flex-col items-end gap-1 -mt-1 mb-2">
+            {/* Password recovery remains available. */}
+            <div className="flex justify-end -mt-1">
               <button
                 type="button"
                 onClick={() => setShowForgotPassword(true)}
-                className="text-[13px] font-bold text-teal-700 transition hover:text-teal-800 hover:underline focus:outline-none"
+                className="text-[12px] font-semibold text-teal-700 transition hover:text-teal-800 hover:underline focus:outline-none"
               >
-                Forgot password? (Admin only)
+                Forgot password?
               </button>
-              <p className="text-[11.5px] leading-tight text-slate-500 text-right">
-                <span className="font-semibold text-slate-700">Note:</span> Staff accounts must contact the administrator for password resets.
-              </p>
             </div>
 
             {/* Login button */}
@@ -414,7 +412,7 @@ export const LoginView: React.FC = () => {
                 group
                 relative
                 flex
-                h-[58px]
+                h-[52px]
                 w-full
                 items-center
                 justify-center
@@ -425,7 +423,7 @@ export const LoginView: React.FC = () => {
                 via-teal-600
                 to-emerald-600
                 px-5
-                text-[17px]
+                text-[16px]
                 font-bold
                 text-white
                 shadow-[0_12px_25px_rgba(5,150,105,0.22)]
@@ -456,30 +454,10 @@ export const LoginView: React.FC = () => {
               )}
             </button>
 
-            {/* Security message */}
-            <p className="px-3 pt-1 text-center text-[13px] leading-6 text-slate-500">
-              Authorized staff only. Please use your assigned
-              <br className="hidden sm:block" />
-              <span className="sm:ml-1">
-                username and password to continue.
-              </span>
-            </p>
+            {/* Subtle developer credit below Login. */}
+            <AslenixCredit className="!mt-3" />
           </form>
         </div>
-
-        {/* ============================================================
-            FOOTER
-        ============================================================ */}
-
-        <footer className="relative z-20 mt-4 pb-[75px] text-center">
-          <p className="text-[12px] font-medium text-slate-500/90 sm:text-[13px]">
-            © {new Date().getFullYear()}{' '}
-            {settings.storeName || 'Prakash Pharmacy'}. All rights reserved.
-          </p>
-          <p className="mt-1 text-[11px] font-medium tracking-wide text-slate-400/75">
-            Powered by Aslenix tech and Solution
-          </p>
-        </footer>
       </section>
     </main>
   );

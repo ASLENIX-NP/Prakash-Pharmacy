@@ -11,6 +11,7 @@ import {
   ActiveTab,
 } from './components/Sidebar';
 import { LoginView } from './components/LoginView';
+import { AslenixCredit } from './components/AslenixCredit';
 import { TopInfoBar } from './components/TopInfoBar';
 import { VatTaxInfoModal } from './components/VatTaxInfoModal';
 import { PhysicalStockAuditModal } from './components/PhysicalStockAuditModal';
@@ -319,14 +320,20 @@ const PharmacyAppContent: React.FC = () => {
           =================================================== */}
 
           <footer className="border-t border-slate-200 bg-white px-6 py-2.5 text-center text-[11px] print:hidden">
-            <p className="text-slate-500/80">
-              © {new Date().getFullYear()}{' '}
-              {settings.storeName}.
-              All rights reserved.
-            </p>
-            <p className="mt-0.5 text-[10.5px] font-medium tracking-wide text-slate-400/75">
-              Powered by Aslenix tech and Solution
-            </p>
+            <div className="relative flex flex-col items-center justify-center gap-1 lg:min-h-[24px]">
+              <p className="text-slate-500/80">
+                &copy; {new Date().getFullYear()} {settings.storeName}. All rights reserved.
+              </p>
+              {activeTab === 'pos' ? (
+                <div className="lg:absolute lg:right-0 lg:top-1/2 lg:-translate-y-1/2">
+                  <AslenixCredit compact />
+                </div>
+              ) : (
+                <p className="mt-0.5 text-[10.5px] font-medium tracking-wide text-slate-400/75">
+                  Powered by Aslenix tech and Solution
+                </p>
+              )}
+            </div>
           </footer>
         </div>
       </div>
