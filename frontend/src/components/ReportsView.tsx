@@ -289,18 +289,18 @@ export const ReportsView: React.FC = () => {
   return (
     <div className="premium-reports-shell -mx-4 -my-5 space-y-5 bg-[#eef2f4] p-4 sm:-mx-6 sm:p-6 lg:-mx-7 lg:-my-7 lg:p-7">
       {/* Header */}
-      <div className="flex flex-col items-start justify-between gap-5 rounded-[24px] bg-[#103f4d] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:p-7">
+      <div className="flex flex-col items-start justify-between gap-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:p-6">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/10 text-teal-100 ring-1 ring-white/15">
-              <BarChart3 className="h-5 w-5" strokeWidth={2.2} />
+          <div className="flex items-start gap-3.5">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+              <BarChart3 className="h-6 w-6" strokeWidth={2.2} />
             </div>
             <div>
-              <h2 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">
+              <h2 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
                 Accounting, VAT &amp; Stock Valuation
               </h2>
-              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-teal-100/80 sm:text-sm">
-                Statutory statements for Prakash Pharmacy, IRD Nepal VAT return and stock analytics.
+              <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500 sm:text-sm">
+                Statutory statements for {settings.storeName || 'the pharmacy'}, IRD Nepal VAT return and stock analytics.
               </p>
             </div>
           </div>
@@ -309,9 +309,9 @@ export const ReportsView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => exportInventoryToExcel(medicines, settings.storeName)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/5 px-4 py-3 text-xs font-bold text-white shadow-sm transition hover:border-white/50 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#103f4d] sm:w-auto"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-xs font-bold text-emerald-800 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 sm:w-auto"
           >
-            <Download className="h-4 w-4" />
+            <Download className="h-4 w-4 text-emerald-700" />
             <span>Export Stock Valuation (.xlsx)</span>
           </button>
         </div>
@@ -388,21 +388,7 @@ export const ReportsView: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] shadow-sm">
-        <span className="font-semibold text-slate-600">
-          {vatReportLoading
-            ? 'Refreshing report from PostgreSQL...'
-            : vatReportError
-              ? `Database report error: ${vatReportError}`
-              : `Live PostgreSQL report — period: ${appliedStart || 'all time'} → ${appliedEnd || 'all time'}`}
-        </span>
 
-        {!vatReportLoading && !vatReportError && (
-          <span className="font-medium text-teal-700">
-            Sales, purchases, VAT and stock are database calculated
-          </span>
-        )}
-      </div>
 
       <div className="space-y-7">
 
@@ -536,8 +522,8 @@ export const ReportsView: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <div className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-[#103f4d] bg-[#103f4d] p-5 shadow-sm">
-              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-teal-100/80">
+            <div className="flex min-h-[150px] flex-col justify-between rounded-[20px] border border-teal-700 bg-teal-700 p-5 text-white shadow-sm">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-teal-100">
                 Net VAT payable
               </span>
 
@@ -546,7 +532,7 @@ export const ReportsView: React.FC = () => {
                   {formatCurrency(vatSummary.netVatPayable)}
                 </strong>
 
-                <span className="mt-2 block text-[11px] leading-relaxed text-teal-100/75">
+                <span className="mt-2 block text-[11px] leading-relaxed text-teal-100/90">
                   {vatSummary.vatCredit > 0
                     ? `VAT credit ${formatCurrency(vatSummary.vatCredit)}`
                     : 'Output VAT minus Input VAT'}
