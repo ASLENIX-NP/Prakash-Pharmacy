@@ -1305,6 +1305,7 @@ export const NewOpdPanel: React.FC = () => {
                     </label>
 
                     <input
+                      maxLength={50}
                       value={
                         newPatient.address
                       }
@@ -1325,6 +1326,9 @@ export const NewOpdPanel: React.FC = () => {
                       }
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500"
                     />
+                      <p className="mt-1 text-right text-[11px] text-slate-500">
+                        {newPatient.address.length}/50 characters
+                      </p>
                   </div>
                 </div>
 

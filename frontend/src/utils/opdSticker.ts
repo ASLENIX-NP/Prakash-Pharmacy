@@ -13,6 +13,7 @@ export interface OpdStickerVisit {
     name: string;
     phone?: string | null;
     gender?: string | null;
+    address?: string | null;
   };
   doctor: {
     name: string;
@@ -128,6 +129,10 @@ export const buildOpdStickerHtml = (
   const enteredBy = visit.createdBy?.name || visit.createdBy?.username || '';
   const feeValue = Number(visit.consultationFee ?? visit.totalCharge ?? 0);
   const fee = Number.isFinite(feeValue) ? feeValue.toFixed(2) : '0.00';
+  const addressRaw = String(visit.patient.address ?? '').trim();
+  const addressForSticker = addressRaw.length > 50
+    ? addressRaw.slice(0, 47).trimEnd() + '...'
+    : (addressRaw || '-');
   const barcode = makeOpdBarcode(visit.opdNumber);
 
   return `<!doctype html>
@@ -162,39 +167,42 @@ export const buildOpdStickerHtml = (
 
     .sticker {
       width: ${OPD_STICKER_WIDTH_MM}mm; height: ${OPD_STICKER_HEIGHT_MM}mm;
-      padding: 1.8mm 2.1mm 1.5mm; overflow: hidden; background: #fff; color: #000;
+      padding: 1.2mm 1.8mm 1.0mm; overflow: hidden; background: #fff; color: #000;
       display: flex; flex-direction: column;
       position: absolute; left: 0; top: 0;
       transform: scale(2.2); transform-origin: top left;
     }
     /* Let the entire pharmacy name use the label width, not compete with the date. */
-    .head { display: flex; flex-direction: column; gap: .45mm; border-bottom: .35mm solid #000; padding-bottom: .9mm; }
+    .head { display: flex; flex-direction: column; gap: .2mm; border-bottom: .35mm solid #000; padding-bottom: .4mm; }
     .brand-name { width: 100%; font-size: 9.3pt; line-height: 1.05; font-weight: 900; white-space: normal; overflow-wrap: anywhere; }
     .head-details { display: flex; align-items: baseline; justify-content: space-between; gap: 1.5mm; min-width: 0; }
     .brand-sub { font-size: 5.3pt; letter-spacing: .08mm; font-weight: 700; white-space: nowrap; }
     .date { text-align: right; font-size: 6.2pt; line-height: 1.15; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
 
-    .identity { display: flex; justify-content: space-between; gap: 1.4mm; padding: 1.2mm 0 1mm; border-bottom: .2mm solid #333; align-items: center; }
+    .identity { display: flex; justify-content: space-between; gap: 1.4mm; padding: .45mm 0 .35mm; border-bottom: .2mm solid #333; align-items: center; }
     .opd-group { flex: 1; min-width: 0; }
     .eyebrow { font-size: 5.3pt; line-height: 1.12; letter-spacing: .12mm; font-weight: 800; }
     .opd-number { font-size: 9.8pt; line-height: 1.1; font-weight: 900; overflow-wrap: anywhere; max-height: 6.4mm; overflow: hidden; }
     .clinic-no { text-align: right; max-width: 24mm; min-width: 0; font-size: 7.7pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 8mm; overflow: hidden; }
 
-    .patient { padding: 1.15mm 0 .8mm; }
-    .patient-name { font-size: 10.6pt; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere; max-height: 9mm; overflow: hidden; }
-    .metadata { display: grid; grid-template-columns: 1fr 1.15fr; gap: 2mm; border-bottom: .2mm solid #333; padding-bottom: 1.05mm; }
-    .field-value { display: block; font-size: 7.4pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 6.1mm; overflow: hidden; }
+    .patient { padding: .4mm 0 .25mm; }
+    .patient-name { font-size: 10pt; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere; max-height: 9mm; overflow: hidden; }
+    .metadata { display: grid; grid-template-columns: 1fr 1.15fr; column-gap: 1.4mm; row-gap: .15mm; border-bottom: .2mm solid #333; padding-bottom: .35mm; }
+    .field-value { display: block; font-size: 7pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 6.1mm; overflow: hidden; }
 
-    .doctor { padding: 1mm 0 .8mm; display: flex; align-items: flex-start; justify-content: space-between; gap: 1mm; }
+    .patient-address { grid-column: 1 / -1; min-width: 0; }
+    .address-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: 5.6pt; font-weight: 700; line-height: 1.1; max-height: 4.6mm; }
+    .doctor-nmc { margin-top: .2mm; font-size: 5.5pt; font-weight: 800; line-height: 1.1; }
+    .doctor { padding: .35mm 0 .25mm; display: flex; align-items: flex-start; justify-content: space-between; gap: 1mm; }
     .doctor-main { flex: 1; min-width: 0; }
-    .doctor-name { font-size: 8.1pt; font-weight: 900; line-height: 1.17; overflow-wrap: anywhere; max-height: 7mm; overflow: hidden; }
-    .speciality { margin-top: .3mm; font-size: 5.7pt; line-height: 1.12; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .doctor-name { font-size: 7.9pt; font-weight: 900; line-height: 1.17; overflow-wrap: anywhere; max-height: 7mm; overflow: hidden; }
+    .speciality { margin-top: .2mm; font-size: 5.3pt; line-height: 1.12; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .fee-box { border: .25mm solid #000; padding: .7mm 1.1mm; text-align: right; min-width: 18mm; }
     .fee { font-weight: 900; font-size: 8.2pt; line-height: 1.12; white-space: nowrap; }
 
-    .bottom { margin-top: auto; border-top: .3mm solid #000; padding-top: .65mm; display: flex; align-items: flex-end; gap: 1mm; justify-content: space-between; min-height: 5.2mm; }
+    .bottom { margin-top: auto; border-top: .3mm solid #000; padding-top: .3mm; padding-bottom: .25mm; display: flex; align-items: flex-end; gap: 1mm; justify-content: space-between; min-height: 5.1mm; flex-shrink: 0; }
     .bottom-meta { font-size: 5pt; line-height: 1.15; max-width: 28mm; overflow: hidden; }
-    .barcode { display: block; width: 29mm; max-height: 5.2mm; height: 5.2mm; flex-shrink: 0; }
+    .barcode { display: block; width: 29mm; max-height: 4.2mm; height: 4.2mm; flex-shrink: 0; }
     .without-barcode { text-align: right; font-size: 5.5pt; font-weight: 800; }
 
     @media screen and (max-width: 560px) {
@@ -251,17 +259,22 @@ export const buildOpdStickerHtml = (
         <div class="metadata">
           <div><div class="eyebrow">AGE / SEX</div><span class="field-value">${escapeHtml(ageSex)}</span></div>
           <div><div class="eyebrow">PHONE</div><span class="field-value">${escapeHtml(visit.patient.phone || '-')}</span></div>
+          <div class="patient-address">
+            <div class="eyebrow">ADDRESS</div>
+            <span class="address-value">${escapeHtml(addressForSticker)}</span>
+          </div>
         </div>
         <div class="doctor">
           <div class="doctor-main">
             <div class="eyebrow">CONSULTING DOCTOR</div>
             <div class="doctor-name">${escapeHtml(visit.doctor.name)}</div>
+            ${visit.doctor.nmcNumber ? `<div class="doctor-nmc">NMC: ${escapeHtml(visit.doctor.nmcNumber)}</div>` : ''}
             ${speciality ? `<div class="speciality">${escapeHtml(speciality)}</div>` : ''}
           </div>
           <div class="fee-box"><div class="eyebrow">CONSULTATION</div><div class="fee">Rs. ${escapeHtml(fee)}</div></div>
         </div>
         <div class="bottom">
-          <div class="bottom-meta">${enteredBy ? `Registered by: ${escapeHtml(enteredBy)}` : 'Keep this sticker for your visit.'}${visit.doctor.nmcNumber ? `<div>NMC: ${escapeHtml(visit.doctor.nmcNumber)}</div>` : ''}</div>
+          <div class="bottom-meta">${enteredBy ? `Registered by: ${escapeHtml(enteredBy)}` : 'Keep this sticker for your visit.'}</div>
           ${barcode || `<div class="without-barcode">${escapeHtml(visit.opdNumber)}</div>`}
         </div>
       </section>
