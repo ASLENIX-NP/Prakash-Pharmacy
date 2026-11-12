@@ -4,6 +4,7 @@
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
+  importFileExtension = "js"
 }
 
 datasource db {
@@ -135,6 +136,7 @@ model Inventory {
 // 5. User Table
 // ==========================================
 model User {
+  tokenVersion Int @default(0) @map("token_version")
   id          String   @id @default(cuid())
   username    String   @unique @map("username")
   password    String   @map("password") // Hashed password
@@ -150,6 +152,8 @@ model User {
 
   bills        Bill[]
   clinicVisits ClinicVisit[]
+
+  passwordResetChallenge PasswordResetChallenge?
 
   @@map("user_tbl")
 }
@@ -466,6 +470,7 @@ model PharmacySetting {
 // 15. Clinic / OPD Doctors
 // ==========================================
 model Doctor {
+  photoData              String?  @map("photo_data") @db.Text
   id                     Int      @id @default(autoincrement())
   name                   String   @map("name")
   speciality             String?  @map("speciality")
@@ -610,3 +615,18 @@ model SalesReturnItem {
 }
 
 
+
+
+model PasswordResetChallenge {
+  id          String   @id @default(cuid())
+  userId      String   @unique @map("user_id")
+  codeHash    String   @map("code_hash")
+  expiresAt   DateTime @map("expires_at")
+  attempts    Int      @default(0)
+  requestedAt DateTime @default(now()) @map("requested_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("password_reset_challenges_tbl")
+}

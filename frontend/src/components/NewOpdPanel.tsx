@@ -50,6 +50,7 @@ interface Doctor {
   nmcNumber: string;
   defaultConsultationFee: number;
   status: 'active' | 'inactive';
+  photoData?: string | null;
 }
 
 
@@ -1402,77 +1403,116 @@ export const NewOpdPanel: React.FC = () => {
                 No active doctor is available. An Admin must add or reactivate a doctor before an OPD visit can be saved.
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-xs font-bold text-slate-700">
-                    Doctor *
-                  </label>
+                  <fieldset className="min-w-0">
+                    <legend className="mb-2 text-xs font-bold text-slate-700">
+                      Doctor *
+                    </legend>
 
-                  <select
-                    value={
-                      selectedDoctorId
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      handleDoctorChange(
-                        event.target.value
-                      )
-                    }
-                    disabled={
-                      doctorsLoading
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
-                  >
-                    <option value="">
-                      Select doctor
-                    </option>
-
-                    {doctors.map(
-                      (doctor) => (
-                        <option
-                          key={
-                            doctor.id
-                          }
-                          value={
-                            doctor.id
-                          }
-                        >
-                          {
-                            doctor.name
-                          }
-                          {doctor.speciality
-                            ? ` - ${doctor.speciality}`
-                            : ''}
-                        </option>
-                      )
-                    )}
-                  </select>
-
-
-                  {selectedDoctor && (
-                    <div className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-                      <span className="font-bold text-slate-700">
-                        {
-                          selectedDoctor.qualification ||
-                          'Qualification not entered'
-                        }
-                      </span>
-
-                      {selectedDoctor.nmcNumber && (
-                        <>
-                          {' • NMC '}
-                          {
-                            selectedDoctor.nmcNumber
-                          }
-                        </>
+                    <div
+                      className={`space-y-2 rounded-2xl border border-slate-200 bg-slate-50/70 p-2 ${
+                        doctors.length > 3
+                          ? 'max-h-[420px] overflow-y-auto overscroll-contain pr-1.5'
+                          : ''
+                      }`}
+                    >
+                      {doctorsLoading && doctors.length === 0 && (
+                        <div role="status" className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading available doctors...
+                        </div>
                       )}
+
+                      {doctors.map((doctor) => {
+                        const isSelected = selectedDoctor?.id === doctor.id;
+                        const initials = doctor.name
+                          .trim()
+                          .split(/\s+/)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((word) => word.charAt(0).toUpperCase())
+                          .join('') || 'DR';
+
+                        return (
+                          <label
+                            key={doctor.id}
+                            className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors focus-within:ring-2 focus-within:ring-teal-300 ${
+                              isSelected
+                                ? 'border-teal-500 bg-teal-50 shadow-sm'
+                                : 'border-slate-200 bg-white hover:border-teal-300 hover:bg-teal-50/30'
+                            } ${doctorsLoading ? 'cursor-wait opacity-60' : ''}`}
+                          >
+                            <input
+                              type="radio"
+                              name="new-opd-doctor"
+                              value={doctor.id}
+                              checked={isSelected}
+                              onChange={() => handleDoctorChange(doctor.id)}
+                              disabled={doctorsLoading}
+                              className="mt-3 h-4 w-4 shrink-0 accent-teal-700"
+                              aria-label={`Select ${doctor.name}`}
+                            />
+
+                            <span
+                              aria-hidden="true"
+                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-teal-200 bg-teal-100 text-xs font-extrabold text-teal-800"
+                            >
+                              {doctor.photoData ? (
+                                <img
+                                  src={doctor.photoData}
+                                  alt=""
+                                  className="h-full w-full rounded-full object-cover"
+                                />
+                              ) : initials}
+                            </span>
+
+                            <span className="min-w-0 flex-1">
+                              <span className="block break-words text-sm font-extrabold text-slate-900">
+                                {doctor.name}
+                              </span>
+                              <span className="mt-0.5 block break-words text-xs font-semibold text-teal-700">
+                                {doctor.speciality || 'General consultation'}
+                              </span>
+                              {doctor.qualification && (
+                                <span className="mt-0.5 block break-words text-[11px] text-slate-600">
+                                  {doctor.qualification}
+                                </span>
+                              )}
+                              <span className="mt-1 block break-words text-[11px] text-slate-500">
+                                {doctor.nmcNumber
+                                  ? `NMC: ${doctor.nmcNumber}`
+                                  : `Doctor code: ${doctor.doctorCode || '-'}`}
+                              </span>
+                            </span>
+
+                            <span className="shrink-0 text-right">
+                              <span className="block text-[10px] font-semibold text-slate-500">
+                                Default fee
+                              </span>
+                              <span className="block whitespace-nowrap text-xs font-extrabold text-slate-800">
+                                Rs. {Number(doctor.defaultConsultationFee ?? 0).toLocaleString('en-NP')}
+                              </span>
+                              {isSelected && (
+                                <span className="mt-1 block text-[10px] font-bold text-teal-700">
+                                  Selected
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
-                  )}
+                    {doctors.length > 3 && (
+                      <p className="mt-1.5 text-[11px] text-slate-500">
+                        Scroll inside the doctor list to view all {doctors.length} doctors.
+                      </p>
+                    )}
+                  </fieldset>
                 </div>
 
 
-                <div>
+                <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(190px,240px)] sm:items-center">
                   <label className="mb-1.5 block text-xs font-bold text-slate-700">
                     Consultation Fee (Rs.) *
                   </label>
@@ -1494,7 +1534,7 @@ export const NewOpdPanel: React.FC = () => {
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-sm font-bold text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
                   />
 
-                  <p className="mt-1.5 text-[10px] text-slate-400">
+                  <p className="text-[11px] text-slate-500 sm:col-span-2">
                     The doctor default consultation fee is filled automatically but can be adjusted for this OPD.
                   </p>
                 </div>

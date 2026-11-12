@@ -29,7 +29,6 @@ interface ForgotPasswordResponse {
   message: string;
   email?: string;
   username?: string;
-  devCode?: string;
 }
 
 interface ResetPasswordResponse {
@@ -54,7 +53,6 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<string | null>(null);
-  const [devCode, setDevCode] = useState<string | null>(null);
 
   // Resend cooldown timer
   const [cooldown, setCooldown] = useState(0);
@@ -96,10 +94,6 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
 
       if (response && response.success) {
         setSuccessInfo(response.message || 'Recovery code sent successfully!');
-        if (response.devCode) {
-          setDevCode(response.devCode);
-          setResetCode(response.devCode); // Pre-fill in dev mode for convenience
-        }
         setStep('verify_and_reset');
         setCooldown(60); // 60s cooldown for resending
       } else {
@@ -130,10 +124,6 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
 
       if (response && response.success) {
         setSuccessInfo('A new recovery code has been dispatched.');
-        if (response.devCode) {
-          setDevCode(response.devCode);
-          setResetCode(response.devCode);
-        }
         setCooldown(60);
       }
     } catch (err: any) {
@@ -263,11 +253,6 @@ export const ForgotPasswordView: React.FC<ForgotPasswordViewProps> = ({
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" strokeWidth={2} />
               <div className="leading-5">
                 <p>{successInfo}</p>
-                {devCode && (
-                  <p className="mt-1 text-xs font-semibold text-emerald-700">
-                    💡 Recovery verification code: <span className="rounded bg-emerald-200/80 px-1.5 py-0.5 font-mono text-emerald-950">{devCode}</span>
-                  </p>
-                )}
               </div>
             </div>
           )}

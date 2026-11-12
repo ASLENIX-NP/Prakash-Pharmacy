@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
-import { randomInt, timingSafeEqual } from "node:crypto";
+import { randomInt } from "node:crypto";
+import { hashPasswordResetCode, verifyPasswordResetCode } from "../utils/password-reset-code.js";
+import { sendPasswordResetEmail } from "../services/password-reset-mail.service.js";
 import { prisma } from "../db.js";
 import { signJwt } from "../utils/jwt.js";
 import { AuthenticatedRequest } from "../middleware/auth.middleware.js";
@@ -11,19 +13,11 @@ import {
   validatePasswordStrength,
 } from "../utils/user.helpers.js";
 
-// In-memory recovery token store (valid for 15 minutes)
-interface PasswordResetRecord {
-  code: string;
-  expiresAt: number;
-  failedAttempts: number;
-}
-
 interface RateRecord {
   count: number;
   resetAt: number;
 }
 
-const passwordResetStore = new Map<string, PasswordResetRecord>();
 const loginFailureStore = new Map<string, RateRecord>();
 const forgotPasswordRateStore = new Map<string, RateRecord>();
 const resetPasswordRateStore = new Map<string, RateRecord>();
@@ -151,6 +145,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       id: user.id,
       username: user.username,
       role: user.role,
+      tokenVersion: user.tokenVersion,
     });
 
     res.status(200).json({
@@ -319,6 +314,7 @@ export async function changePassword(
       },
       data: {
         password: hashedPassword,
+        tokenVersion: { increment: 1 },
       },
     });
 
@@ -347,7 +343,7 @@ export async function changePassword(
 // ==========================================
 export async function forgotPassword(req: Request, res: Response): Promise<void> {
   try {
-    const { email } = req.body;
+    const { email } = req.body ?? {};
 
     if (!email || typeof email !== "string") {
       res.status(400).json({
@@ -358,8 +354,11 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (cleanEmail.length > 254 || !emailRegex.test(cleanEmail)) {
+
+    if (
+      cleanEmail.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)
+    ) {
       res.status(400).json({
         success: false,
         message: "Please provide a properly formatted email address.",
@@ -368,7 +367,14 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
     }
 
     const forgotKey = rateKey(req, cleanEmail);
-    if (consumeRateLimit(forgotPasswordRateStore, forgotKey, MAX_FORGOT_REQUESTS)) {
+
+    if (
+      consumeRateLimit(
+        forgotPasswordRateStore,
+        forgotKey,
+        MAX_FORGOT_REQUESTS
+      )
+    ) {
       res.status(429).json({
         success: false,
         message: "Too many password recovery requests. Please try again later.",
@@ -376,46 +382,72 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
       return;
     }
 
-    // Check if an eligible administrator exists, but never reveal the result
-    // to the unauthenticated caller.
-    const user = await prisma.user.findFirst({
-      where: {
-        email: {
-          equals: cleanEmail,
-          mode: "insensitive",
-        },
-      },
-    });
-
-    if (user && user.role.toLowerCase() === "admin") {
-      // Generate 6-digit secure code only for eligible administrator accounts.
-      const resetCode = randomInt(100000, 1000000).toString();
-      const expiresAt = Date.now() + 15 * 60 * 1000;
-
-      passwordResetStore.set(cleanEmail, {
-        code: resetCode,
-        expiresAt,
-        failedAttempts: 0,
-      });
-
-      if (process.env.NODE_ENV !== "production") {
-        console.log(
-          `[PASSWORD RESET] Generated OTP ${resetCode} for ${cleanEmail} (User: ${user.username})`
-        );
-      }
-
-      // Production still needs a configured email provider before self-service
-      // recovery can be considered operational. Never return the OTP in
-      // production responses.
-    }
-
-    res.status(200).json({
+    const genericResponse = {
       success: true,
       message:
         "If an eligible administrator account exists for that email, a verification code has been sent.",
+    };
+
+    const user = await prisma.user.findFirst({
+      where: {
+        email: { equals: cleanEmail, mode: "insensitive" },
+        role: { equals: "admin", mode: "insensitive" },
+        status: { equals: "active", mode: "insensitive" },
+      },
     });
+
+    if (user) {
+      const resetCode = randomInt(100000, 1000000).toString();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      let codeHash: string | undefined;
+
+      try {
+        codeHash = hashPasswordResetCode(user.id, resetCode);
+
+        await prisma.passwordResetChallenge.upsert({
+          where: { userId: user.id },
+          create: {
+            userId: user.id,
+            codeHash,
+            expiresAt,
+            attempts: 0,
+          },
+          update: {
+            codeHash,
+            expiresAt,
+            attempts: 0,
+            requestedAt: new Date(),
+          },
+        });
+
+        await sendPasswordResetEmail(user.email!, resetCode);
+      } catch (error) {
+        console.error(
+          "[PASSWORD RESET] Could not create or deliver recovery code:",
+          error instanceof Error ? error.name : "UnknownError"
+        );
+
+        if (codeHash) {
+          try {
+            await prisma.passwordResetChallenge.deleteMany({
+              where: { userId: user.id, codeHash },
+            });
+          } catch {
+            console.error(
+              "[PASSWORD RESET] Failed to clean up undelivered code."
+            );
+          }
+        }
+      }
+    }
+
+    res.status(200).json(genericResponse);
   } catch (error) {
-    console.error("Forgot password error:", error);
+    console.error(
+      "Forgot password request failed:",
+      error instanceof Error ? error.name : "UnknownError"
+    );
     res.status(500).json({
       success: false,
       message: "Failed to process password recovery request.",
@@ -423,35 +455,59 @@ export async function forgotPassword(req: Request, res: Response): Promise<void>
   }
 }
 
+
 // ==========================================
 // 4. Reset Password with Code
 // ==========================================
 export async function resetPassword(req: Request, res: Response): Promise<void> {
   try {
-    const { email, resetCode, newPassword } = req.body;
+    const { email, resetCode, newPassword } = req.body ?? {};
 
-    if (!email || !resetCode || !newPassword) {
+    if (
+      typeof email !== "string" ||
+      typeof resetCode !== "string" ||
+      typeof newPassword !== "string"
+    ) {
       res.status(400).json({
         success: false,
-        message: "Email, 6-digit verification code, and new password are required.",
+        message: "Email, verification code, and new password are required.",
       });
       return;
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
-    const cleanCode = String(resetCode).trim();
-    const cleanPassword = String(newPassword).trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = resetCode.trim();
+
+    if (
+      cleanEmail.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) ||
+      !/^\d{6}$/.test(cleanCode)
+    ) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid email or verification code format.",
+      });
+      return;
+    }
 
     const resetKey = rateKey(req, cleanEmail);
-    if (consumeRateLimit(resetPasswordRateStore, resetKey, MAX_RESET_REQUESTS)) {
+
+    if (
+      consumeRateLimit(
+        resetPasswordRateStore,
+        resetKey,
+        MAX_RESET_REQUESTS
+      )
+    ) {
       res.status(429).json({
         success: false,
-        message: "Too many password reset attempts. Please try again later.",
+        message: "Too many reset attempts. Please try again later.",
       });
       return;
     }
 
-    const pwdCheck = validatePasswordStrength(cleanPassword);
+    const pwdCheck = validatePasswordStrength(newPassword);
+
     if (!pwdCheck.valid) {
       res.status(400).json({
         success: false,
@@ -460,77 +516,118 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    const record = passwordResetStore.get(cleanEmail);
-
-    if (!record) {
+    const invalidCode = () => {
       res.status(400).json({
         success: false,
         message: "Verification code is invalid or expired. Request a new code if needed.",
       });
-      return;
-    }
+    };
 
-    if (Date.now() > record.expiresAt) {
-      passwordResetStore.delete(cleanEmail);
-      res.status(400).json({
-        success: false,
-        message: "Verification code is invalid or expired. Request a new code if needed.",
-      });
-      return;
-    }
-
-    const recordCodeBuf = Buffer.from(record.code);
-    const inputCodeBuf = Buffer.from(cleanCode);
-    const codesMatch =
-      recordCodeBuf.length === inputCodeBuf.length &&
-      timingSafeEqual(recordCodeBuf, inputCodeBuf);
-
-    if (!codesMatch) {
-      record.failedAttempts += 1;
-
-      if (record.failedAttempts >= MAX_OTP_FAILURES) {
-        passwordResetStore.delete(cleanEmail);
-        res.status(429).json({
-          success: false,
-          message: "Too many invalid verification-code attempts. Request a new code.",
-        });
-        return;
-      }
-
-      res.status(400).json({
-        success: false,
-        message: "Invalid verification code.",
-      });
-      return;
-    }
-
-    // Hash new password and update user
     const user = await prisma.user.findFirst({
       where: {
-        email: {
-          equals: cleanEmail,
-          mode: "insensitive",
-        },
+        email: { equals: cleanEmail, mode: "insensitive" },
+        role: { equals: "admin", mode: "insensitive" },
+        status: { equals: "active", mode: "insensitive" },
       },
     });
 
     if (!user) {
-      res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
+      invalidCode();
       return;
     }
 
-    const hashedPassword = await hashPassword(cleanPassword);
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { password: hashedPassword },
+    const challenge = await prisma.passwordResetChallenge.findUnique({
+      where: { userId: user.id },
     });
 
-    // Remove used code and its request throttle after a successful reset.
-    passwordResetStore.delete(cleanEmail);
+    if (!challenge) {
+      invalidCode();
+      return;
+    }
+
+    if (challenge.expiresAt.getTime() <= Date.now()) {
+      await prisma.passwordResetChallenge.deleteMany({
+        where: {
+          id: challenge.id,
+          codeHash: challenge.codeHash,
+          expiresAt: { lte: new Date() },
+        },
+      });
+
+      invalidCode();
+      return;
+    }
+
+    if (challenge.attempts >= MAX_OTP_FAILURES) {
+      invalidCode();
+      return;
+    }
+
+    const codesMatch = verifyPasswordResetCode(
+      user.id,
+      cleanCode,
+      challenge.codeHash
+    );
+
+    if (!codesMatch) {
+      const updated = await prisma.passwordResetChallenge.updateMany({
+        where: {
+          id: challenge.id,
+          userId: user.id,
+          codeHash: challenge.codeHash,
+          expiresAt: { gt: new Date() },
+          attempts: { lt: MAX_OTP_FAILURES },
+        },
+        data: {
+          attempts: { increment: 1 },
+        },
+      });
+
+      if (updated.count > 0) {
+        await prisma.passwordResetChallenge.deleteMany({
+          where: {
+            id: challenge.id,
+            userId: user.id,
+            codeHash: challenge.codeHash,
+            attempts: { gte: MAX_OTP_FAILURES },
+          },
+        });
+      }
+
+      invalidCode();
+      return;
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+
+    const consumed = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.passwordResetChallenge.deleteMany({
+        where: {
+          id: challenge.id,
+          userId: user.id,
+          codeHash: challenge.codeHash,
+          expiresAt: { gt: new Date() },
+          attempts: { lt: MAX_OTP_FAILURES },
+        },
+      });
+
+      if (deleted.count !== 1) {
+        return false;
+      }
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: { password: hashedPassword, tokenVersion: { increment: 1 } },
+      });
+
+      return true;
+    });
+
+    if (!consumed) {
+      invalidCode();
+      return;
+    }
+
     resetPasswordRateStore.delete(resetKey);
 
     res.status(200).json({
@@ -538,13 +635,18 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
       message: "Password reset successful! You can now log in with your new password.",
     });
   } catch (error) {
-    console.error("Reset password error:", error);
+    console.error(
+      "Reset password error:",
+      error instanceof Error ? error.name : "UnknownError"
+    );
+
     res.status(500).json({
       success: false,
       message: "Failed to reset password.",
     });
   }
 }
+
 
 // ==========================================
 // 5. Switch Shift / Impersonate Staff (Admin Only)
@@ -592,6 +694,7 @@ export async function switchShift(req: AuthenticatedRequest, res: Response): Pro
       id: targetUser.id,
       username: targetUser.username,
       role: targetUser.role,
+      tokenVersion: targetUser.tokenVersion,
     });
 
     res.status(200).json({

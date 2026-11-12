@@ -34,6 +34,42 @@ const parseDoctorId = (
 const formatDoctorCode = (id: number): string =>
   `DOC-${String(id).padStart(3, "0")}`;
 
+
+// Accept small JPEG thumbnails only.
+const parseDoctorPhoto = (
+  input: unknown
+): { ok: true; value: string | null } | { ok: false } => {
+  if (input === null || input === '') {
+    return { ok: true, value: null };
+  }
+
+  if (
+    typeof input !== 'string' ||
+    input.length > 250000 ||
+    !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(input)
+  ) {
+    return { ok: false };
+  }
+
+  const bytes = Buffer.from(
+    input.slice('data:image/jpeg;base64,'.length),
+    'base64'
+  );
+
+  if (
+    bytes.length < 4 ||
+    bytes.length > 180000 ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    bytes[bytes.length - 2] !== 0xff ||
+    bytes[bytes.length - 1] !== 0xd9
+  ) {
+    return { ok: false };
+  }
+
+  return { ok: true, value: input };
+};
+
 const formatDoctor = (doctor: any) => ({
   id: formatDoctorCode(doctor.id),
   doctorCode: formatDoctorCode(doctor.id),
@@ -45,6 +81,7 @@ const formatDoctor = (doctor: any) => ({
     doctor.defaultConsultationFee || 0
   ),
   status: doctor.status,
+  photoData: doctor.photoData ?? null,
   createdAt: doctor.createdAt?.toISOString?.() ?? doctor.createdAt,
   updatedAt: doctor.updatedAt?.toISOString?.() ?? doctor.updatedAt,
 });
@@ -168,6 +205,7 @@ export const createDoctor = async (
       qualification,
       nmcNumber,
       defaultConsultationFee = 0,
+      photoData = null,
     } = req.body;
 
     const cleanName =
@@ -218,6 +256,16 @@ export const createDoctor = async (
       return;
     }
 
+    const photo = parseDoctorPhoto(photoData);
+
+    if (!photo.ok) {
+      res.status(400).json({
+        success: false,
+        message: 'Doctor photo must be a JPEG under 180 KB.'
+      });
+      return;
+    }
+
     const doctor =
       await prisma.doctor.create({
         data: {
@@ -233,6 +281,7 @@ export const createDoctor = async (
           nmcNumber:
             cleanNmc || null,
           defaultConsultationFee: fee,
+          photoData: photo.value,
           status: "active",
         },
       });
@@ -300,6 +349,7 @@ export const updateDoctor = async (
       qualification,
       nmcNumber,
       defaultConsultationFee,
+      photoData,
       status,
     } = req.body;
 
@@ -309,6 +359,7 @@ export const updateDoctor = async (
       qualification?: string | null;
       nmcNumber?: string | null;
       defaultConsultationFee?: number;
+      photoData?: string | null;
       status?: string;
     } = {};
 
@@ -418,6 +469,20 @@ export const updateDoctor = async (
 
       updateData.status =
         cleanStatus;
+    }
+
+    if (photoData !== undefined) {
+      const photo = parseDoctorPhoto(photoData);
+
+      if (!photo.ok) {
+        res.status(400).json({
+          success: false,
+          message: 'Doctor photo must be a JPEG under 180 KB.'
+        });
+        return;
+      }
+
+      updateData.photoData = photo.value;
     }
 
     const updated =

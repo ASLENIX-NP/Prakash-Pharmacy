@@ -38,13 +38,21 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   try {
     const dbUser = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true, username: true, role: true, status: true },
+      select: { id: true, username: true, role: true, status: true, tokenVersion: true },
     });
 
     if (!dbUser) {
       res.status(401).json({
         success: false,
         message: "User account no longer exists.",
+      });
+      return;
+    }
+
+    if (decoded.tokenVersion !== dbUser.tokenVersion) {
+      res.status(401).json({
+        success: false,
+        message: "Session expired. Please log in again.",
       });
       return;
     }
@@ -61,6 +69,7 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
       id: dbUser.id,
       username: dbUser.username,
       role: dbUser.role,
+      tokenVersion: dbUser.tokenVersion,
     };
     next();
   } catch (error) {

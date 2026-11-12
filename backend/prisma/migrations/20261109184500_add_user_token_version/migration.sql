@@ -1,0 +1,2 @@
+ALTER TABLE "user_tbl"
+ADD COLUMN "token_version" INTEGER NOT NULL DEFAULT 0;

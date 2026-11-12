@@ -21,6 +21,7 @@ export interface TokenPayload {
   id: string;
   username: string;
   role: string;
+  tokenVersion: number;
 }
 
 
@@ -58,11 +59,7 @@ export function verifyJwt(
     }
 
 
-    const {
-      id,
-      username,
-      role,
-    } = decoded;
+    const { id, username, role, tokenVersion } = decoded;
 
 
     if (
@@ -77,11 +74,15 @@ export function verifyJwt(
     }
 
 
-    return {
-      id,
-      username,
-      role,
-    };
+    if (
+      typeof tokenVersion !== "number" ||
+      !Number.isSafeInteger(tokenVersion) ||
+      tokenVersion < 0
+    ) {
+      return null;
+    }
+
+    return { id, username, role, tokenVersion };
   } catch {
     return null;
   }

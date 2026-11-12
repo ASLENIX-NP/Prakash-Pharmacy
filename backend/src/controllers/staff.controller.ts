@@ -296,6 +296,7 @@ export async function updateUser(req: AuthenticatedRequest, res: Response): Prom
 
       updateData.password =
         await hashPassword(cleanPassword);
+      updateData.tokenVersion = { increment: 1 };
     }
 
     const nextRole = String(updateData.role ?? existing.role).toLowerCase();

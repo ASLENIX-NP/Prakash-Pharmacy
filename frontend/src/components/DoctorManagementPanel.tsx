@@ -32,6 +32,7 @@ interface Doctor {
   nmcNumber: string;
   defaultConsultationFee: number;
   status: 'active' | 'inactive';
+  photoData?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -54,6 +55,7 @@ interface DoctorFormState {
   qualification: string;
   nmcNumber: string;
   defaultConsultationFee: string;
+  photoData: string | null;
 }
 
 const EMPTY_FORM: DoctorFormState = {
@@ -62,6 +64,72 @@ const EMPTY_FORM: DoctorFormState = {
   qualification: '',
   nmcNumber: '',
   defaultConsultationFee: '',
+  photoData: null,
+};
+
+
+const prepareDoctorPhoto = async (file: File): Promise<string> => {
+  if (
+    !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+    file.size > 5_000_000
+  ) {
+    throw new Error('Choose a JPG, PNG or WebP image under 5 MB.');
+  }
+
+  const bitmap = await createImageBitmap(file);
+
+  try {
+    if (bitmap.width * bitmap.height > 25_000_000) {
+      throw new Error('Image dimensions are too large.');
+    }
+
+    const canvas = document.createElement('canvas');
+    const ratio = Math.min(
+      1,
+      512 / Math.max(bitmap.width, bitmap.height)
+    );
+
+    canvas.width = Math.max(
+      1,
+      Math.round(bitmap.width * ratio)
+    );
+
+    canvas.height = Math.max(
+      1,
+      Math.round(bitmap.height * ratio)
+    );
+
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      throw new Error('Image conversion is unavailable.');
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    let value = canvas.toDataURL('image/jpeg', 0.78);
+
+    if (value.length > 240000) {
+      canvas.width = Math.max(1, Math.round(canvas.width * 0.7));
+      canvas.height = Math.max(1, Math.round(canvas.height * 0.7));
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      value = canvas.toDataURL('image/jpeg', 0.58);
+    }
+
+    if (value.length > 240000) {
+      throw new Error('Image is still too large after resizing.');
+    }
+
+    return value;
+  } finally {
+    bitmap.close();
+  }
 };
 
 export const DoctorManagementPanel: React.FC = () => {
@@ -83,6 +151,8 @@ export const DoctorManagementPanel: React.FC = () => {
 
   const [saving, setSaving] =
     useState(false);
+
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const [statusChangingId, setStatusChangingId] =
     useState<string | null>(null);
@@ -189,6 +259,7 @@ export const DoctorManagementPanel: React.FC = () => {
       speciality: doctor.speciality,
       qualification: doctor.qualification,
       nmcNumber: doctor.nmcNumber,
+      photoData: doctor.photoData ?? null,
       defaultConsultationFee:
         Number(doctor.defaultConsultationFee) > 0
           ? String(doctor.defaultConsultationFee)
@@ -248,6 +319,7 @@ export const DoctorManagementPanel: React.FC = () => {
           form.nmcNumber.trim(),
         defaultConsultationFee:
           fee,
+        photoData: form.photoData,
       };
 
       let response:
@@ -526,6 +598,95 @@ export const DoctorManagementPanel: React.FC = () => {
         </div>
 
 
+
+        <div className="mb-5 flex flex-wrap items-center gap-4 rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/70 p-4 shadow-sm">
+          {form.photoData ? (
+            <img
+              src={form.photoData}
+              alt="Doctor photo preview"
+              className="h-16 w-16 rounded-full border border-slate-200 object-cover"
+            />
+          ) : (
+            <div className="grid h-16 w-16 place-items-center rounded-full bg-teal-100 text-lg font-bold text-teal-800">
+              {form.name.trim().slice(0, 1).toUpperCase() || 'DR'}
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <label htmlFor="doctor-photo-upload" className="block text-xs font-bold text-slate-700">
+              Doctor Photograph (Optional)
+            </label>
+
+            <input
+              id="doctor-photo-upload"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={saving || photoUploading}
+              className="peer sr-only"
+              onChange={async (event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (!file) return;
+
+                try {
+                  setPhotoUploading(true);
+                  setError('');
+
+                  const photoData = await prepareDoctorPhoto(file);
+                  setForm(previous => ({ ...previous, photoData }));
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : 'Unable to read doctor photo.'
+                  );
+                } finally {
+                  setPhotoUploading(false);
+                }
+              }}
+            />
+
+            <label
+              htmlFor="doctor-photo-upload"
+              className="mt-2 inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800 peer-focus-visible:ring-2 peer-focus-visible:ring-teal-400 peer-focus-visible:ring-offset-2 peer-disabled:cursor-not-allowed peer-disabled:opacity-60"
+            >
+              <span aria-hidden="true">+</span>
+              {form.photoData ? 'Change Doctor Photo' : 'Upload Doctor Photo'}
+            </label>
+
+            {photoUploading ? (
+              <p className="mt-2 text-xs font-semibold text-teal-700">
+                Preparing photo...
+              </p>
+            ) : form.photoData ? (
+              <p className="mt-2 text-xs font-semibold text-teal-700">
+                Photo ready. Save the doctor to keep it.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-slate-600">
+                No photo selected yet.
+              </p>
+            )}
+
+            <p className="mt-1 text-xs text-slate-600">
+              JPG, PNG or WebP (maximum 5 MB). Automatically resized.
+            </p>
+          </div>
+
+          {form.photoData && (
+            <button
+              type="button"
+              disabled={saving || photoUploading}
+              onClick={() =>
+                setForm(previous => ({ ...previous, photoData: null }))
+              }
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+            >
+              Remove photo
+            </button>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           <div>
             <label className="mb-1.5 block text-xs font-bold text-slate-700">
@@ -654,7 +815,7 @@ export const DoctorManagementPanel: React.FC = () => {
         <div className="mt-5 flex justify-end">
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || photoUploading}
             className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? (
@@ -792,8 +953,12 @@ export const DoctorManagementPanel: React.FC = () => {
                       >
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700">
-                              <Stethoscope className="h-4 w-4" />
+                            <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-teal-50 text-teal-700">
+                              {doctor.photoData ? (
+                                <img src={doctor.photoData} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <Stethoscope className="h-4 w-4" />
+                              )}
                             </div>
 
                             <div>

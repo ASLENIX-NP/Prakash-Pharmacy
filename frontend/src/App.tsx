@@ -319,20 +319,15 @@ const PharmacyAppContent: React.FC = () => {
               No PAN / DDA / address clutter here.
           =================================================== */}
 
-          <footer className="border-t border-slate-200 bg-white px-6 py-2.5 text-center text-[11px] print:hidden">
-            <div className="relative flex flex-col items-center justify-center gap-1 lg:min-h-[24px]">
-              <p className="text-slate-500/80">
+          <footer className="shrink-0 border-t border-slate-200/70 bg-white/85 px-4 py-2 text-[11px] text-slate-700 shadow-[0_-6px_28px_rgba(15,23,42,0.10)] backdrop-blur-2xl backdrop-saturate-150 sm:px-6 print:hidden">
+            <div className="relative flex min-h-[24px] flex-col items-center justify-center gap-1 lg:flex-row">
+              <p className="text-center text-slate-700/90">
                 &copy; {new Date().getFullYear()} {settings.storeName}. All rights reserved.
               </p>
-              {activeTab === 'pos' ? (
-                <div className="lg:absolute lg:right-0 lg:top-1/2 lg:-translate-y-1/2">
-                  <AslenixCredit compact />
-                </div>
-              ) : (
-                <p className="mt-0.5 text-[10.5px] font-medium tracking-wide text-slate-400/75">
-                  Powered by Aslenix tech and Solution
-                </p>
-              )}
+
+              <div className="lg:absolute lg:right-0 lg:top-1/2 lg:-translate-y-1/2">
+                <AslenixCredit compact />
+              </div>
             </div>
           </footer>
         </div>
