@@ -120,7 +120,7 @@ const makeOpdBarcode = (opdNumber: string): string => {
 /** Print preview HTML is kept in one file so existing OPD screens need no edits. */
 export const buildOpdStickerHtml = (
   visit: OpdStickerVisit,
-  storeName = 'Clinic / OPD'
+  _storeName = 'Clinic / OPD'
 ): string => {
   const ageSex = [formatAge(visit), visit.patient.gender || '-'].join(' / ');
   const speciality = [visit.doctor.speciality, visit.doctor.qualification]
@@ -167,7 +167,7 @@ export const buildOpdStickerHtml = (
 
     .sticker {
       width: ${OPD_STICKER_WIDTH_MM}mm; height: ${OPD_STICKER_HEIGHT_MM}mm;
-      padding: 1.2mm 1.8mm 1.0mm; overflow: hidden; background: #fff; color: #000;
+      padding: 1.0mm 1.8mm 7.0mm; overflow: hidden; background: #fff; color: #000;
       display: flex; flex-direction: column;
       position: absolute; left: 0; top: 0;
       transform: scale(2.2); transform-origin: top left;
@@ -182,28 +182,101 @@ export const buildOpdStickerHtml = (
     .identity { display: flex; justify-content: space-between; gap: 1.4mm; padding: .45mm 0 .35mm; border-bottom: .2mm solid #333; align-items: center; }
     .opd-group { flex: 1; min-width: 0; }
     .eyebrow { font-size: 5.3pt; line-height: 1.12; letter-spacing: .12mm; font-weight: 800; }
-    .opd-number { font-size: 9.8pt; line-height: 1.1; font-weight: 900; overflow-wrap: anywhere; max-height: 6.4mm; overflow: hidden; }
-    .clinic-no { text-align: right; max-width: 24mm; min-width: 0; font-size: 7.7pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 8mm; overflow: hidden; }
+    .opd-number { font-size: 8.5pt; line-height: 1.1; font-weight: 900; overflow-wrap: anywhere; max-height: 6.4mm; overflow: hidden; }
+    .clinic-no { text-align: right; max-width: 24mm; min-width: 0; font-size: 8.5pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 8mm; overflow: hidden; }
 
     .patient { padding: .4mm 0 .25mm; }
-    .patient-name { font-size: 10pt; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere; max-height: 9mm; overflow: hidden; }
+    .patient-name { font-size: 8.5pt; font-weight: 900; line-height: 1.12; overflow-wrap: anywhere; max-height: 9mm; overflow: hidden; }
     .metadata { display: grid; grid-template-columns: 1fr 1.15fr; column-gap: 1.4mm; row-gap: .15mm; border-bottom: .2mm solid #333; padding-bottom: .35mm; }
-    .field-value { display: block; font-size: 7pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 6.1mm; overflow: hidden; }
+    .field-value { display: block; font-size: 6.6pt; line-height: 1.13; font-weight: 800; overflow-wrap: anywhere; max-height: 6.1mm; overflow: hidden; }
 
     .patient-address { grid-column: 1 / -1; min-width: 0; }
-    .address-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: 5.6pt; font-weight: 700; line-height: 1.1; max-height: 4.6mm; }
-    .doctor-nmc { margin-top: .2mm; font-size: 5.5pt; font-weight: 800; line-height: 1.1; }
-    .doctor { padding: .35mm 0 .25mm; display: flex; align-items: flex-start; justify-content: space-between; gap: 1mm; }
+    .address-value { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: 6.6pt; font-weight: 700; line-height: 1.1; max-height: 5.2mm; }
+    .doctor-nmc { margin-top: .2mm; font-size: 6.6pt; font-weight: 800; line-height: 1.1; }
+    .doctor { padding: .2mm 0 .15mm; min-height: 0; overflow: hidden; display: flex; align-items: flex-start; justify-content: space-between; gap: 1mm; }
     .doctor-main { flex: 1; min-width: 0; }
-    .doctor-name { font-size: 7.9pt; font-weight: 900; line-height: 1.17; overflow-wrap: anywhere; max-height: 7mm; overflow: hidden; }
+    .doctor-name { font-size: 8.5pt; font-weight: 900; line-height: 1.17; overflow-wrap: anywhere; max-height: 7mm; overflow: hidden; }
     .speciality { margin-top: .2mm; font-size: 5.3pt; line-height: 1.12; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .fee-box { border: .25mm solid #000; padding: .7mm 1.1mm; text-align: right; min-width: 18mm; }
     .fee { font-weight: 900; font-size: 8.2pt; line-height: 1.12; white-space: nowrap; }
 
-    .bottom { margin-top: auto; border-top: .3mm solid #000; padding-top: .3mm; padding-bottom: .25mm; display: flex; align-items: flex-end; gap: 1mm; justify-content: space-between; min-height: 5.1mm; flex-shrink: 0; }
-    .bottom-meta { font-size: 5pt; line-height: 1.15; max-width: 28mm; overflow: hidden; }
+    .bottom { position: absolute; left: 1.8mm; right: 1.8mm; bottom: 1.0mm; margin-top: 0; border-top: .3mm solid #000; padding-top: .3mm; padding-bottom: .25mm; display: flex; align-items: flex-end; gap: 1mm; justify-content: space-between; min-height: 5.1mm; flex-shrink: 0; }
+    .bottom-meta { font-size: 5.6pt; line-height: 1.15; max-width: 28mm; overflow: hidden; }
     .barcode { display: block; width: 29mm; max-height: 4.2mm; height: 4.2mm; flex-shrink: 0; }
     .without-barcode { text-align: right; font-size: 5.5pt; font-weight: 800; }
+
+
+    /* Automatic fit for unusually long patient/doctor details. */
+    .sticker.compact .head {
+      gap: .1mm; padding-bottom: .25mm;
+    }
+    .sticker.compact .brand-name {
+      font-size: 8.5pt; line-height: 1;
+    }
+    .sticker.compact .date {
+      font-size: 5.7pt;
+    }
+    .sticker.compact .identity {
+      padding: .2mm 0;
+    }
+    .sticker.compact .eyebrow {
+      font-size: 4.8pt; line-height: 1.04;
+    }
+    .sticker.compact .opd-number,
+    .sticker.compact .clinic-no {
+      font-size: 7.4pt; line-height: 1.05;
+    }
+    .sticker.compact .patient {
+      padding: .18mm 0;
+    }
+    .sticker.compact .patient-name {
+      font-size: 7.5pt;
+      line-height: 1.05;
+      max-height: 6.2mm;
+    }
+    .sticker.compact .metadata {
+      row-gap: .1mm; padding-bottom: .15mm;
+    }
+    .sticker.compact .field-value,
+    .sticker.compact .address-value,
+    .sticker.compact .doctor-nmc {
+      font-size: 5.9pt; line-height: 1.07;
+    }
+    .sticker.compact .address-value {
+      max-height: 4.8mm;
+    }
+    .sticker.compact .doctor {
+      padding: .1mm 0;
+    }
+    .sticker.compact .doctor-name {
+      font-size: 7.3pt;
+      line-height: 1.04;
+      max-height: 5.6mm;
+    }
+    .sticker.compact .speciality {
+      font-size: 4.9pt;
+      line-height: 1.05;
+    }
+    .sticker.compact .fee-box {
+      min-width: 16mm;
+      padding: .5mm .7mm;
+    }
+    .sticker.compact .fee {
+      font-size: 7.3pt;
+    }
+
+    /* Last-resort mode prioritizes name, NMC and barcode. */
+    .sticker.ultra-compact .speciality {
+      display: none;
+    }
+    .sticker.ultra-compact .patient-name {
+      font-size: 7pt;
+      line-height: 1.03;
+    }
+    .sticker.ultra-compact .doctor-name {
+      font-size: 6.8pt;
+      line-height: 1.03;
+    }
 
     @media screen and (max-width: 560px) {
       .toolbar { padding: 12px 14px; }
@@ -236,7 +309,7 @@ export const buildOpdStickerHtml = (
     <div class="preview-paper">
       <section class="sticker" aria-label="OPD arrival sticker">
         <div class="head">
-          <div class="brand-name">${escapeHtml(storeName)}</div>
+          <div class="brand-name">Prakash Clinic</div>
           <div class="head-details">
             <div class="brand-sub">OPD VISIT STICKER</div>
             <div class="date">${escapeHtml(formatDateTime(visit.visitDateTime))}</div>
@@ -288,6 +361,46 @@ export const buildOpdStickerHtml = (
     appear small on an A4 preview — it will not magically fill that sheet.
   </div>
   <script>
+
+    function fitStickerContent() {
+      const sticker = document.querySelector('.sticker');
+      if (!sticker) return;
+
+      const footer = sticker.querySelector('.bottom');
+      const doctor = sticker.querySelector('.doctor-main');
+
+      if (!footer || !doctor) return;
+
+      const isOverlapping = function () {
+        const visible = Array.from(doctor.children).filter(
+          function (element) {
+            return window.getComputedStyle(element).display !== 'none';
+          }
+        );
+
+        const last = visible[visible.length - 1];
+        if (!last) return false;
+
+        return last.getBoundingClientRect().bottom >
+          footer.getBoundingClientRect().top - 2;
+      };
+
+      sticker.classList.remove('compact', 'ultra-compact');
+
+      if (isOverlapping()) {
+        sticker.classList.add('compact');
+      }
+
+      if (isOverlapping()) {
+        sticker.classList.add('ultra-compact');
+      }
+    }
+
+    window.addEventListener('load', fitStickerContent);
+    window.addEventListener('beforeprint', fitStickerContent);
+    window.addEventListener('resize', fitStickerContent);
+    fitStickerContent();
+
     document.getElementById('print-sticker').addEventListener('click', function () {
       window.focus(); window.print();
     });

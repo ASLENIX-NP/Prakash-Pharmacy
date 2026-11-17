@@ -91,6 +91,7 @@ export const InventoryView: React.FC = () => {
   const [importMode, setImportMode] = useState<'merge' | 'replace' | 'skip'>('merge');
   const [isSubmittingImport, setIsSubmittingImport] = useState(false);
   const medicineSaveLockRef = useRef(false);
+  const noBillReferenceRef = useRef<string | null>(null);
   const [isSavingMedicine, setIsSavingMedicine] = useState(false);
   const [importResult, setImportResult] = useState<{
     message: string;
@@ -263,6 +264,7 @@ export const InventoryView: React.FC = () => {
     setManualNewDistributorPhone('');
     setManualNewDistributorPan('');
 
+    noBillReferenceRef.current = null;
     setManualPurchaseInvoiceNumber('');
     setManualPurchaseDate(localDateString());
     setManualPurchasePaymentMode('credit');
@@ -415,17 +417,7 @@ export const InventoryView: React.FC = () => {
       !editingMedicine &&
       openingStockUnits > 0
     ) {
-      if (
-        !manualPurchaseInvoiceNumber.trim()
-      ) {
-        showToast(
-          'Wholesaler Invoice / Bill Number is required when adding opening stock.',
-          'warning',
-          'Purchase Accounting Required'
-        );
-
-        return;
-      }
+      // A missing supplier bill number receives an internal reference.
 
 
       if (
@@ -613,6 +605,14 @@ export const InventoryView: React.FC = () => {
      * accounting-safe future supplier returns.
      */
     if (openingStockUnits > 0) {
+      const supplierInvoiceProvided =
+        manualPurchaseInvoiceNumber.trim().length > 0;
+
+      const purchaseReference = supplierInvoiceProvided
+        ? manualPurchaseInvoiceNumber.trim()
+        : (noBillReferenceRef.current ??=
+            `INT-NOBILL-${crypto.randomUUID()}`);
+
 
       const costPerPack =
         Number(formData.costPrice) || 0;
@@ -747,9 +747,7 @@ export const InventoryView: React.FC = () => {
         const createdInvoice =
           await addPurchaseInvoice({
 
-            invoiceNumber:
-              manualPurchaseInvoiceNumber
-                .trim(),
+            invoiceNumber: purchaseReference,
 
             stockistId:
               supplierId,
@@ -801,14 +799,12 @@ export const InventoryView: React.FC = () => {
                 : 'pending',
 
             notes:
-              formData.notes?.trim()
-                ? `Single medicine inventory entry. ${formData.notes.trim()}`
-                : 'Single medicine inventory entry.'
+              `${supplierInvoiceProvided ? '' : 'NO SUPPLIER BILL PROVIDED; internal reference only. '}Single medicine inventory entry.${formData.notes?.trim() ? ` ${formData.notes.trim()}` : ''}`
           });
 
 
         showToast(
-          `Medicine added through Purchase Bill #${createdInvoice.invoiceNumber}. ${
+          `${supplierInvoiceProvided ? 'Medicine added through Purchase Bill' : 'Medicine added with internal reference'} #${createdInvoice.invoiceNumber}. ${
             manualPurchasePaymentMode ===
               'credit'
               ? 'Supplier payable balance updated.'
@@ -2018,12 +2014,12 @@ export const InventoryView: React.FC = () => {
 
                       <div>
                         <label className="block text-[10px] font-semibold text-slate-700 mb-1">
-                          Wholesaler Invoice / Bill No:
+                          Wholesaler Invoice / Bill No (optional):
                         </label>
 
                         <input
                           type="text"
-                          placeholder="e.g. INV-2083-145"
+                          placeholder="Blank = internal reference"
                           value={manualPurchaseInvoiceNumber}
                           onChange={(e) =>
                             setManualPurchaseInvoiceNumber(
