@@ -1,7 +1,13 @@
 const configuredBaseUrl =
   import.meta.env.VITE_API_URL?.trim();
 
-let normalizedBaseUrl = configuredBaseUrl || '/api';
+const defaultBaseUrl =
+  typeof window !== 'undefined' &&
+  window.location.hostname === 'clinic.prakashpharmacy.com.np'
+    ? 'https://api.prakashpharmacy.com.np/api'
+    : '/api';
+
+let normalizedBaseUrl = configuredBaseUrl || defaultBaseUrl;
 if (configuredBaseUrl && !/^https?:\/\//i.test(configuredBaseUrl) && !configuredBaseUrl.startsWith('/')) {
   normalizedBaseUrl = `https://${configuredBaseUrl}`;
 }
