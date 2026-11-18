@@ -168,7 +168,10 @@ export const SettingsView: React.FC = () => {
     setFormError('');
     setIsSaving(true);
     try {
-      await updateSettings(formData);
+      const safeSettings: Partial<PharmacySettings> = { ...formData };
+      delete safeSettings.invoicePrefix;
+      delete safeSettings.nextInvoiceNumber;
+      await updateSettings(safeSettings);
       setSaveSuccess(true);
       window.setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {

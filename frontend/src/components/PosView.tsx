@@ -142,8 +142,11 @@ export const PosView: React.FC = () => {
   const [discountType, setDiscountType] =
     useState<'percent' | 'flat'>('flat');
 
-  const [discountValue, setDiscountValue] =
-    useState<number>(0);
+  const [discountInput, setDiscountInput] =
+    useState('');
+
+  const discountValue =
+    parseDecimalInput(discountInput, 2) ?? 0;
 
   const [paymentMode, setPaymentMode] =
     useState<
@@ -563,7 +566,7 @@ export const PosView: React.FC = () => {
 
     if (confirmed) {
       setCart([]);
-      setDiscountValue(0);
+      setDiscountInput('');
       setCashTendered(0);
       showToast('Billing cart cleared.', 'info', 'Cart');
     }
@@ -915,7 +918,7 @@ export const PosView: React.FC = () => {
     setDoctorName('');
     setPatientAge('');
 
-    setDiscountValue(0);
+    setDiscountInput('');
     setCashTendered(0);
 
       setActiveInvoiceToPrint(
@@ -1742,13 +1745,10 @@ export const PosView: React.FC = () => {
                           'percent'
                         );
 
-                        setDiscountValue(
-                          (previous) =>
-                            Math.min(
-                              100,
-                              previous
-                            )
-                        );
+                        setDiscountInput((previous) => {
+                          const value = parseDecimalInput(previous, 2) ?? 0;
+                          return value > 100 ? '100' : previous;
+                        });
                       }}
                       className={`px-2.5 py-1.5 text-[11px] font-bold ${
                         discountType ===
@@ -1764,23 +1764,22 @@ export const PosView: React.FC = () => {
 
                   <input
                     type="text"
-                    inputMode="numeric"
-                    value={discountValue === 0 ? '' : discountValue}
-                    onKeyDown={(event) => preventInvalidNumberKeys(event, false)}
+                    inputMode="decimal"
+                    value={discountInput}
+                    onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
                     onChange={(event) => {
-                      const parsedValue =
-                        parseIntegerInput(
-                          event.target.value,
-                          6
-                        ) ?? 0;
+                      const next = decimalInputValue(event.target.value, 2);
 
-                      setDiscountValue(
-                        discountType === 'percent'
-                          ? Math.min(
-                              100,
-                              parsedValue
-                            )
-                          : parsedValue
+                      if (!/^\d{0,6}(?:\.\d{0,2})?$/.test(next)) {
+                        return;
+                      }
+
+                      const value = parseDecimalInput(next, 2) ?? 0;
+
+                      setDiscountInput(
+                        discountType === 'percent' && value > 100
+                          ? '100'
+                          : next
                       );
                     }}
                     className="h-8 w-20 rounded-lg border border-slate-200 px-2 text-right font-mono text-[12px] font-bold outline-none focus:border-teal-400"

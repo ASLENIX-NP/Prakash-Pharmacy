@@ -89,7 +89,6 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
       ddaLicenceExpiryDate,
       currency,
       fiscalYear,
-      invoicePrefix,
       nextInvoiceNumber,
       defaultInvoiceSize,
       invoiceDateFormat,
@@ -195,8 +194,7 @@ export const updateSettings = async (req: Request, res: Response): Promise<void>
     if (ddaLicenceExpiryDate !== undefined) updateData.ddaLicenceExpiryDate = String(ddaLicenceExpiryDate).trim();
     if (currency !== undefined) updateData.currency = String(currency).trim();
     if (fiscalYear !== undefined) updateData.fiscalYear = String(fiscalYear).trim();
-    if (invoicePrefix !== undefined) updateData.invoicePrefix = String(invoicePrefix).trim();
-    if (nextInvoiceNumber !== undefined) updateData.nextInvoiceNumber = parseInt(String(nextInvoiceNumber), 10);
+    // Invoice prefix and next number are managed by the atomic billing transaction.
     if (defaultInvoiceSize !== undefined) {
       updateData.defaultInvoiceSize = String(defaultInvoiceSize).trim() === "Thermal" ? "Thermal" : "A5";
     }
