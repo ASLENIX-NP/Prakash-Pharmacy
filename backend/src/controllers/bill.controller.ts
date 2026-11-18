@@ -904,6 +904,71 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
       } else {
         const currentFiscalYear = getNepalFiscalYear();
 
+        // Lock invoice settings to serialize automatic number allocation.
+        const lockedSettings = await tx.$queryRaw<
+          Array<{ invoice_prefix: string | null }>
+        >`
+          SELECT invoice_prefix
+          FROM pharmacy_settings_tbl
+          ORDER BY id ASC
+          LIMIT 1
+          FOR UPDATE
+        `;
+
+        if (!lockedSettings[0]) {
+          throw new BillValidationError(
+            "Pharmacy settings are missing.",
+            500
+          );
+        }
+
+        const storedPrefix = String(
+          lockedSettings[0].invoice_prefix || ""
+        ).trim();
+
+        const effectivePrefix =
+          storedPrefix.replace(
+            /[0-9]{4}\/[0-9]{2}/,
+            currentFiscalYear
+          ) || `PP-${currentFiscalYear}-`;
+
+        // Find the highest invoice already issued with this prefix.
+        const previousNumbers = await tx.$queryRaw<
+          Array<{ highest_number: bigint | null }>
+        >`
+          SELECT MAX(
+            SUBSTRING(
+              invoice_number
+              FROM LENGTH(${effectivePrefix}) + 1
+            )::BIGINT
+          ) AS highest_number
+          FROM bill_tbl
+          WHERE LEFT(
+            invoice_number,
+            LENGTH(${effectivePrefix})
+          ) = ${effectivePrefix}
+          AND SUBSTRING(
+            invoice_number
+            FROM LENGTH(${effectivePrefix}) + 1
+          ) ~ '^[0-9]{1,18}$'
+        `;
+
+        const highestIssued = Number(
+          previousNumbers[0]?.highest_number ?? 0
+        );
+
+        if (
+          !Number.isSafeInteger(highestIssued) ||
+          highestIssued >= 2147483646
+        ) {
+          throw new BillValidationError(
+            "Invoice sequence exceeds the supported range.",
+            500
+          );
+        }
+
+        const minimumSafeNext = highestIssued + 1;
+
         const issued = await tx.$queryRaw<
           Array<{
             invoice_prefix: string;
@@ -922,7 +987,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
                    )
                    ELSE invoice_prefix
                  END,
-                 next_invoice_number = next_invoice_number + 1
+                 next_invoice_number = GREATEST(next_invoice_number, ${minimumSafeNext}) + 1
            WHERE id = (
              SELECT id
                FROM pharmacy_settings_tbl
