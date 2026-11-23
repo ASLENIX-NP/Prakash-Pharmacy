@@ -632,7 +632,8 @@ export function exportAuditLogToExcel(logs: StockAdjustmentLog[], storeName: str
 export function exportStockistLedgerToExcel(
   stockistName: string,
   panNumber: string,
-  entries: StockistLedgerEntry[]
+  entries: StockistLedgerEntry[],
+  period?: string
 ): void {
   const data = entries.map(e => ({
     'Date': e.date,
@@ -645,7 +646,8 @@ export function exportStockistLedgerToExcel(
   }));
 
   const dateStr = localDateString();
-  const fileName = `Ledger_${stockistName.replace(/\s+/g, '_')}_PAN_${panNumber}_${dateStr}.xlsx`;
+  const periodPart = period ? `_${period.replace(/[\s/]+/g, '_')}` : '';
+  const fileName = `Ledger_${stockistName.replace(/\s+/g, '_')}_PAN_${panNumber}${periodPart}_${dateStr}.xlsx`;
   exportObjectsToExcel(fileName, 'Stockist_Ledger', data).catch(console.error);
 }
 

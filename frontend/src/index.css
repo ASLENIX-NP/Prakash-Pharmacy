@@ -1550,7 +1550,8 @@ body {
     0 10px 20px rgba(15, 23, 42, 0.075);
 }
 
-.premium-inventory-actions > button:last-child {
+.premium-inventory-actions > button.premium-btn-primary,
+button.premium-btn-primary {
   min-height: 41px;
 
   border: 1px solid #172033;
@@ -1567,7 +1568,8 @@ body {
     0 9px 19px rgba(15, 23, 42, 0.18);
 }
 
-.premium-inventory-actions > button:last-child:hover {
+.premium-inventory-actions > button.premium-btn-primary:hover,
+button.premium-btn-primary:hover {
   box-shadow:
     0 13px 25px rgba(15, 23, 42, 0.22);
 }

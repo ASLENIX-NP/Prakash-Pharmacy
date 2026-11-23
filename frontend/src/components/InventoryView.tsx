@@ -30,7 +30,6 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { Medicine, MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
 import { 
-  downloadMedicineExcelTemplate, 
   parseMedicinesFromExcel, 
   exportInventoryToExcel 
 } from '../utils/excelUtils';
@@ -308,8 +307,30 @@ export const InventoryView: React.FC = () => {
       String((s as any).distributorId) === String(m.supplierId) ||
       (m.supplierName && s.name.toLowerCase() === m.supplierName.toLowerCase())
     );
+    const initialName = m.name || (m as any).medicineBrand || '';
+    const initialUnits = Number(m.unitsPerPack || (m as any).unitPerPack || 10);
+    const initialCost = Number(m.costPrice ?? 0);
+    const initialMrp = Number(m.mrpPrice ?? (m as any).sellingPrice ?? 0);
+    const initialReorder = Number(m.reorderLevel ?? (m as any).packAlertLevel ?? 10);
+    const initialCategory = m.category || (m as any).categoryName || 'Tablet';
+    const initialRack = m.rackLocation || (m as any).rackName || 'Unassigned';
+
     setFormData({
       ...m,
+      name: initialName,
+      medicineBrand: initialName,
+      genericName: m.genericName || '',
+      category: initialCategory,
+      categoryName: initialCategory,
+      rackLocation: initialRack,
+      rackName: initialRack,
+      unitsPerPack: initialUnits,
+      unitPerPack: initialUnits,
+      costPrice: initialCost,
+      mrpPrice: initialMrp,
+      sellingPrice: initialMrp,
+      reorderLevel: initialReorder,
+      packAlertLevel: initialReorder,
       supplierId: matchedDist ? matchedDist.id : (m.supplierId || ''),
       supplierName: matchedDist ? matchedDist.name : (m.supplierName || ''),
       isVatApplicable: vatVal,
@@ -323,12 +344,15 @@ export const InventoryView: React.FC = () => {
     e.preventDefault();
 
     const medicineName =
-      formData.name?.trim() || '';
+      (formData.name || (formData as any).medicineBrand || '')?.trim();
 
     const genericName =
       formData.genericName?.trim() || '';
 
-    if (!medicineName) return;
+    if (!medicineName) {
+      showToast('Medicine Brand Name is required.', 'warning', 'Validation');
+      return;
+    }
 
     // Medicine/brand name and generic/salt name are allowed to be
     // identical (for example: Paracetamol / Paracetamol).
@@ -365,32 +389,57 @@ export const InventoryView: React.FC = () => {
       return;
     }
 
+    const unitsPerPackVal = Number(formData.unitsPerPack ?? (formData as any).unitPerPack);
+    if (!Number.isInteger(unitsPerPackVal) || unitsPerPackVal < 1) {
+      showToast('Units per pack must be a positive whole number (at least 1).', 'warning', 'Validation');
+      return;
+    }
+
+    const costPriceVal = Number(formData.costPrice);
+    if (!Number.isFinite(costPriceVal) || costPriceVal < 0) {
+      showToast('Purchase cost price must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    const mrpPriceVal = Number(formData.mrpPrice ?? (formData as any).sellingPrice);
+    if (!Number.isFinite(mrpPriceVal) || mrpPriceVal < 0) {
+      showToast('Selling price / MRP must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    const reorderLevelVal = Number(formData.reorderLevel ?? (formData as any).packAlertLevel ?? 10);
+    if (!Number.isInteger(reorderLevelVal) || reorderLevelVal < 0) {
+      showToast('Reorder alert level must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    if (!editingMedicine) {
+      const stockPacksVal = Number(formData.stockPacks ?? 0);
+      if (!Number.isFinite(stockPacksVal) || stockPacksVal < 0) {
+        showToast('Packs in stock must be 0 or greater.', 'warning', 'Validation');
+        return;
+      }
+    }
+
     const normalizedFormData = {
       ...formData,
       name: medicineName,
+      medicineBrand: medicineName,
       genericName,
       batchNumber: String(formData.batchNumber).trim(),
-      expiryDate: String(formData.expiryDate).trim()
+      expiryDate: String(formData.expiryDate).trim(),
+      unitsPerPack: unitsPerPackVal,
+      unitPerPack: unitsPerPackVal,
+      costPrice: costPriceVal,
+      mrpPrice: mrpPriceVal,
+      sellingPrice: mrpPriceVal,
+      reorderLevel: reorderLevelVal,
+      packAlertLevel: reorderLevelVal,
+      category: formData.category,
+      categoryName: formData.category,
+      rackLocation: formData.rackLocation,
+      rackName: formData.rackLocation,
     };
-
-
-    const requiredNumbers = [
-      formData.unitsPerPack,
-      formData.stockPacks,
-      formData.costPrice,
-      formData.mrpPrice,
-      formData.reorderLevel,
-    ];
-    if (
-      requiredNumbers.some(value => value === undefined || !Number.isFinite(value)) ||
-      formData.unitsPerPack! < 1 ||
-      formData.stockPacks! < 0 ||
-      formData.costPrice! < 0 ||
-      formData.mrpPrice! < 0 ||
-      formData.reorderLevel! < 1
-    ) {
-      return;
-    }
 
     const openingPacks =
       Number(formData.stockPacks) || 0;
@@ -578,12 +627,21 @@ export const InventoryView: React.FC = () => {
      * This change only affects creation of new opening stock.
      */
     if (editingMedicine) {
-      updateMedicine(
-        editingMedicine.id,
-        finalPayload
-      );
+      try {
+        await updateMedicine(
+          editingMedicine.id,
+          finalPayload
+        );
 
-      setShowEditModal(false);
+        setShowEditModal(false);
+        showToast(`Medicine "${medicineName}" updated successfully!`, 'success', 'Inventory');
+      } catch (err: any) {
+        showToast(
+          err.message || 'Failed to update medicine details. Please check the fields and try again.',
+          'error',
+          'Update Failed'
+        );
+      }
 
       return;
     }
@@ -1065,25 +1123,8 @@ export const InventoryView: React.FC = () => {
         {/* Action Buttons */}
         <div className="premium-inventory-actions flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => downloadMedicineExcelTemplate()}
-            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
-            title="Download pre-formatted Excel template for batch import"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Excel Template</span>
-          </button>
-
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Import Excel (.xlsx)</span>
-          </button>
-
-          <button
             onClick={() => exportInventoryToExcel(medicines, settings.storeName)}
-            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>Export Stock (.xlsx)</span>
@@ -1099,14 +1140,6 @@ export const InventoryView: React.FC = () => {
               <span>Admin: Add / Deduce Racks</span>
             </button>
           )}
-
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Medicine</span>
-          </button>
         </div>
       </div>
 

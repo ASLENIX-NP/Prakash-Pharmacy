@@ -100,7 +100,7 @@ async function run() {
 
   assert(
     address &&
-      typeof address === "object",
+    typeof address === "object",
     "Could not determine smoke-test port."
   );
 
@@ -158,7 +158,7 @@ async function run() {
 
     assert(
       login.status === 200 &&
-        login.body.token,
+      login.body.token,
       `Admin login failed (${login.status}): ${login.body.message ?? ""}`
     );
 
@@ -181,9 +181,9 @@ async function run() {
 
     assert(
       inventory.status === 200 &&
-        Array.isArray(
-          inventory.body.data
-        ),
+      Array.isArray(
+        inventory.body.data
+      ),
       "Inventory list failed."
     );
 
@@ -203,9 +203,9 @@ async function run() {
 
     assert(
       lowStock.status === 200 &&
-        Array.isArray(
-          lowStock.body.data
-        ),
+      Array.isArray(
+        lowStock.body.data
+      ),
       "Low-stock filter failed."
     );
 
@@ -225,9 +225,9 @@ async function run() {
 
     assert(
       vat.status === 200 &&
-        Array.isArray(
-          vat.body.data
-        ),
+      Array.isArray(
+        vat.body.data
+      ),
       "VAT filter failed."
     );
 
@@ -247,14 +247,14 @@ async function run() {
 
     assert(
       summary.status === 200 &&
-        summary.body.data,
+      summary.body.data,
       "Inventory summary failed."
     );
 
     assert(
       typeof summary.body.data
         .totalRetailValuationNPR ===
-        "number",
+      "number",
       "Inventory valuation missing."
     );
 
@@ -274,9 +274,9 @@ async function run() {
 
     assert(
       nearExpiry.status === 200 &&
-        Array.isArray(
-          nearExpiry.body.data
-        ),
+      Array.isArray(
+        nearExpiry.body.data
+      ),
       "Near-expiry API failed."
     );
 
@@ -296,9 +296,9 @@ async function run() {
 
     assert(
       generics.status === 200 &&
-        Array.isArray(
-          generics.body.data
-        ),
+      Array.isArray(
+        generics.body.data
+      ),
       "Generic list failed."
     );
 
@@ -318,9 +318,9 @@ async function run() {
 
     assert(
       catalog.status === 200 &&
-        Array.isArray(
-          catalog.body.data
-        ),
+      Array.isArray(
+        catalog.body.data
+      ),
       "Generic catalog failed."
     );
 
@@ -352,7 +352,7 @@ async function run() {
 
     assert(
       createGeneric.status === 201 &&
-        createGeneric.body.data?.id,
+      createGeneric.body.data?.id,
       `Create generic failed (${createGeneric.status}): ${createGeneric.body.message ?? ""}`
     );
 
@@ -410,17 +410,17 @@ async function run() {
 
     assert(
       createMedicine.status === 201 &&
-        createMedicine.body.data?.id,
+      createMedicine.body.data?.id,
       `Create medicine failed (${createMedicine.status}): ${createMedicine.body.message ?? ""}`
     );
 
-    createdMedicineId =
-      createMedicine.body.data.id;
+    const medicineId = String(createMedicine.body.data.id);
+    createdMedicineId = medicineId;
 
     const updateMedicine =
       await api(
         baseUrl,
-        `/api/inventory/${encodeURIComponent(createdMedicineId)}`,
+        `/api/inventory/${encodeURIComponent(medicineId)}`,
         {
           method: "PUT",
           body: JSON.stringify({
@@ -433,10 +433,10 @@ async function run() {
 
     assert(
       updateMedicine.status === 200 &&
-        updateMedicine.body.data
-          ?.stockPacks === 11 &&
-        updateMedicine.body.data
-          ?.stockLooseUnits === 4,
+      updateMedicine.body.data
+        ?.stockPacks === 11 &&
+      updateMedicine.body.data
+        ?.stockLooseUnits === 4,
       "Medicine update failed."
     );
 
@@ -543,8 +543,8 @@ async function run() {
 
     assert(
       bulk.status === 200 &&
-        bulk.body.summary?.skipped ===
-          1,
+      bulk.body.summary?.skipped ===
+      1,
       `Bulk import skip test failed (${bulk.status}).`
     );
 

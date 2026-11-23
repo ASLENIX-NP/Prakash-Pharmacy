@@ -348,76 +348,107 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
             </div>
 
             {/* Statutory Nepal VAT Breakdown Box */}
-            <div className="border-t-2 border-slate-800 pt-2 space-y-2">
-              <div className="flex flex-wrap items-start justify-between gap-2 text-[11px]">
-                <div className="max-w-[50%] space-y-1">
+            <div className={`border-t-2 border-slate-800 ${format === 'thermal' ? 'pt-1.5' : 'pt-2 space-y-2'}`}>
+              <div
+                className={`flex items-start justify-between ${
+                  format === 'thermal'
+                    ? 'gap-2 text-[9px]'
+                    : 'gap-4 text-[11px]'
+                }`}
+              >
+                {/* Left Column: In Words + Statutory Notes */}
+                <div
+                  className={`${
+                    format === 'thermal'
+                      ? 'flex-1 min-w-0 pr-2 space-y-1'
+                      : 'flex-1 min-w-0 max-w-[50%] space-y-1'
+                  }`}
+                >
                   <div>
-                    <span className="text-slate-500 block text-[10px]">In Words:</span>
-                    <strong className="text-slate-900 italic text-[11px] font-semibold leading-tight block">
+                    <span className="text-slate-500 block text-[9px] sm:text-[10px]">In Words:</span>
+                    <strong
+                      className={`text-slate-900 italic font-semibold leading-tight block break-words ${
+                        format === 'thermal' ? 'text-[9.5px]' : 'text-[11px]'
+                      }`}
+                    >
                       {numberToWords(invoice.grandTotal)}
                     </strong>
                   </div>
-                  <div className="text-[9px] text-slate-500 pt-1 border-t border-slate-200">
+                  <div
+                    className={`text-slate-500 pt-1 border-t border-slate-200 ${
+                      format === 'thermal' ? 'text-[8px] leading-tight space-y-0.5' : 'text-[9px]'
+                    }`}
+                  >
                     <p>• Statutory 0% VAT on essential oral medications (VAT Act 2052).</p>
                     <p>• {settings.receiptFooterNote}</p>
                   </div>
                 </div>
 
-                {/* Totals Table */}
-                <div className="w-48 space-y-0.5 text-right font-mono">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Gross Subtotal:</span>
-                    <span>Rs. {invoice.grossSubtotal.toFixed(2)}</span>
+                {/* Right Column: Totals Table */}
+                <div
+                  className={`${
+                    format === 'thermal'
+                      ? 'w-[49%] shrink-0 text-[9px] pr-1'
+                      : 'w-52 shrink-0 pr-1 text-[11px]'
+                  } ml-auto space-y-0.5 text-right font-mono`}
+                >
+                  <div className="flex justify-between text-slate-600 gap-1">
+                    <span className="whitespace-nowrap">Gross Subtotal:</span>
+                    <span className="whitespace-nowrap">Rs. {invoice.grossSubtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-emerald-800">
-                    <span>0% VAT Free:</span>
-                    <span>Rs. {invoice.vatExemptSubtotal.toFixed(2)}</span>
+                  <div className="flex justify-between text-emerald-800 gap-1">
+                    <span className="whitespace-nowrap">0% VAT Free:</span>
+                    <span className="whitespace-nowrap">Rs. {invoice.vatExemptSubtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-blue-900">
-                    <span>Taxable Base:</span>
-                    <span>Rs. {invoice.taxableBaseSubtotal.toFixed(2)}</span>
+                  <div className="flex justify-between text-blue-900 gap-1">
+                    <span className="whitespace-nowrap">Taxable Base:</span>
+                    <span className="whitespace-nowrap">Rs. {invoice.taxableBaseSubtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-blue-900 font-bold">
-                    <span>13% VAT:</span>
-                    <span>Rs. {invoice.vatAmount.toFixed(2)}</span>
+                  <div className="flex justify-between text-blue-900 font-bold gap-1">
+                    <span className="whitespace-nowrap">13% VAT:</span>
+                    <span className="whitespace-nowrap">Rs. {invoice.vatAmount.toFixed(2)}</span>
                   </div>
                   {invoice.discountAmount > 0 && (
-                    <div className="flex justify-between text-rose-700">
-                      <span>Discount:</span>
-                      <span>- Rs. {invoice.discountAmount.toFixed(2)}</span>
+                    <div className="flex justify-between text-rose-700 gap-1">
+                      <span className="whitespace-nowrap">Discount:</span>
+                      <span className="whitespace-nowrap">- Rs. {invoice.discountAmount.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between py-1 border-t-2 border-b-2 border-slate-900 text-xs font-black text-slate-900">
-                    <span>Grand Total:</span>
-                    <span>Rs. {invoice.grandTotal.toFixed(2)}</span>
+                  <div
+                    className={`flex justify-between border-t-2 border-b-2 border-slate-900 font-black text-slate-900 gap-1 ${
+                      format === 'thermal' ? 'py-0.5 text-[10.5px]' : 'py-1 text-xs'
+                    }`}
+                  >
+                    <span className="whitespace-nowrap">Grand Total:</span>
+                    <span className="whitespace-nowrap">Rs. {invoice.grandTotal.toFixed(2)}</span>
                   </div>
                   {invoice.paymentMode === 'credit' && (() => {
                     const returnsTotal = (invoice.salesReturns || []).reduce((sum, r) => sum + (r.refundAmount || 0), 0);
                     const netCreditDue = Math.max(0, invoice.grandTotal - returnsTotal - (invoice.cashTendered || 0));
                     return (
-                      <div className="text-[10px] space-y-0.5 pt-1">
+                      <div className={`${format === 'thermal' ? 'text-[9px]' : 'text-[10px]'} space-y-0.5 pt-1`}>
                         {returnsTotal > 0 && (
-                          <div className="flex justify-between text-rose-700 font-semibold">
-                            <span>Returns Deducted:</span>
-                            <span>- Rs. {returnsTotal.toFixed(2)}</span>
+                          <div className="flex justify-between text-rose-700 font-semibold gap-1">
+                            <span className="whitespace-nowrap">Returns Deducted:</span>
+                            <span className="whitespace-nowrap">- Rs. {returnsTotal.toFixed(2)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5">
-                          <span>Balance Due:</span>
-                          <span>{invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}</span>
+                        <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5 gap-1">
+                          <span className="whitespace-nowrap">Balance Due:</span>
+                          <span className="whitespace-nowrap">{invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}</span>
                         </div>
                       </div>
                     );
                   })()}
                   {invoice.paymentMode === 'cash' && (
-                    <div className="text-[10px] text-slate-500 space-y-0.5 pt-0.5">
-                      <div className="flex justify-between">
-                        <span>Tendered:</span>
-                        <span>Rs. {invoice.cashTendered.toFixed(2)}</span>
+                    <div className={`${format === 'thermal' ? 'text-[9px]' : 'text-[10px]'} text-slate-500 space-y-0.5 pt-0.5`}>
+                      <div className="flex justify-between gap-1">
+                        <span className="whitespace-nowrap">Tendered:</span>
+                        <span className="whitespace-nowrap">Rs. {invoice.cashTendered.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between font-bold text-slate-800">
-                        <span>Change:</span>
-                        <span className="text-emerald-700">Rs. {invoice.changeGiven.toFixed(2)}</span>
+                      <div className="flex justify-between font-bold text-slate-800 gap-1">
+                        <span className="whitespace-nowrap">Change:</span>
+                        <span className="text-emerald-700 whitespace-nowrap">Rs. {invoice.changeGiven.toFixed(2)}</span>
                       </div>
                     </div>
                   )}

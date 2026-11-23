@@ -45,7 +45,7 @@ interface PharmacyContextType {
   // Medicines & Inventory
   medicines: Medicine[];
   addMedicine: (medicine: Omit<Medicine, 'id'>) => Medicine;
-  updateMedicine: (id: string, updates: Partial<Medicine>) => void;
+  updateMedicine: (id: string, updates: Partial<Medicine>) => Promise<Medicine>;
   deleteMedicine: (id: string) => void;
   bulkImportMedicines: (
     newMedicines: Medicine[],
@@ -123,6 +123,13 @@ interface PharmacyContextType {
     paymentMode: string,
     refNumber: string,
     notes: string
+  ) => Promise<void>;
+  addStockistOpeningBalance: (
+    stockistId: string,
+    amount: number,
+    date?: string,
+    refNumber?: string,
+    notes?: string
   ) => Promise<void>;
 
   // Returns to Wholesaler (Damaged / Expired / Breakage)
@@ -1699,11 +1706,10 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return temporaryMedicine;
   };
 
-  const updateMedicine = (
+  const updateMedicine = async (
     id: string,
     updates: Partial<Medicine>
-  ) => {
-
+  ): Promise<Medicine> => {
     const previousMedicine =
       medicines.find(medicine => medicine.id === id);
 
@@ -1728,74 +1734,70 @@ export const PharmacyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // Temporary records have not received their DB MED-xxx
     // identifier yet. Their POST request will create them.
     if (id.startsWith('tmp-med-')) {
-      return;
+      return (previousMedicine ? { ...previousMedicine, ...sanitizedUpdates } : sanitizedUpdates) as Medicine;
     }
 
-    void apiRequest<{
-      success: boolean;
-      message?: string;
-      data: Medicine;
-    }>(`/inventory/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(sanitizedUpdates),
-    })
-      .then(res => {
-        setMedicines(prev =>
-          prev.map(medicine => {
-            if (medicine.id !== id) {
-              return medicine;
-            }
-
-            const updatedData = res.data;
-            const finalIsVat = Boolean(
-              updatedData.isVatApplicable ??
-              (updatedData as any).hasvat ??
-              sanitizedUpdates.isVatApplicable ??
-              medicine.isVatApplicable
-            );
-
-            return {
-              ...medicine,
-              ...updatedData,
-              isVatApplicable: finalIsVat,
-              hasvat: finalIsVat,
-
-              supplierId:
-                updatedData.supplierId ||
-                medicine.supplierId ||
-                '',
-
-              supplierName:
-                updatedData.supplierName ||
-                medicine.supplierName ||
-                ''
-            } as Medicine;
-          })
-        );
-      })
-      .catch(error => {
-        // Restore previous record if database update fails.
-        if (previousMedicine) {
-          setMedicines(prev =>
-            prev.map(medicine =>
-              medicine.id === id
-                ? previousMedicine
-                : medicine
-            )
-          );
-        }
-
-        console.error(
-          'Failed to update medicine:',
-          error
-        );
-
-        alert(
-          error instanceof Error
-            ? error.message
-            : 'Failed to update medicine.'
-        );
+    try {
+      const res = await apiRequest<{
+        success: boolean;
+        message?: string;
+        data: Medicine;
+      }>(`/inventory/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(sanitizedUpdates),
       });
+
+      const updatedData = res.data;
+      const finalIsVat = Boolean(
+        updatedData.isVatApplicable ??
+        (updatedData as any).hasvat ??
+        sanitizedUpdates.isVatApplicable ??
+        previousMedicine?.isVatApplicable
+      );
+
+      const resolvedMedicine = {
+        ...(previousMedicine ?? {}),
+        ...updatedData,
+        isVatApplicable: finalIsVat,
+        hasvat: finalIsVat,
+        supplierId:
+          updatedData.supplierId ||
+          previousMedicine?.supplierId ||
+          '',
+        supplierName:
+          updatedData.supplierName ||
+          previousMedicine?.supplierName ||
+          ''
+      } as Medicine;
+
+      setMedicines(prev =>
+        prev.map(medicine =>
+          medicine.id === id
+            ? resolvedMedicine
+            : medicine
+        )
+      );
+
+      return resolvedMedicine;
+    } catch (error) {
+      // Restore previous record if database update fails.
+      if (previousMedicine) {
+        setMedicines(prev =>
+          prev.map(medicine =>
+            medicine.id === id
+              ? previousMedicine
+              : medicine
+          )
+        );
+      }
+
+      console.error(
+        'Failed to update medicine:',
+        error
+      );
+
+      throw error;
+    }
   };
 
   const deleteMedicine = (id: string) => {
@@ -2542,6 +2544,38 @@ const response =
     );
   };
 
+  // Supplier Opening Balance - updates running balance
+  // and creates opening_balance credit ledger entry transactionally.
+  const addStockistOpeningBalance = async (
+    stockistId: string,
+    amount: number,
+    date?: string,
+    refNumber?: string,
+    notes?: string
+  ): Promise<void> => {
+    await apiRequest(
+      '/distributors/' +
+        encodeURIComponent(stockistId) +
+        '/opening-balance',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          amount,
+          date,
+          refNumber,
+          notes
+        })
+      }
+    );
+
+    const liveStockists =
+      await refreshLiveStockists();
+
+    await refreshLiveLedgers(
+      liveStockists
+    );
+  };
+
 
   // Stockist Returns (Return Damaged / Expired / Breakage to wholesaler)
   const recordStockistReturn = async (
@@ -3038,6 +3072,7 @@ const response =
 
         stockistLedgers,
         addStockistPayment,
+        addStockistOpeningBalance,
 
         stockistReturns,
         recordStockistReturn,
