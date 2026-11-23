@@ -191,9 +191,13 @@ model Bill {
 
   salesReturns SalesReturn[]
 
+  customerId Int?      @map("customer_id")
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
   @@index([invoiceNumber])
   @@index([transactionDate])
   @@index([cashierId])
+  @@index([customerId])
   @@map("bill_tbl")
 }
 
@@ -505,8 +509,12 @@ model ClinicPatient {
 
   visits ClinicVisit[]
 
+  customerId Int?      @map("customer_id")
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
   @@index([name])
   @@index([phone])
+  @@index([customerId])
   @@map("clinic_patients_tbl")
 }
 
@@ -629,4 +637,25 @@ model PasswordResetChallenge {
 
   @@index([expiresAt])
   @@map("password_reset_challenges_tbl")
+}
+// Shared customer identity for POS and OPD.
+// Phone is stored in normalized digit-only form.
+// OPD medical details remain in ClinicPatient and ClinicVisit.
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String   @unique
+  address   String?
+  // Only profiles enrolled through admin registration receive a membership number.
+  // Previously imported POS / OPD customers remain non-members (null).
+  membershipNumber String?   @unique @map("membership_number")
+  memberSince       DateTime? @map("member_since")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  bills    Bill[]
+  patients ClinicPatient[]
+
+  @@index([name])
+  @@map("customers_tbl")
 }

@@ -21,11 +21,13 @@ import {
 import { usePharmacy } from '../context/PharmacyContext';
 import { SaleInvoice } from '../types/pharmacy';
 import { localDateString } from '../utils/date';
+import { apiRequest } from '../services/api';
 
 export const CustomerCreditView: React.FC = () => {
   const {
     salesInvoices,
     settleCreditInvoice,
+    refreshLiveBills,
     setActiveInvoiceToPrint,
     settings,
   } = usePharmacy();
@@ -35,6 +37,35 @@ export const CustomerCreditView: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'this_week' | 'this_month'>('all');
   const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set());
 
+  const [expandedCustomerKeys, setExpandedCustomerKeys] =
+    useState<Set<string>>(new Set());
+
+  const toggleCustomer = (key: string) => {
+    setExpandedCustomerKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  type BulkSettlementDraft = {
+    customerName: string;
+    phone: string;
+    invoiceIds: number[];
+    amount: number;
+  };
+
+  const [bulkSettlement, setBulkSettlement] =
+    useState<BulkSettlementDraft | null>(null);
+
+  const [bulkPaymentMethod, setBulkPaymentMethod] =
+    useState<'cash' | 'fonepay_qr' | 'card'>('cash');
+
+  const [isBulkSettling, setIsBulkSettling] =
+    useState(false);
+
+  const [bulkError, setBulkError] = useState('');
   // Settlement Modal State
   const [settlingInvoice, setSettlingInvoice] = useState<SaleInvoice | null>(null);
   const [settlementMethod, setSettlementMethod] = useState<'cash' | 'fonepay_qr' | 'card'>('cash');
@@ -101,6 +132,76 @@ export const CustomerCreditView: React.FC = () => {
     return Math.max(0, (inv.grandTotal || 0) - returned - (inv.cashTendered || 0));
   };
 
+  // Customer identity is based on normalized phone, never invoice name.
+  // Historical invoices remain unchanged.
+  const groupedCustomers = useMemo(() => {
+    type CreditGroup = {
+      key: string;
+      name: string;
+      phone: string;
+      address: string;
+      invoices: SaleInvoice[];
+      matches: boolean;
+      outstanding: number;
+    };
+
+    const matchingIds = new Set(
+      filteredInvoices.map((inv) => String(inv.id))
+    );
+
+    const groups = new Map<string, CreditGroup>();
+
+    const chronological = [...allCreditInvoices].sort((a, b) =>
+      `${a.date || ''} ${a.time || ''}`.localeCompare(
+        `${b.date || ''} ${b.time || ''}`
+      )
+    );
+
+    for (const inv of chronological) {
+      const phone = (inv.customerPhone || '').replace(/\D/g, '');
+      const key = phone
+        ? `phone:${phone}`
+        : `invoice:${inv.id}`;
+
+      let group = groups.get(key);
+
+      if (!group) {
+        group = {
+          key,
+          name: inv.customerName || 'Unknown Customer',
+          phone,
+          address: inv.customerAddress || '',
+          invoices: [],
+          matches: false,
+          outstanding: 0,
+        };
+        groups.set(key, group);
+      }
+
+      group.invoices.push(inv);
+      group.matches =
+        group.matches || matchingIds.has(String(inv.id));
+      group.outstanding += getInvoiceNetDue(inv);
+    }
+
+    return [...groups.values()]
+      .filter((group) => group.matches)
+      .map((group) => ({
+        ...group,
+        invoices: [...group.invoices].reverse(),
+        outstanding:
+          Math.round(group.outstanding * 100) / 100,
+      }))
+      .sort((a, b) => {
+        const latestA = a.invoices[0];
+        const latestB = b.invoices[0];
+
+        return `${latestB.date || ''} ${latestB.time || ''}`
+          .localeCompare(
+            `${latestA.date || ''} ${latestA.time || ''}`
+          );
+      });
+  }, [allCreditInvoices, filteredInvoices]);
   // Aggregate Metrics
   const metrics = useMemo(() => {
     let totalOutstanding = 0;
@@ -125,7 +226,12 @@ export const CustomerCreditView: React.FC = () => {
       } else {
         totalOutstanding += netDue;
         unpaidCount++;
-        customerSet.add((inv.customerPhone || inv.customerName || '').toLowerCase().trim());
+        const normalizedPhone = (inv.customerPhone || '').replace(/\D/g, '');
+        customerSet.add(
+          normalizedPhone
+            ? `phone:${normalizedPhone}`
+            : `invoice:${inv.id}`
+        );
       }
     });
 
@@ -172,6 +278,89 @@ export const CustomerCreditView: React.FC = () => {
     }
   };
 
+  const openBulkSettlement = (group: {
+    phone: string;
+    name: string;
+    invoices: SaleInvoice[];
+  }) => {
+    const due = group.invoices.filter(
+      (inv) =>
+        inv.paymentStatus !== 'paid' &&
+        getInvoiceNetDue(inv) > 0.001
+    );
+
+    const ids = due.map((inv) => Number(inv.id));
+
+    if (
+      !/^\d{7,10}$/.test(group.phone) ||
+      due.length < 2 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
+      new Set(ids).size !== ids.length
+    ) {
+      window.alert(
+        'Bulk settlement requires at least two valid unpaid invoices for one phone number.'
+      );
+      return;
+    }
+
+    const amount = Math.round(
+      due.reduce((total, inv) => total + getInvoiceNetDue(inv), 0) * 100
+    ) / 100;
+
+    setBulkSettlement({
+      customerName: group.name,
+      phone: group.phone,
+      invoiceIds: ids,
+      amount,
+    });
+
+    setBulkPaymentMethod('cash');
+    setBulkError('');
+  };
+
+  const confirmBulkSettlement = async () => {
+    if (!bulkSettlement || isBulkSettling) return;
+
+    setIsBulkSettling(true);
+    setBulkError('');
+
+    try {
+      const result = await apiRequest<{
+        success: boolean;
+        message: string;
+      }>('/bills/settle-credit-bulk', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerPhone: bulkSettlement.phone,
+          invoiceIds: bulkSettlement.invoiceIds,
+          expectedTotal: bulkSettlement.amount,
+          paymentMethod: bulkPaymentMethod,
+        }),
+      });
+
+      if (!result?.success) {
+        throw new Error(result?.message || 'Bulk payment failed.');
+      }
+
+      setBulkSettlement(null);
+
+      try {
+        await refreshLiveBills();
+      } catch (refreshError) {
+        console.error('Payment succeeded but bill refresh failed:', refreshError);
+        window.alert(
+          'Payment was recorded, but the ledger could not refresh. Reload the page and verify invoice statuses before taking another payment.'
+        );
+      }
+    } catch (error: any) {
+      setBulkError(
+        (error?.message || 'Unable to confirm payment.') +
+        ' Check invoice statuses before retrying.'
+      );
+    } finally {
+      setIsBulkSettling(false);
+    }
+  };
   const handleExportCSV = () => {
     if (filteredInvoices.length === 0) return;
     const headers = [
@@ -391,7 +580,108 @@ export const CustomerCreditView: React.FC = () => {
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {filteredInvoices.map((inv) => {
+            {groupedCustomers.map((group) => {
+              const visibleInvoices = group.invoices.filter((inv) => {
+                if (statusFilter === 'unpaid') {
+                  return inv.paymentStatus !== 'paid';
+                }
+
+                if (statusFilter === 'paid') {
+                  return inv.paymentStatus === 'paid';
+                }
+
+                return true;
+              });
+
+              const customerExpanded =
+                expandedCustomerKeys.has(group.key);
+
+              return (
+                <div key={group.key}>
+                  <button
+                    type="button"
+                    aria-expanded={customerExpanded}
+                    onClick={() => toggleCustomer(group.key)}
+                    className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left hover:bg-slate-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      {customerExpanded
+                        ? <ChevronUp className="h-5 w-5 text-teal-700" />
+                        : <ChevronDown className="h-5 w-5 text-teal-700" />
+                      }
+                      <div>
+                        <p className="text-sm font-extrabold text-slate-900">
+                          {group.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {group.phone || 'Phone missing (unidentified record)'}
+                          {' · '}
+                          {statusFilter === 'all'
+  ? group.invoices.length
+  : visibleInvoices.length}
+{' '}
+{statusFilter === 'unpaid'
+  ? 'due invoices'
+  : statusFilter === 'paid'
+    ? 'settled invoices'
+    : 'credit invoices'}
+                        </p>
+                        {!group.phone && (
+                          <p className="text-[11px] font-medium text-amber-700">
+                            No phone recorded. This invoice is kept separate
+                            to prevent incorrect customer matching.
+                          </p>
+                        )}
+                        {group.address && (
+                          <p className="text-xs text-slate-500">
+                            {group.address}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[11px] font-semibold text-slate-500">
+                        Total Outstanding
+                      </p>
+                      <p className="font-mono text-lg font-black text-amber-900">
+                        Rs. {group.outstanding.toFixed(2)}
+                      </p>
+                    </div>
+                  </button>
+
+                  {statusFilter !== 'paid' &&
+                    /^\d{7,10}$/.test(group.phone) &&
+                    group.invoices.filter(
+                      (inv) =>
+                        inv.paymentStatus !== 'paid' &&
+                        getInvoiceNetDue(inv) > 0.001
+                    ).length >= 2 && (
+                    <div className="flex justify-end px-4 pb-3">
+                      <button
+                        type="button"
+                        onClick={() => openBulkSettlement(group)}
+                        className="rounded-xl bg-emerald-700 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-800"
+                      >
+                        Settle All Due - Rs. {group.outstanding.toFixed(2)}
+                      </button>
+                    </div>
+                  )}
+                  {customerExpanded && (
+                    <div className="divide-y divide-slate-100 border-t border-slate-200 bg-slate-50/40">
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                        <p className="text-xs font-extrabold text-slate-800">
+                          {statusFilter === 'all'
+  ? 'All Credit History'
+  : statusFilter === 'unpaid'
+    ? 'Due Credit Invoices'
+    : 'Settled Credit Invoices'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {visibleInvoices.length} shown of {group.invoices.length} total invoices.
+                          Invoices shown follow the selected status filter.
+                        </p>
+                      </div>
+                      {visibleInvoices.map((inv) => {
               const returnsTotal = getInvoiceReturns(inv);
               const netDue = getInvoiceNetDue(inv);
               const isPaid = inv.paymentStatus === 'paid' || netDue <= 0.001;
@@ -596,11 +886,107 @@ export const CustomerCreditView: React.FC = () => {
                   )}
                 </div>
               );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
             })}
           </div>
         )}
       </div>
 
+      {/* Bulk Customer Credit Payment */}
+      {bulkSettlement && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-credit-title"
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+          >
+            <h2
+              id="bulk-credit-title"
+              className="text-lg font-extrabold text-slate-900"
+            >
+              Settle All Customer Due
+            </h2>
+
+            <div className="mt-4 space-y-2 rounded-xl bg-slate-50 p-4 text-sm">
+              <p>
+                <strong>Customer:</strong> {bulkSettlement.customerName}
+              </p>
+              <p>
+                <strong>Phone:</strong> {bulkSettlement.phone}
+              </p>
+              <p>
+                <strong>Unpaid invoices:</strong>{' '}
+                {bulkSettlement.invoiceIds.length}
+              </p>
+              <p className="border-t border-slate-200 pt-3 text-base font-extrabold text-amber-900">
+                Total to Collect: Rs. {bulkSettlement.amount.toFixed(2)}
+              </p>
+            </div>
+
+            <p className="mt-3 text-xs text-slate-600">
+              This payment covers every outstanding credit invoice for this
+              phone number, including invoices outside the selected date filter.
+              Individual invoice records will remain separate.
+            </p>
+
+            <label
+              htmlFor="bulk-credit-method"
+              className="mt-4 block text-xs font-bold text-slate-700"
+            >
+              Payment Method
+            </label>
+
+            <select
+              id="bulk-credit-method"
+              value={bulkPaymentMethod}
+              onChange={(event) =>
+                setBulkPaymentMethod(
+                  event.target.value as 'cash' | 'fonepay_qr' | 'card'
+                )
+              }
+              disabled={isBulkSettling}
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white p-2.5 text-sm"
+            >
+              <option value="cash">Cash</option>
+              <option value="fonepay_qr">Fonepay QR</option>
+              <option value="card">Card / POS</option>
+            </select>
+
+            {bulkError && (
+              <p role="alert" className="mt-3 text-xs font-semibold text-rose-700">
+                {bulkError}
+              </p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={isBulkSettling}
+                onClick={() => setBulkSettlement(null)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isBulkSettling}
+                onClick={confirmBulkSettlement}
+                className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {isBulkSettling
+                  ? 'Processing...'
+                  : 'Confirm Full Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Settle Credit Modal */}
       {settlingInvoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs">

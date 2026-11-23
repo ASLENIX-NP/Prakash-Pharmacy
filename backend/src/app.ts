@@ -19,6 +19,7 @@ import settingRoutes from "./routes/setting.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import doctorRoutes from "./routes/doctor.routes.js";
 import clinicPatientRoutes from "./routes/clinic-patient.routes.js";
+import customerRoutes from "./routes/customer.routes.js";
 import clinicVisitRoutes from "./routes/clinic-visit.routes.js";
 import { requireAuth, requireAdmin } from "./middleware/auth.middleware.js";
 
@@ -194,6 +195,7 @@ app.use("/api/settings", settingRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/clinic-patients", clinicPatientRoutes);
+app.use("/api/customers", customerRoutes);
 app.use("/api/clinic-visits", clinicVisitRoutes);
 
 // If the frontend build is present, serve it directly (Unified Single-Service Fullstack Mode)

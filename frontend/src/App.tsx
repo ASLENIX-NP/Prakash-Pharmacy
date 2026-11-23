@@ -62,6 +62,12 @@ const CustomerCreditView = lazy(() =>
   }))
 );
 
+const CustomersView = lazy(() =>
+  import('./components/CustomersView').then(({ CustomersView }) => ({
+    default: CustomersView,
+  }))
+);
+
 const ReportsView = lazy(() =>
   import('./components/ReportsView').then(({ ReportsView }) => ({
     default: ReportsView,
@@ -276,6 +282,10 @@ const PharmacyAppContent: React.FC = () => {
                 {activeTab === 'customer_credit' && (
                   <CustomerCreditView />
                 )}
+
+                {/* Admin Customer Directory */}
+                {activeTab === 'customers' &&
+                  (isAdmin ? <CustomersView /> : <PosView />)}
 
                 {/* Clinic / OPD */}
 

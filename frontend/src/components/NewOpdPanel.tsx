@@ -2,6 +2,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -112,6 +113,15 @@ interface VisitResponse {
 }
 
 
+interface SharedCustomer {
+  id: number;
+  name: string;
+  phone: string;
+  address: string | null;
+  membershipNumber: string;
+  memberSince: string;
+}
+
 interface NewPatientForm {
   name: string;
   phone: string;
@@ -172,8 +182,57 @@ export const NewOpdPanel: React.FC = () => {
   const [doctorsLoading, setDoctorsLoading] =
     useState(true);
 
+  const [patientSearchMode, setPatientSearchMode] =
+    useState<'name' | 'phone'>('name');
+
   const [patientSearch, setPatientSearch] =
     useState('');
+
+  // OPD_INDEPENDENT_SEARCH_127Q
+  const [patientNameQuery, setPatientNameQuery] = useState('');
+  const [patientPhoneQuery, setPatientPhoneQuery] = useState('');
+
+  // Ignore responses from searches that were replaced while typing.
+  const patientSearchRequestId = useRef(0);
+
+  // OPD_MEMBER_SEARCH_127H: Membership is separate from an OPD patient record.
+  const [searchedMember, setSearchedMember] =
+    useState<SharedCustomer | null>(null);
+  const [searchedMemberLoading, setSearchedMemberLoading] =
+    useState(false);
+
+  // Both input values are preserved. Only the active field drives lookup.
+  const updatePatientSearch = (mode: 'name' | 'phone', value: string) => {
+    const next = mode === 'phone' ? normalizePatientPhone(value) : value;
+
+    if (mode === 'phone') {
+      setPatientPhoneQuery(next);
+    } else {
+      setPatientNameQuery(next);
+    }
+
+    patientSearchRequestId.current += 1;
+    setPatientSearchMode(mode);
+    setPatientSearch(next);
+    setPatientResults([]);
+    setHasSearchedPatients(false);
+    setPatientSearching(false);
+    setSearchedMember(null);
+    setError('');
+  };
+
+  const activatePatientSearch = (mode: 'name' | 'phone') => {
+    if (patientSearchMode === mode) return;
+
+    updatePatientSearch(
+      mode,
+      mode === 'phone' ? patientPhoneQuery : patientNameQuery
+    );
+  };
+
+  const canSearchPatients = patientSearchMode === 'phone'
+    ? /^\d{10}$/.test(patientSearch)
+    : patientSearch.trim().length >= 2;
 
   const [patientResults, setPatientResults] =
     useState<ClinicPatient[]>([]);
@@ -190,6 +249,13 @@ export const NewOpdPanel: React.FC = () => {
   const [showNewPatientForm, setShowNewPatientForm] =
     useState(false);
 
+  // OPD_FAMILY_PATIENT_127K: the contact phone is NOT a patient identity.
+  const [creatingDifferentPatient, setCreatingDifferentPatient] =
+    useState(false);
+
+  const [registerAsMemberSelf, setRegisterAsMemberSelf] =
+    useState(false);
+
   const [newPatient, setNewPatient] =
     useState<NewPatientForm>(
       EMPTY_PATIENT_FORM
@@ -197,6 +263,12 @@ export const NewOpdPanel: React.FC = () => {
 
   const [patientSaving, setPatientSaving] =
     useState(false);
+
+  const [sharedCustomer, setSharedCustomer] =
+    useState<SharedCustomer | null>(null);
+
+  const [customerLookupStatus, setCustomerLookupStatus] =
+    useState<'idle' | 'loading' | 'found' | 'missing' | 'error'>('idle');
 
   const [selectedDoctorId, setSelectedDoctorId] =
     useState('');
@@ -220,6 +292,95 @@ export const NewOpdPanel: React.FC = () => {
     useState('');
 
 
+  // Look up explicitly registered member details by phone.
+  // Never automatically overwrite patient form fields.
+  useEffect(() => {
+    const phone = normalizePatientPhone(newPatient.phone);
+
+    setSharedCustomer(null);
+
+    if (!showNewPatientForm || phone.length !== 10) {
+      setCustomerLookupStatus('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    setCustomerLookupStatus('loading');
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiRequest<{
+          success: boolean;
+          data: SharedCustomer | null;
+        }>(
+          `/customers/lookup?phone=${encodeURIComponent(phone)}`,
+          { signal: controller.signal }
+        );
+
+        if (controller.signal.aborted) return;
+
+        if (response.data && response.data.phone === phone && response.data.membershipNumber) {
+          setSharedCustomer(response.data);
+          setCustomerLookupStatus('found');
+        } else {
+          setSharedCustomer(null);
+          setCustomerLookupStatus('missing');
+        }
+      } catch {
+        if (controller.signal.aborted) return;
+
+        setSharedCustomer(null);
+        setCustomerLookupStatus('error');
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [showNewPatientForm, newPatient.phone]);
+
+  // OPD_MEMBER_SEARCH_127H: A newly enrolled member may have no Clinic No. yet.
+  // This lookup never creates a patient or modifies any records.
+  useEffect(() => {
+    const query = patientSearch.trim();
+    const phone = normalizePatientPhone(query);
+    setSearchedMember(null);
+
+    if (selectedPatient || showNewPatientForm || patientSearchMode !== 'phone' || query !== phone || phone.length !== 10) {
+      setSearchedMemberLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSearchedMemberLoading(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiRequest<{
+          success: boolean;
+          data: SharedCustomer | null;
+        }>(`/customers/lookup?phone=${encodeURIComponent(phone)}`, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        if (response.data?.phone === phone && response.data.membershipNumber) {
+          setSearchedMember(response.data);
+        } else {
+          setSearchedMember(null);
+        }
+      } catch {
+        if (!controller.signal.aborted) setSearchedMember(null);
+      } finally {
+        if (!controller.signal.aborted) setSearchedMemberLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [patientSearch, patientSearchMode, selectedPatient, showNewPatientForm]);
   const loadDoctors =
     useCallback(async () => {
       try {
@@ -272,94 +433,86 @@ export const NewOpdPanel: React.FC = () => {
     );
 
 
-  const searchPatients =
-    async () => {
-      const query =
-        patientSearch.trim();
+  const searchPatients = async () => {
+    const query = patientSearch.trim();
+    const valid = patientSearchMode === 'phone'
+      ? /^\d{10}$/.test(query)
+      : query.length >= 2;
 
-      if (!query) {
-        setError(
-          'Enter patient name, phone number, or Clinic No. to search.'
-        );
-        return;
-      }
+    if (!valid) {
+      setPatientResults([]);
+      setHasSearchedPatients(false);
+      setError(patientSearchMode === 'phone'
+        ? 'Enter exactly 10 digits to search by phone number.'
+        : 'Enter at least 2 characters to search by name or Clinic No.');
+      return;
+    }
 
-      try {
-        setPatientSearching(true);
-        setError('');
-        setSuccess('');
-        setHasSearchedPatients(true);
+    const requestId = ++patientSearchRequestId.current;
+    try {
+      setPatientSearching(true);
+      setError('');
+      setSuccess('');
+      setHasSearchedPatients(true);
 
-        const response =
-          await apiRequest<PatientListResponse>(
-            `/clinic-patients?search=${encodeURIComponent(
-              query
-            )}`
-          );
+      const response = await apiRequest<PatientListResponse>(
+        `/clinic-patients?search=${encodeURIComponent(query)}`
+      );
+      if (patientSearchRequestId.current !== requestId) return;
 
-        setPatientResults(
-          Array.isArray(response.data)
-            ? response.data
-            : []
-        );
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to search patients.'
-        );
-      } finally {
+      setPatientResults(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      if (patientSearchRequestId.current !== requestId) return;
+      setPatientResults([]);
+      setError(err instanceof Error ? err.message : 'Unable to search patients.');
+    } finally {
+      if (patientSearchRequestId.current === requestId) {
         setPatientSearching(false);
       }
-    };
+    }
+  };
 
 
   /*
-   * LIVE_PATIENT_SEARCH_DEBOUNCE
-   *
-   * Patient search updates automatically while typing.
-   * Existing searchPatients() remains the single API/search path.
+   * Search by name after 2 characters; by phone only after 10 digits.
+   * Never search partial numbers or show stale search results.
    */
   useEffect(() => {
-    const query =
-      patientSearch.trim();
+    if (selectedPatient) return;
+    const query = patientSearch.trim();
+    const valid = patientSearchMode === 'phone'
+      ? /^\d{10}$/.test(query)
+      : query.length >= 2;
 
-    if (selectedPatient) {
-      return;
-    }
-
-    /*
-     * Avoid API requests for empty or one-character searches.
-     */
-    if (query.length < 2) {
+    if (!valid) {
       setPatientResults([]);
       setHasSearchedPatients(false);
-
       return;
     }
 
-    const timer =
-      window.setTimeout(() => {
-        void searchPatients();
-      }, 300);
+    const timer = window.setTimeout(() => {
+      void searchPatients();
+    }, 300);
 
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    patientSearch,
-    selectedPatient
-  ]);
+    return () => window.clearTimeout(timer);
+  }, [patientSearch, patientSearchMode, selectedPatient]);
+
 
   const selectPatient = (
     patient: ClinicPatient
   ) => {
+    patientSearchRequestId.current += 1;
+    setPatientSearchMode('name');
     setSelectedPatient(patient);
 
     setPatientResults([]);
     setHasSearchedPatients(false);
     setShowNewPatientForm(false);
+    setCreatingDifferentPatient(false);
+    setRegisterAsMemberSelf(false);
 
+    setPatientNameQuery(`${patient.name} - ${patient.clinicNumber}`);
+    setPatientPhoneQuery('');
     setPatientSearch(
       `${patient.name} - ${patient.clinicNumber}`
     );
@@ -370,7 +523,11 @@ export const NewOpdPanel: React.FC = () => {
 
 
   const clearSelectedPatient = () => {
+    patientSearchRequestId.current += 1;
+    setPatientSearchMode('name');
     setSelectedPatient(null);
+    setPatientNameQuery('');
+    setPatientPhoneQuery('');
     setPatientSearch('');
     setPatientResults([]);
     setHasSearchedPatients(false);
@@ -382,6 +539,8 @@ export const NewOpdPanel: React.FC = () => {
 
 
   const openNewPatientForm = () => {
+    setCreatingDifferentPatient(false);
+    setRegisterAsMemberSelf(false);
     const searchValue =
       patientSearch.trim();
 
@@ -389,15 +548,15 @@ export const NewOpdPanel: React.FC = () => {
       ...EMPTY_PATIENT_FORM,
 
       name:
+        patientSearchMode === 'name' &&
         searchValue &&
-        !/^CL-/i.test(
-          searchValue
-        ) &&
-        !/^\d+$/.test(
-          searchValue
-        )
+        !/^CL-/i.test(searchValue) &&
+        !/^\d+$/.test(searchValue)
           ? searchValue
           : '',
+      phone: patientSearchMode === 'phone' && /^\d{10}$/.test(searchValue)
+        ? searchValue
+        : '',
     });
 
     setShowNewPatientForm(true);
@@ -408,6 +567,20 @@ export const NewOpdPanel: React.FC = () => {
     setSuccess('');
   };
 
+
+  // Register someone OTHER than the member, such as a child. Only copy the
+  // shared contact phone: never auto-copy the member's personal identity.
+  const openDifferentPatientForm = () => {
+    if (patientSearchMode !== 'phone' || !/^\d{10}$/.test(patientSearch)) return;
+    setCreatingDifferentPatient(true);
+    setRegisterAsMemberSelf(false);
+    setNewPatient({ ...EMPTY_PATIENT_FORM, phone: patientSearch });
+    setShowNewPatientForm(true);
+    setSelectedPatient(null);
+    setSavedVisit(null);
+    setError('');
+    setSuccess('');
+  };
 
   const createPatient = async (
     event: React.FormEvent
@@ -433,6 +606,14 @@ export const NewOpdPanel: React.FC = () => {
         'Patient name can contain only letters, spaces, apostrophes, dots, and hyphens.'
       );
       return;
+    }
+
+    if (creatingDifferentPatient) {
+
+      if (!newPatient.ageYears.trim() || !newPatient.gender) {
+        setError('Enter the different patient\'s age and sex to help avoid mixed medical records.');
+        return;
+      }
     }
 
     const cleanPhone =
@@ -500,6 +681,10 @@ export const NewOpdPanel: React.FC = () => {
               name:
                 patientName,
 
+              // Only link the member when staff explicitly select that
+              // person. A family patient with the same phone stays separate.
+              linkAsMemberSelf: !creatingDifferentPatient && registerAsMemberSelf,
+
               phone:
                 cleanPhone,
 
@@ -526,6 +711,9 @@ export const NewOpdPanel: React.FC = () => {
         response.data
       );
 
+      setPatientSearchMode('name');
+      setPatientNameQuery(`${response.data.name} - ${response.data.clinicNumber}`);
+      setPatientPhoneQuery('');
       setPatientSearch(
         `${response.data.name} - ${response.data.clinicNumber}`
       );
@@ -537,6 +725,8 @@ export const NewOpdPanel: React.FC = () => {
       setShowNewPatientForm(
         false
       );
+      setCreatingDifferentPatient(false);
+      setRegisterAsMemberSelf(false);
 
       setPatientResults([]);
       setHasSearchedPatients(
@@ -699,6 +889,8 @@ export const NewOpdPanel: React.FC = () => {
 
       setSelectedPatient(null);
 
+      setPatientNameQuery('');
+      setPatientPhoneQuery('');
       setPatientSearch('');
       setPatientResults([]);
       setHasSearchedPatients(false);
@@ -708,6 +900,8 @@ export const NewOpdPanel: React.FC = () => {
       setChargeNote('');
 
       setShowNewPatientForm(false);
+      setCreatingDifferentPatient(false);
+      setRegisterAsMemberSelf(false);
       setNewPatient(
         EMPTY_PATIENT_FORM
       );
@@ -879,7 +1073,7 @@ export const NewOpdPanel: React.FC = () => {
                   </h2>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Search by patient name, phone number, or Clinic No.
+                    Use separate fields for patient name / Clinic No. and 10-digit phone number.
                   </p>
                 </div>
               </div>
@@ -901,63 +1095,128 @@ export const NewOpdPanel: React.FC = () => {
 
             {!selectedPatient && (
               <div className="space-y-3">
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <div className="relative flex-1">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+                  <div>
+                    <label htmlFor="opd-search-name" className="mb-1 block text-xs font-bold text-slate-700">
+                      Search by Patient Name / Clinic No.
+                    </label>
+                    <div className="relative">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        id="opd-search-name"
+                        type="text"
+                        autoComplete="off"
+                        value={patientNameQuery}
+                        onFocus={() => activatePatientSearch('name')}
+                        onChange={(event) => updatePatientSearch('name', event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            if (canSearchPatients) void searchPatients();
+                          }
+                        }}
+                        placeholder="e.g. Ram Sharma or CL-000001"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-slate-500">Type at least 2 characters.</p>
+                  </div>
 
-                    <input
-                      value={
-                        patientSearch
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setPatientSearch(
-                          event.target.value
-                        )
-                      }
-                      onKeyDown={(
-                        event
-                      ) => {
-                        if (
-                          event.key ===
-                          'Enter'
-                        ) {
-                          event.preventDefault();
-
-                          void searchPatients();
-                        }
-                      }}
-                      placeholder="Start typing name, phone, or Clinic No..."
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
-                    />
+                  <div>
+                    <label htmlFor="opd-search-phone" className="mb-1 block text-xs font-bold text-slate-700">
+                      Search by Phone Number (10 digits)
+                    </label>
+                    <div className="relative">
+                      <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        id="opd-search-phone"
+                        type="tel"
+                        inputMode="numeric"
+                        autoComplete="off"
+                        maxLength={10}
+                        value={patientPhoneQuery}
+                        onFocus={() => activatePatientSearch('phone')}
+                        onChange={(event) => updatePatientSearch('phone', event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            if (canSearchPatients) void searchPatients();
+                          }
+                        }}
+                        placeholder="Enter 10-digit mobile number"
+                        aria-describedby="opd-phone-search-help"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm font-medium text-slate-900 outline-none focus:border-teal-500 focus:bg-white"
+                      />
+                    </div>
+                    <p
+                      id="opd-phone-search-help"
+                      role="status"
+                      aria-live="polite"
+                      className={`mt-1 text-[11px] ${patientSearchMode === 'phone' && patientSearch.length > 0 && patientSearch.length < 10 ? 'font-semibold text-amber-700' : 'text-slate-500'}`}
+                    >
+                      {patientSearchMode === 'phone' && patientSearch.length > 0 && patientSearch.length < 10
+                        ? `${patientSearch.length}/10 digits â€” enter ${10 - patientSearch.length} more.`
+                        : patientSearchMode === 'phone' && patientSearch.length === 10
+                          ? '10/10 digits â€” searching automatically.'
+                          : 'Exactly 10 digits required; no search for partial numbers.'}
+                    </p>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() =>
-                      void searchPatients()
-                    }
-                    disabled={
-                      patientSearching
-                    }
-                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:opacity-60"
+                    onClick={() => void searchPatients()}
+                    disabled={!canSearchPatients || patientSearching}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50 lg:mb-5"
                   >
-                    {patientSearching ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Search className="h-4 w-4" />
-                    )}
-
-                    Search
+                    {patientSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    {patientSearchMode === 'phone' ? 'Search Phone' : 'Search Name'}
                   </button>
                 </div>
 
+                {hasSearchedPatients &&
+                  !patientSearching &&
+                  !searchedMemberLoading &&
+                  searchedMember &&
+                  searchedMember.phone === patientSearch.trim() && (
+                    <div className="rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4">
+                      <p className="text-sm font-extrabold text-teal-900">
+                        Registered Contact / Member
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-800">
+                        {searchedMember.name} | {searchedMember.membershipNumber}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        A membership identifies the contact, not everyone using this phone.
+                        Verify the actual patient by name, age and Clinic No.
+                      </p>
+                      {patientResults.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const member = searchedMember;
+                            if (!member) return;
+                            openNewPatientForm();
+                            setRegisterAsMemberSelf(true);
+                            setNewPatient({
+                              ...EMPTY_PATIENT_FORM,
+                              name: sanitizePatientName(member.name),
+                              phone: member.phone,
+                              address: (member.address ?? '').slice(0, 50),
+                            });
+                          }}
+                          className="mt-3 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-teal-800"
+                        >
+                          This Patient Is the Registered Member
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                 {hasSearchedPatients &&
                   !patientSearching &&
-                  patientResults.length ===
-                    0 && (
+                  !searchedMemberLoading &&
+                  patientResults.length === 0 &&
+                  !(searchedMember && searchedMember.phone === patientSearch.trim()) && (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center">
                       <p className="text-sm font-bold text-slate-600">
                         No matching patient found
@@ -975,6 +1234,7 @@ export const NewOpdPanel: React.FC = () => {
                       </button>
                     </div>
                   )}
+
 
 
                 {patientResults.length >
@@ -1038,6 +1298,28 @@ export const NewOpdPanel: React.FC = () => {
                     )}
                   </div>
                 )}
+
+                {patientSearchMode === 'phone' && /^\d{10}$/.test(patientSearch) &&
+                  !patientSearching && hasSearchedPatients && !showNewPatientForm && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      {/* OPD_FAMILY_UI_REFINEMENT_127M: prominent separate-patient action. */}
+                      <p className="mb-2 text-sm font-semibold text-slate-800">
+                        Someone else using this phone number?
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openDifferentPatientForm}
+                        style={{ backgroundColor: '#0f766e', color: '#ffffff' }}
+                        className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-teal-800 px-4 py-3 text-sm font-extrabold shadow-sm transition hover:brightness-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto"
+                      >
+                        <UserPlus className="h-5 w-5" />
+                        Register New Patient (Same Phone)
+                      </button>
+                      <p className="mt-2 text-xs text-slate-600">
+                        For a child or family member. Their own Clinic No. and medical history will be created.
+                      </p>
+                    </div>
+                  )}
               </div>
             )}
 
@@ -1050,7 +1332,7 @@ export const NewOpdPanel: React.FC = () => {
                       <CheckCircle2 className="h-4 w-4 text-teal-700" />
 
                       <span className="text-[10px] font-extrabold uppercase tracking-wide text-teal-700">
-                        Selected Patient
+                        Selected Patient â€” OPD ticket will use THIS Clinic No.
                       </span>
                     </div>
 
@@ -1126,20 +1408,22 @@ export const NewOpdPanel: React.FC = () => {
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900">
-                      Register New Patient
+                      {creatingDifferentPatient ? 'Register Different Family Patient' : 'Register New Patient'}
                     </h3>
 
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      Clinic No. will be generated automatically.
+                      A new Clinic No. and a separate medical record will be created.
                     </p>
                   </div>
 
                   <button
                     type="button"
                     onClick={() =>
-                      setShowNewPatientForm(
-                        false
-                      )
+                      {
+                        setShowNewPatientForm(false);
+                        setCreatingDifferentPatient(false);
+                        setRegisterAsMemberSelf(false);
+                      }
                     }
                     className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-slate-700"
                   >
@@ -1147,6 +1431,8 @@ export const NewOpdPanel: React.FC = () => {
                   </button>
                 </div>
 
+
+                {/* OPD_FAMILY_FORM_SIMPLIFIED_127N: Staff chose the different-patient action already. */}
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                   <div>
@@ -1159,23 +1445,13 @@ export const NewOpdPanel: React.FC = () => {
                       value={
                         newPatient.name
                       }
-                      onChange={(
-                        event
-                      ) =>
-                        setNewPatient(
-                          (
-                            previous
-                          ) => ({
-                            ...previous,
-                            name:
-                              sanitizePatientName(
-                                event
-                                  .target
-                                  .value
-                              ),
-                          })
-                        )
-                      }
+                      onChange={(event) => {
+                        setRegisterAsMemberSelf(false);
+                        setNewPatient((previous) => ({
+                          ...previous,
+                          name: sanitizePatientName(event.target.value),
+                        }));
+                      }}
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500"
                     />
                   </div>
@@ -1193,28 +1469,101 @@ export const NewOpdPanel: React.FC = () => {
                       value={
                         newPatient.phone
                       }
-                      onChange={(
-                        event
-                      ) =>
-                        setNewPatient(
-                          (
-                            previous
-                          ) => ({
-                            ...previous,
-                            phone:
-                              normalizePatientPhone(
-                                event
-                                  .target
-                                  .value
-                              ),
-                          })
-                        )
-                      }
+                      onChange={(event) => {
+                        setRegisterAsMemberSelf(false);
+                        setNewPatient((previous) => ({
+                          ...previous,
+                          phone: normalizePatientPhone(event.target.value),
+                        }));
+                      }}
                       className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-teal-500"
                     />
                   </div>
 
 
+                  <div className="md:col-span-2 xl:col-span-5">
+                    {newPatient.phone.length > 0 && newPatient.phone.length < 10 && (
+                      <p role="status" className="text-xs font-semibold text-amber-700">
+                        Patient phone is incomplete ({newPatient.phone.length}/10 digits). Enter all 10 digits or leave it blank.
+                      </p>
+                    )}
+                    {registerAsMemberSelf && !creatingDifferentPatient && (
+                      <p className="mb-2 text-xs font-bold text-teal-800">
+                        Registering the member personally (not a family patient).
+                      </p>
+                    )}
+                    {customerLookupStatus === 'loading' && (
+                      <p className="text-xs text-slate-500">
+                        Checking registered memberships...
+                      </p>
+                    )}
+
+                    {customerLookupStatus === 'found' &&
+                      sharedCustomer &&
+                      sharedCustomer.phone === normalizePatientPhone(newPatient.phone) && (
+                      <div className="rounded-xl border border-teal-200 bg-teal-50 p-3">
+                        <p className="text-xs font-extrabold text-teal-900">
+                          Registered Member Found
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-700">
+                          {sharedCustomer.name}
+                          {' | '}
+                          {sharedCustomer.phone}
+                          {' | '}
+                          {sharedCustomer.membershipNumber}
+                        </p>
+
+                        <p className="text-xs text-slate-600">
+                          {sharedCustomer.address || 'Address not recorded'}
+                        </p>
+
+                        {!creatingDifferentPatient ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const savedName = sanitizePatientName(sharedCustomer.name);
+                              setRegisterAsMemberSelf(true);
+                              setNewPatient((previous) => ({
+                                ...previous,
+                                name: savedName || previous.name,
+                                address: sharedCustomer.address
+                                  ? sharedCustomer.address.slice(0, 50)
+                                  : previous.address,
+                              }));
+                            }}
+                            className="mt-2 rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white hover:bg-teal-800"
+                          >
+                            Patient IS This Member â€” Use Details
+                          </button>
+                        ) : (
+                          <p className="mt-2 text-xs font-bold text-amber-800">
+                            The registered member is the contact person only.
+                            Do not copy their name for this patient.
+                          </p>
+                        )}
+
+                        <p className="mt-2 text-[11px] text-slate-600">
+                          If this person already has an OPD patient number,
+                          select their existing OPD record instead of
+                          registering a duplicate patient.
+                        </p>
+                      </div>
+                    )}
+
+                    {customerLookupStatus === 'missing' && (
+                      <p className="text-xs text-slate-500">
+                        No registered member found. You can continue OPD registration as a non-member.
+                      </p>
+                    )}
+
+                    {customerLookupStatus === 'error' && (
+                      <p className="text-xs text-amber-700">
+                        Membership lookup is currently unavailable.
+                        Existing patient records may still need linking.
+                      </p>
+                    )}
+                  </div>
                   <div>
                     <label className="mb-1 block text-[11px] font-bold text-slate-600">
                       Age

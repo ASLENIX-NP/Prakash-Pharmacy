@@ -6,6 +6,7 @@ import {
   getBillingSummary,
   returnBillItems,
   settleBillCredit,
+  settleCustomerCreditBulk,
   getAllSalesReturns,
 } from "../controllers/bill.controller.js";
 import { requireAuth, requireAdmin } from "../middleware/auth.middleware.js";
@@ -30,6 +31,7 @@ router.post("/", requireAuth, createBill);
 router.post("/:id/return", requireAuth, returnBillItems);
 
 // Settle customer credit bill
+router.post("/settle-credit-bulk", requireAuth, settleCustomerCreditBulk);
 router.patch("/:id/settle-credit", requireAuth, settleBillCredit);
 router.post("/:id/settle-credit", requireAuth, settleBillCredit);
 

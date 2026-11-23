@@ -2619,6 +2619,7 @@ const response =
     const checkoutFingerprint = JSON.stringify({
       customerName: saleData.customerName || '',
       customerPhone: saleData.customerPhone || '',
+      memberCustomerId: saleData.memberCustomerId ?? null,
       customerAddress: saleData.customerAddress || '',
       customerPan: saleData.customerPan || '',
       doctorName: saleData.doctorName || '',

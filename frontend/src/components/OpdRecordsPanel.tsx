@@ -172,6 +172,7 @@ interface PatientDetailResponse {
 
 interface VisitFilters {
   search: string;
+  phone: string;
   doctorId: string;
   status: string;
   from: string;
@@ -181,6 +182,7 @@ interface VisitFilters {
 
 const EMPTY_FILTERS: VisitFilters = {
   search: '',
+  phone: '',
   doctorId: '',
   status: '',
   from: '',
@@ -326,6 +328,10 @@ export const OpdRecordsPanel: React.FC = () => {
       async (
         values: VisitFilters
       ) => {
+        if (values.phone && values.phone.length !== 10) {
+          setError('Enter all 10 digits before searching by phone.');
+          return;
+        }
         try {
           setLoading(true);
           setError('');
@@ -334,13 +340,9 @@ export const OpdRecordsPanel: React.FC = () => {
             new URLSearchParams();
 
 
-          if (
-            values.search.trim()
-          ) {
-            params.set(
-              'search',
-              values.search.trim()
-            );
+          const activeSearch = values.phone || values.search;
+          if (activeSearch.trim()) {
+            params.set('search', activeSearch.trim());
           }
 
 
@@ -1093,7 +1095,7 @@ export const OpdRecordsPanel: React.FC = () => {
             </h2>
 
             <p className="mt-1 text-xs text-slate-500">
-              Search by OPD No., Clinic No., patient name, phone, doctor name or doctor code.
+              Search by patient name or record number, or use the separate 10-digit phone field.
             </p>
           </div>
 
@@ -1122,12 +1124,17 @@ export const OpdRecordsPanel: React.FC = () => {
         </div>
 
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
 
-          <div className="relative">
+          <div className="xl:col-span-2">
+            <label htmlFor="opd-record-name-search" className="mb-1 block text-xs font-semibold text-slate-700">
+              Search by Name / OPD / Clinic No.
+            </label>
+            <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
             <input
+              id="opd-record-name-search"
               value={
                 filters.search
               }
@@ -1142,6 +1149,7 @@ export const OpdRecordsPanel: React.FC = () => {
                     search:
                       event.target
                         .value,
+                    phone: '',
                   })
                 )
               }
@@ -1156,11 +1164,45 @@ export const OpdRecordsPanel: React.FC = () => {
                   runFilters();
                 }
               }}
-              placeholder="OPD / Clinic No. / patient..."
+              placeholder="Name, OPD No. or Clinic No."
               className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-teal-500 focus:bg-white"
             />
+            </div>
           </div>
 
+          <div className="xl:col-span-2">
+            <label htmlFor="opd-record-phone-search" className="mb-1 block text-xs font-semibold text-slate-700">
+              Search by Phone Number
+            </label>
+            <div className="relative">
+              <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                id="opd-record-phone-search"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                value={filters.phone}
+                onChange={(event) => {
+                  const phone = event.target.value.replace(/\D/g, '').slice(0, 10);
+                  setFilters((previous) => ({ ...previous, phone, search: '' }));
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    runFilters();
+                  }
+                }}
+                placeholder="10-digit mobile number"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-teal-500 focus:bg-white"
+              />
+            </div>
+            <p className={`mt-1 text-xs ${filters.phone && filters.phone.length < 10 ? 'text-amber-700' : 'text-slate-500'}`}>
+              {filters.phone.length === 10
+                ? '10/10 digits - ready to search.'
+                : `${filters.phone.length}/10 digits - enter a complete number to search.`}
+            </p>
+          </div>
 
           <select
             value={
@@ -1317,9 +1359,7 @@ export const OpdRecordsPanel: React.FC = () => {
             onClick={
               runFilters
             }
-            disabled={
-              loading
-            }
+            disabled={loading || (filters.phone.length > 0 && filters.phone.length !== 10)}
             className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-5 py-2.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
           >
             {loading ? (
