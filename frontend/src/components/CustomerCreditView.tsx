@@ -33,6 +33,8 @@ export const CustomerCreditView: React.FC = () => {
   } = usePharmacy();
 
   const [searchTerm, setSearchTerm] = useState('');
+  // CREDIT_PHONE_SEARCH_129B
+  const [phoneSearch, setPhoneSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'paid'>('unpaid');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'this_week' | 'this_month'>('all');
   const [expandedInvoiceIds, setExpandedInvoiceIds] = useState<Set<string>>(new Set());
@@ -106,20 +108,27 @@ export const CustomerCreditView: React.FC = () => {
         }
       }
 
-      // 3. Search Term
+      // 3. Exact phone search, independent of general search
+      if (phoneSearch.length > 0) {
+        if (phoneSearch.length !== 10) return false;
+        const invoicePhone = (inv.customerPhone || '').replace(/\D/g, '');
+        if (invoicePhone !== phoneSearch) return false;
+      }
+
+      // 4. General search
       if (!searchTerm.trim()) return true;
       const q = searchTerm.toLowerCase().trim();
       const matchName = (inv.customerName || '').toLowerCase().includes(q);
-      const matchPhone = (inv.customerPhone || '').toLowerCase().includes(q);
+
       const matchAddress = (inv.customerAddress || '').toLowerCase().includes(q);
       const matchInvoice = (inv.invoiceNumber || '').toLowerCase().includes(q);
       const matchMedicine = (inv.items || []).some(
         (it) => (it.medicineName || '').toLowerCase().includes(q)
       );
 
-      return matchName || matchPhone || matchAddress || matchInvoice || matchMedicine;
+      return matchName || matchAddress || matchInvoice || matchMedicine;
     });
-  }, [allCreditInvoices, statusFilter, dateFilter, searchTerm, todayStr]);
+  }, [allCreditInvoices, statusFilter, dateFilter, searchTerm, phoneSearch, todayStr]);
 
   // Helper to calculate returns and net due
   const getInvoiceReturns = (inv: SaleInvoice): number => {
@@ -498,15 +507,48 @@ export const CustomerCreditView: React.FC = () => {
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search customer name, phone, address, invoice #, medicine..."
-            className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs font-medium text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white"
-          />
+        <div className="grid w-full gap-3 sm:grid-cols-2 md:min-w-0 md:flex-1">
+          <div className="min-w-0">
+            <label htmlFor="credit-general-search" className="mb-1 block text-xs font-semibold text-slate-700">
+              Search by Name / Invoice / Medicine
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                id="credit-general-search"
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Name, invoice, address or medicine"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs font-medium text-slate-800 outline-none focus:border-teal-500 focus:bg-white"
+              />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <label htmlFor="credit-phone-search" className="mb-1 block text-xs font-semibold text-slate-700">
+              Search by Phone Number
+            </label>
+            <div className="relative">
+              <Phone className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                id="credit-phone-search"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                value={phoneSearch}
+                onChange={(e) => setPhoneSearch(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                placeholder="Enter 10-digit phone number"
+                className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs font-medium text-slate-800 outline-none transition focus:border-teal-500 focus:bg-white"
+              />
+            </div>
+            <p className={`mt-1 text-xs ${phoneSearch.length > 0 && phoneSearch.length < 10 ? 'text-amber-700' : 'text-slate-500'}`}>
+              {phoneSearch.length === 10
+                ? '10/10 digits - showing exact phone matches.'
+                : `${phoneSearch.length}/10 digits - enter all 10 digits to search.`}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -571,7 +613,13 @@ export const CustomerCreditView: React.FC = () => {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
               <CreditCard className="h-6 w-6" />
             </div>
-            <p className="mt-3 text-sm font-bold text-slate-800">No credit invoices found</p>
+            <p className="mt-3 text-sm font-bold text-slate-800">
+              {phoneSearch.length > 0 && phoneSearch.length < 10
+                ? 'Enter the complete 10-digit phone number'
+                : phoneSearch.length === 10
+                  ? 'No matching customers found'
+                  : 'No credit invoices found'}
+            </p>
             <p className="mt-1 text-xs text-slate-500">
               {statusFilter === 'unpaid'
                 ? 'All customer credit accounts are currently settled!'
@@ -766,15 +814,20 @@ export const CustomerCreditView: React.FC = () => {
                     <div className="flex items-center justify-between gap-4 sm:justify-end">
                       <div className="text-right">
                         <span className="text-[11px] font-semibold text-slate-500">
-                          {returnsTotal > 0 ? 'Remaining Due' : 'Total Due'}
+                          {isPaid ? 'Original Invoice Amount' : returnsTotal > 0 ? 'Remaining Due' : 'Total Due'}
                         </span>
                         <p
                           className={`font-mono text-base font-black ${
                             isPaid ? 'text-slate-700 line-through' : 'text-amber-900'
                           }`}
                         >
-                          Rs. {netDue.toFixed(2)}
+                          Rs. {(isPaid ? (inv.grandTotal || 0) : netDue).toFixed(2)}
                         </p>
+                        {isPaid && (
+                          <p className="mt-1 text-xs font-semibold text-emerald-700">
+                            Remaining Due: Rs. 0.00
+                          </p>
+                        )}
                         {returnsTotal > 0 && (
                           <p className="text-[10px] text-slate-400 font-medium">
                             Orig: Rs. {(inv.grandTotal || 0).toFixed(2)} (-{returnsTotal.toFixed(2)})

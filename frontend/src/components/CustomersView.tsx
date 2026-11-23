@@ -77,7 +77,15 @@ const showDate = (value: string): string => {
 export const CustomersView: React.FC = () => {
   const { isAdmin } = usePharmacy();
   const [search, setSearch] = useState('');
+  // MEMBER_PHONE_SEARCH_129H
+  const [phoneSearch, setPhoneSearch] = useState('');
+  const [activeDirectorySearch, setActiveDirectorySearch] =
+    useState<'name' | 'phone'>('name');
   const [directoryPage, setDirectoryPage] = useState(1);
+
+  // MEMBERSHIP_TABS_129E_R
+  const [activeTab, setActiveTab] =
+    useState<'register' | 'details'>('register');
   const [directoryRefresh, setDirectoryRefresh] = useState(0);
   const [directory, setDirectory] = useState<DirectoryResponse | null>(null);
   const [directoryLoading, setDirectoryLoading] = useState(false);
@@ -86,7 +94,11 @@ export const CustomersView: React.FC = () => {
   const [period, setPeriod] = useState<Period>('all');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
-  const [historyPage, setHistoryPage] = useState(1);
+  // HISTORY_LAYOUT_129G
+  const [posPage, setPosPage] = useState(1);
+  const [opdPage, setOpdPage] = useState(1);
+  const [historyPanel, setHistoryPanel] =
+    useState<'both' | 'pos' | 'opd'>('both');
   const [history, setHistory] = useState<History | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
@@ -109,13 +121,29 @@ export const CustomersView: React.FC = () => {
 
   useEffect(() => {
     if (!isAdmin) return;
+
+    if (
+      activeDirectorySearch === 'phone' &&
+      phoneSearch.length > 0 &&
+      phoneSearch.length !== 10
+    ) {
+      setDirectory(null);
+      setDirectoryError('');
+      setDirectoryLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setDirectoryLoading(true);
       setDirectoryError('');
       try {
         const result = await apiRequest<DirectoryResponse>(
-          `/customers?search=${encodeURIComponent(search.trim())}&page=${directoryPage}`,
+          `/customers?search=${encodeURIComponent(
+            activeDirectorySearch === 'phone'
+              ? phoneSearch
+              : search.trim()
+          )}&page=${directoryPage}`,
           { signal: controller.signal }
         );
         if (!controller.signal.aborted) setDirectory(result);
@@ -129,7 +157,10 @@ export const CustomersView: React.FC = () => {
       }
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [isAdmin, search, directoryPage, directoryRefresh]);
+  }, [
+    isAdmin, search, phoneSearch, activeDirectorySearch,
+    directoryPage, directoryRefresh
+  ]);
 
   useEffect(() => {
     if (!isAdmin || !selected) return;
@@ -138,7 +169,10 @@ export const CustomersView: React.FC = () => {
     setHistory(null);
     setHistoryLoading(true);
     setHistoryError('');
-    const params = new URLSearchParams({ page: String(historyPage) });
+    const params = new URLSearchParams({
+      posPage: String(posPage),
+      opdPage: String(opdPage),
+    });
     if (range.from) params.set('from', range.from);
     if (range.to) params.set('to', range.to);
     void (async () => {
@@ -157,13 +191,14 @@ export const CustomersView: React.FC = () => {
       }
     })();
     return () => controller.abort();
-  }, [isAdmin, selected, historyPage, range.from, range.to, invalidRange]);
+  }, [isAdmin, selected, posPage, opdPage, range.from, range.to, invalidRange]);
 
-  const changePeriod = (next: Period) => { setPeriod(next); setHistoryPage(1); };
+  const changePeriod = (next: Period) => { setPeriod(next); setPosPage(1); setOpdPage(1); };
   const choose = (customer: Customer) => {
+    setHistoryPanel('both');
     setSelected(customer);
     setHistory(null);
-    setHistoryPage(1);
+    setPosPage(1); setOpdPage(1);
   };
   const pageDue = (history?.pos || []).reduce((sum, bill) => sum + bill.outstanding, 0);
 
@@ -180,47 +215,163 @@ export const CustomersView: React.FC = () => {
           </div>
         </div>
       </header>
+      <div
+        role="tablist"
+        aria-label="Membership Management"
+        className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'register'}
+          onClick={() => setActiveTab('register')}
+          className={`min-w-[150px] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition ${
+            activeTab === 'register'
+              ? 'bg-teal-700 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-teal-50'
+          }`}
+        >
+          Register New Member
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'details'}
+          onClick={() => {
+            setActiveTab('details');
+            setSelected(null);
+            setHistory(null);
+            setPosPage(1); setOpdPage(1);
+          }}
+          className={`min-w-[150px] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition ${
+            activeTab === 'details'
+              ? 'bg-teal-700 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-teal-50'
+          }`}
+        >
+          Member Details
+        </button>
+      </div>
+
+      {activeTab === 'register' && (
       <MembershipRegistration
         onRegistered={(member) => {
-          setSearch(member.phone);
+          setSearch(member.membershipNumber);
+          setActiveDirectorySearch('name');
           setDirectoryPage(1);
           setSelected(null);
           setHistory(null);
-          setHistoryPage(1);
+          setPosPage(1); setOpdPage(1);
           setDirectoryRefresh((value) => value + 1);
+          setActiveTab('details');
         }}
       />
-      <div className="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 font-bold">Find registered member</h2>
-          <div className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <input
-              aria-label="Search members by name or phone"
-              type="search"
-              placeholder="Member name, phone or ID"
-              value={search}
-              onChange={(event) => {
-                setSearch(event.target.value);
-                setDirectoryPage(1);
-                setSelected(null);
-                setHistory(null);
-              }}
-              className="w-full rounded-lg border border-slate-300 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
-            />
+      )}
+
+      {activeTab === 'details' && (
+      <div className="space-y-5">
+        <section
+          className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${
+            selected ? 'hidden' : ''
+          }`}
+        >
+          <div className="mb-4">
+            <h2 className="text-lg font-extrabold text-slate-900">
+              Find Registered Member
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Search by name, phone number, or Membership ID.
+              Click a member to open their full details.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="min-w-0">
+              <label
+                htmlFor="member-name-search"
+                className="mb-1 block text-xs font-semibold text-slate-700"
+              >
+                Search by Name / Membership ID
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  id="member-name-search"
+                  type="search"
+                  placeholder="Member name or ID"
+                  value={search}
+                  onFocus={() => {
+                    setActiveDirectorySearch('name');
+                    setDirectoryPage(1);
+                  }}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setActiveDirectorySearch('name');
+                    setDirectoryPage(1);
+                    setSelected(null);
+                    setHistory(null);
+                  }}
+                  className="w-full rounded-lg border border-slate-300 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-teal-500"
+                />
+              </div>
+            </div>
+
+            <div className="min-w-0">
+              <label
+                htmlFor="member-phone-search"
+                className="mb-1 block text-xs font-semibold text-slate-700"
+              >
+                Search by Phone Number
+              </label>
+              <input
+                id="member-phone-search"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={10}
+                placeholder="10-digit phone number"
+                value={phoneSearch}
+                onFocus={() => {
+                  setActiveDirectorySearch('phone');
+                  setDirectoryPage(1);
+                }}
+                onChange={(event) => {
+                  setPhoneSearch(
+                    event.target.value.replace(/\D/g, '').slice(0, 10)
+                  );
+                  setActiveDirectorySearch('phone');
+                  setDirectoryPage(1);
+                  setSelected(null);
+                  setHistory(null);
+                }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-500"
+              />
+              <p className={`mt-1 text-xs ${
+                activeDirectorySearch === 'phone' &&
+                phoneSearch.length > 0 &&
+                phoneSearch.length < 10
+                  ? 'text-amber-700'
+                  : 'text-slate-500'
+              }`}>
+                {phoneSearch.length}/10 digits
+                {phoneSearch.length > 0 && phoneSearch.length < 10
+                  ? ' - complete the number before searching'
+                  : ''}
+              </p>
+            </div>
           </div>
           {directoryLoading && <p className="mt-3 text-xs text-slate-500">Loading customers...</p>}
           {directoryError && <p role="alert" className="mt-3 text-xs text-rose-700">{directoryError}</p>}
           {!directoryLoading && !directoryError && directory?.data.length === 0 && (
-            <p className="mt-4 text-sm text-slate-500">No registered members found. Use the registration form above to create a membership.</p>
+            <p className="mt-4 text-sm text-slate-500">No registered members found. Use the Register New Member tab to create a membership.</p>
           )}
-          <div className="mt-3 divide-y divide-slate-100">
+          <div className="mt-3 flex flex-col gap-2">
             {(directory?.data || []).map((customer) => (
               <button
                 key={customer.id}
                 type="button"
                 onClick={() => choose(customer)}
-                className={`w-full rounded-lg px-3 py-3 text-left hover:bg-slate-50 ${selected?.id === customer.id ? 'bg-teal-50 ring-1 ring-teal-200' : ''}`}
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-left transition hover:border-teal-400 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-teal-600"
               >
                 <p className="font-semibold text-slate-900">{customer.name}</p>
                 <p className="text-xs text-slate-600">{customer.phone} {customer.membershipNumber && `| ${customer.membershipNumber}`}</p>
@@ -240,7 +391,24 @@ export const CustomersView: React.FC = () => {
           )}
         </section>
 
-        <section className="min-w-0 space-y-4">
+        <section
+          className={`min-w-0 space-y-4 ${
+            !selected ? 'hidden' : ''
+          }`}
+        >
+          {selected && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelected(null);
+                setHistory(null);
+                setPosPage(1); setOpdPage(1);
+              }}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              ← Back to All Members
+            </button>
+          )}
           {!selected ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">Select a registered member to view verified POS and OPD history.</div>
           ) : (
@@ -264,10 +432,10 @@ export const CustomersView: React.FC = () => {
                 {period === 'custom' && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="text-xs font-semibold">From date
-                      <input type="date" value={from} max={to || undefined} onChange={e => { setFrom(e.target.value); setHistoryPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
+                      <input type="date" value={from} max={to || undefined} onChange={e => { setFrom(e.target.value); setPosPage(1); setOpdPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
                     </label>
                     <label className="text-xs font-semibold">To date
-                      <input type="date" value={to} min={from || undefined} onChange={e => { setTo(e.target.value); setHistoryPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
+                      <input type="date" value={to} min={from || undefined} onChange={e => { setTo(e.target.value); setPosPage(1); setOpdPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
                     </label>
                   </div>
                 )}
@@ -282,8 +450,27 @@ export const CustomersView: React.FC = () => {
                     <p className="text-xl font-extrabold text-amber-900">{money(pageDue)}</p>
                     <p className="text-[11px] text-slate-500">This is not a lifetime total if more pages exist.</p>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <h3 className="border-b bg-slate-50 px-4 py-3 font-bold">POS purchase history ({history.pagination.posTotal})</h3>
+                  <div className={
+                    historyPanel === 'both'
+                      ? 'grid gap-4 lg:grid-cols-2 lg:items-start'
+                      : 'space-y-4'
+                  }>
+                    {historyPanel !== 'opd' && (
+                    <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-50 px-4 py-3">
+                        <h3 className="font-bold">
+                          POS purchase history ({history.pagination.posTotal})
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => setHistoryPanel(
+                            historyPanel === 'pos' ? 'both' : 'pos'
+                          )}
+                          className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                        >
+                          {historyPanel === 'pos' ? 'Show Both Histories' : 'View All POS'}
+                        </button>
+                      </div>
                     {history.pos.length === 0 && <p className="p-4 text-sm text-slate-500">No POS bills in this date range.</p>}
                     <div className="divide-y divide-slate-100">
                       {history.pos.map((bill) => (
@@ -310,9 +497,50 @@ export const CustomersView: React.FC = () => {
                         </div>
                       ))}
                     </div>
+                    <div className="flex items-center justify-between gap-2 border-t bg-slate-50 p-3 text-xs">
+                      <button
+                        type="button"
+                        disabled={posPage <= 1 || historyLoading}
+                        onClick={() => setPosPage(p => p - 1)}
+                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-center text-slate-600">
+                        Page {posPage} of {Math.max(1, Math.ceil(history.pagination.posTotal / history.pagination.pageSize))}
+                        {' '} · 10 per page
+                      </span>
+                      <button
+                        type="button"
+                        disabled={
+                          posPage >= Math.max(1, Math.ceil(history.pagination.posTotal / history.pagination.pageSize)) ||
+                          historyLoading
+                        }
+                        onClick={() => setPosPage(p => p + 1)}
+                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
-                  <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                    <h3 className="border-b bg-slate-50 px-4 py-3 font-bold">OPD visit history ({history.pagination.opdTotal})</h3>
+                  )}
+
+                  {historyPanel !== 'pos' && (
+                  <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-50 px-4 py-3">
+                      <h3 className="font-bold">
+                        OPD visit history ({history.pagination.opdTotal})
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPanel(
+                          historyPanel === 'opd' ? 'both' : 'opd'
+                        )}
+                        className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
+                      >
+                        {historyPanel === 'opd' ? 'Show Both Histories' : 'View All OPD'}
+                      </button>
+                    </div>
                     {history.opd.length === 0 && <p className="p-4 text-sm text-slate-500">No OPD visits in this date range.</p>}
                     <div className="divide-y divide-slate-100">
                       {history.opd.map((visit) => (
@@ -330,21 +558,44 @@ export const CustomersView: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    <p className="border-t bg-slate-50 px-4 py-2 text-[11px] text-slate-600">OPD amounts are recorded charges, not confirmed payment receipts.</p>
-                  </div>
-                  {history.pagination.totalPages > 1 && (
-                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 text-xs">
-                      <button type="button" disabled={historyPage <= 1} onClick={() => setHistoryPage(p => p - 1)} className="rounded border px-3 py-1.5 disabled:opacity-40">Previous</button>
-                      <span>History page {historyPage} of {history.pagination.totalPages} (POS and OPD paged separately)</span>
-                      <button type="button" disabled={historyPage >= history.pagination.totalPages} onClick={() => setHistoryPage(p => p + 1)} className="rounded border px-3 py-1.5 disabled:opacity-40">Next</button>
+                    <p className="border-t bg-slate-50 px-4 py-2 text-[11px] text-slate-600">
+                      OPD amounts are recorded charges, not confirmed payment receipts.
+                    </p>
+                    <div className="flex items-center justify-between gap-2 border-t bg-slate-50 p-3 text-xs">
+                      <button
+                        type="button"
+                        disabled={opdPage <= 1 || historyLoading}
+                        onClick={() => setOpdPage(p => p - 1)}
+                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <span className="text-center text-slate-600">
+                        Page {opdPage} of {Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize))}
+                        {' '} · 10 per page
+                      </span>
+                      <button
+                        type="button"
+                        disabled={
+                          opdPage >= Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize)) ||
+                          historyLoading
+                        }
+                        onClick={() => setOpdPage(p => p + 1)}
+                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
+                      >
+                        Next
+                      </button>
                     </div>
+                  </div>
                   )}
+                  </div>
                 </>
               )}
             </>
           )}
         </section>
       </div>
+      )}
     </div>
   );
 };
