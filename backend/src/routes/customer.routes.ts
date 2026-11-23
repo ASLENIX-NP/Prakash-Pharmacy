@@ -419,8 +419,17 @@ router.get(
       rawPage >= 1 && rawPage <= 100000
       ? rawPage : 1;
 
-    const pageSize = 50;
-    const skip = (page - 1) * pageSize;
+    // INDEPENDENT_HISTORY_129G
+    const pageSize = 10;
+    const readPage = (value: unknown): number => {
+      const number = Number(value);
+      return Number.isSafeInteger(number) &&
+        number >= 1 && number <= 100000 ? number : 1;
+    };
+    const posPage = readPage(req.query.posPage ?? page);
+    const opdPage = readPage(req.query.opdPage ?? page);
+    const posSkip = (posPage - 1) * pageSize;
+    const opdSkip = (opdPage - 1) * pageSize;
 
     try {
       // History is accessible for registered members only.
@@ -479,7 +488,7 @@ router.get(
               { transactionDate: "desc" },
               { id: "desc" },
             ],
-            skip,
+            skip: posSkip,
             take: pageSize,
             select: {
               id: true,
@@ -510,7 +519,7 @@ router.get(
               { visitDateTime: "desc" },
               { id: "desc" },
             ],
-            skip,
+            skip: opdSkip,
             take: pageSize,
             select: {
               id: true,
@@ -597,8 +606,12 @@ router.get(
           pagination: {
             page,
             pageSize,
+            posPage,
+            opdPage,
             posTotal: billCount,
             opdTotal: visitCount,
+            posPages: Math.max(1, Math.ceil(billCount / pageSize)),
+            opdPages: Math.max(1, Math.ceil(visitCount / pageSize)),
             totalPages: Math.max(
               1,
               Math.ceil(
