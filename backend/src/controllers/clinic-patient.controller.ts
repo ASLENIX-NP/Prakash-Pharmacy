@@ -531,9 +531,33 @@ export const createClinicPatient = async (
 
     const cleanUnit = ageUnit === "months" || ageUnit === "days" ? ageUnit : "years";
 
-    const patient =
-      await prisma.clinicPatient.create({
+    // Register an OPD patient as usual, even without a membership.
+    // Link only a previously registered member with a matching name.
+    const patient = await prisma.$transaction(async (tx) => {
+      const customerPhoneKey = String(phone ?? "").replace(/\D/g, "");
+      let customerId: number | null = null;
+      if (/^\d{7,10}$/.test(customerPhoneKey)) {
+        const member = await tx.customer.findFirst({
+          where: {
+            phone: customerPhoneKey,
+            membershipNumber: { not: null },
+            memberSince: { not: null },
+          },
+          select: { id: true, name: true },
+        });
+        const normalizedName = (value: string) =>
+          value.trim().replace(/\s+/g, " ").toLowerCase();
+        // Same phone and name do not prove the same patient identity.
+        // Staff must explicitly select "Patient IS This Member" in OPD.
+        if (req.body?.linkAsMemberSelf === true && member &&
+            normalizedName(member.name) === normalizedName(cleanName)) {
+          customerId = member.id;
+        }
+      }
+
+      return tx.clinicPatient.create({
         data: {
+          customerId,
           name:
             cleanName,
 
@@ -562,6 +586,7 @@ export const createClinicPatient = async (
             ),
         },
       });
+    });
 
     res.status(201).json({
       success: true,
@@ -727,15 +752,47 @@ export const updateClinicPatient = async (
       updateData.ageUnit = ageUnit === "months" || ageUnit === "days" ? ageUnit : "years";
     }
 
-    const updated =
-      await prisma.clinicPatient.update({
-        where: {
-          id: patientId,
-        },
+    // Never create memberships when editing OPD patients.
+    // Preserve an existing association if phone and name did not change.
+    // Otherwise link only a registered member with a matching identity.
+    const updated = await prisma.$transaction(async (tx) => {
+      const nextPhoneRaw =
+        phone === undefined ? existing.phone : updateData.phone;
+      const normalizedPhone = String(nextPhoneRaw ?? "").replace(/\D/g, "");
+      const originalPhone = String(existing.phone ?? "").replace(/\D/g, "");
+      const nextName = String(updateData.name ?? existing.name).trim();
+      const normalizedName = (value: string) =>
+        value.trim().replace(/\s+/g, " ").toLowerCase();
+      let customerId: number | null =
+        normalizedPhone === originalPhone &&
+        normalizedName(nextName) === normalizedName(existing.name)
+          ? existing.customerId : null;
 
-        data:
-          updateData,
+      if (/^\d{7,10}$/.test(normalizedPhone)) {
+        const member = await tx.customer.findFirst({
+          where: {
+            phone: normalizedPhone,
+            membershipNumber: { not: null },
+            memberSince: { not: null },
+          },
+          select: { id: true, name: true },
+        });
+        // An edit must not silently turn a shared contact into the member.
+        // Preserve only a previously verified association; never create one.
+        if (member && existing.customerId === member.id &&
+            normalizedName(member.name) === normalizedName(nextName)) {
+          customerId = member.id;
+        }
+      }
+
+      return tx.clinicPatient.update({
+        where: { id: patientId },
+        data: {
+          ...updateData,
+          customerId,
+        },
       });
+    });
 
     res.status(200).json({
       success: true,

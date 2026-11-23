@@ -306,6 +306,7 @@ export interface SaleInvoice {
   customerName: string;
   customerPhone?: string;
   customerAddress?: string;
+  memberCustomerId?: number; // Verified member for credit checkout
   customerPan?: string; // Optional buyer PAN for statutory tax invoices
   doctorName?: string;
   patientAge?: string;

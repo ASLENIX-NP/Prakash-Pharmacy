@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 
 import { usePharmacy } from '../context/PharmacyContext';
+import { apiRequest } from '../services/api';
 import { useDialog } from '../context/DialogContext';
 import { decimalInputValue, digitsOnlyUpTo, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import {
@@ -117,6 +118,9 @@ export const PosView: React.FC = () => {
   const [customerPhone, setCustomerPhone] =
     useState('');
 
+  const [selectedCustomerPhone, setSelectedCustomerPhone] =
+    useState('');
+
   const [customerAddress, setCustomerAddress] =
     useState('');
 
@@ -158,6 +162,99 @@ export const PosView: React.FC = () => {
 
   const [cashTendered, setCashTendered] =
     useState<number>(0);
+
+  // POS suggests details only for explicitly registered members.
+  type SharedCustomer = {
+    id: number;
+    name: string;
+    phone: string;
+    address: string | null;
+    membershipNumber: string;
+    memberSince: string;
+  };
+
+  const [sharedCustomer, setSharedCustomer] =
+    useState<SharedCustomer | null>(null);
+
+  const [sharedLookupStatus, setSharedLookupStatus] =
+    useState<'idle' | 'loading' | 'found' | 'missing' | 'error'>('idle');
+
+  const lookupPhone = customerPhone.replace(/\D/g, '');
+
+  // Search registered memberships only; never reuse invoice-history details.
+  // Cancel outdated requests when the phone number changes.
+  useEffect(() => {
+    setSharedCustomer(null);
+
+    if (!/^\d{7,10}$/.test(lookupPhone)) {
+      setSharedLookupStatus('idle');
+      return;
+    }
+
+    const controller = new AbortController();
+    setSharedLookupStatus('loading');
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiRequest<{
+          success: boolean;
+          data: SharedCustomer | null;
+        }>(
+          `/customers/lookup?phone=${encodeURIComponent(lookupPhone)}`,
+          { signal: controller.signal }
+        );
+
+        if (controller.signal.aborted) return;
+
+        if (
+          response.data &&
+          response.data.phone === lookupPhone &&
+          Boolean(response.data.membershipNumber)
+        ) {
+          setSharedCustomer(response.data);
+          setSharedLookupStatus('found');
+        } else {
+          setSharedCustomer(null);
+          setSharedLookupStatus('missing');
+        }
+      } catch {
+        if (controller.signal.aborted) return;
+
+        setSharedCustomer(null);
+        setSharedLookupStatus('error');
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [lookupPhone]);
+
+  // No fallback to POS invoices: a previous purchase is not membership.
+  const matchingCustomer = sharedLookupStatus === 'found' &&
+    sharedCustomer?.phone === lookupPhone &&
+    sharedCustomer.membershipNumber
+    ? {
+        phone: lookupPhone,
+        name: sharedCustomer.name,
+        address: sharedCustomer.address || '',
+        membershipNumber: sharedCustomer.membershipNumber,
+      }
+    : null;
+
+  // CREDIT_MEMBER_127S: do not infer credit identity
+  // from phone alone or historical invoice details.
+  const selectedCreditMember =
+    sharedLookupStatus === 'found' &&
+    sharedCustomer?.membershipNumber &&
+    sharedCustomer.memberSince &&
+    sharedCustomer.phone === lookupPhone &&
+    selectedCustomerPhone === lookupPhone &&
+    sharedCustomer.name.trim().replace(/\s+/g, ' ').toLowerCase() ===
+      customerName.trim().replace(/\s+/g, ' ').toLowerCase()
+      ? sharedCustomer
+      : null;
 
   const prescriptionMedicinesInCart = useMemo(() => {
     const names = new Set<string>();
@@ -743,6 +840,15 @@ export const PosView: React.FC = () => {
     }
 
     if (paymentMode === 'credit') {
+      if (!selectedCreditMember) {
+        showToast(
+          'Credit requires registered membership. Enter the member phone, wait for Registered Member Found, then click Use Member Details. Otherwise choose Cash, QR or Card.',
+          'warning',
+          'Membership Required'
+        );
+        return;
+      }
+
       const cleanName = customerName.trim();
       if (
         !cleanName ||
@@ -882,6 +988,9 @@ export const PosView: React.FC = () => {
           totals.grandTotal,
 
         paymentMode,
+        memberCustomerId: paymentMode === 'credit'
+          ? selectedCreditMember?.id
+          : undefined,
 
         cashTendered:
           paymentMode === 'cash'
@@ -912,6 +1021,9 @@ export const PosView: React.FC = () => {
     );
 
     setCustomerPhone('');
+    setSelectedCustomerPhone('');
+    setSharedCustomer(null);
+    setSharedLookupStatus('idle');
     setCustomerAddress('');
     setCustomerPan('');
     setShowPanField(false);
@@ -1312,11 +1424,21 @@ export const PosView: React.FC = () => {
                 inputMode="numeric"
                 value={customerPhone}
                 placeholder="e.g. 9845012345"
-                onChange={(event) =>
-                  setCustomerPhone(
-                    normalizePhoneNumber(event.target.value)
-                  )
-                }
+                onChange={(event) => {
+                  const nextPhone =
+                    normalizePhoneNumber(event.target.value);
+
+                  if (
+                    selectedCustomerPhone &&
+                    selectedCustomerPhone !== nextPhone
+                  ) {
+                    setCustomerName('Counter Customer');
+                    setCustomerAddress('');
+                  }
+
+                  setSelectedCustomerPhone('');
+                  setCustomerPhone(nextPhone);
+                }}
                 className={`h-10 w-full rounded-lg border px-3 text-[13px] font-medium text-slate-800 outline-none focus:bg-white ${
                   paymentMode === 'credit' && !customerPhone.trim()
                     ? 'border-amber-400 bg-amber-50/60 focus:border-amber-500'
@@ -1325,6 +1447,57 @@ export const PosView: React.FC = () => {
               />
             </div>
 
+
+            {sharedLookupStatus === 'loading' && (
+              <p className="sm:col-span-2 text-xs text-slate-500">
+                Searching registered memberships...
+              </p>
+            )}
+
+            {sharedLookupStatus === 'error' && !matchingCustomer && (
+              <p className="sm:col-span-2 text-xs text-amber-700">
+                Membership lookup is unavailable.
+                Check the customer's details manually.
+              </p>
+            )}
+
+            {sharedLookupStatus === 'missing' && /^\d{7,10}$/.test(lookupPhone) && (
+              <p className="sm:col-span-2 text-xs text-slate-500">
+                No registered member found. You can continue this sale as a non-member.
+              </p>
+            )}
+
+            {matchingCustomer && (
+              <div className="sm:col-span-2 rounded-lg border border-teal-200 bg-teal-50 p-3">
+                <p className="text-xs font-bold text-teal-900">
+                  Registered Member Found
+                </p>
+
+                <p className="mt-1 text-xs text-slate-700">
+                  {matchingCustomer.name} | {matchingCustomer.membershipNumber}
+                </p>
+
+                <p className="text-xs text-slate-600">
+                  Phone: {matchingCustomer.phone}
+                </p>
+
+                <p className="text-xs text-slate-600">
+                  Address: {matchingCustomer.address || 'Not available'}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomerName(matchingCustomer.name);
+                    setCustomerAddress(matchingCustomer.address);
+                    setSelectedCustomerPhone(matchingCustomer.phone);
+                  }}
+                  className="mt-2 rounded-lg bg-teal-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-800"
+                >
+                  Use Member Details
+                </button>
+              </div>
+            )}
 
             <div>
               <label className="mb-1 block text-[11px] font-semibold text-slate-600">
@@ -1933,6 +2106,18 @@ export const PosView: React.FC = () => {
                 </button>
 
               </div>
+
+              {paymentMode === 'credit' && !selectedCreditMember && (
+                <p className="mt-2 text-xs font-semibold text-rose-700">
+                  Credit requires a registered member. Search by phone and click Use Member Details, or register the customer under Memberships (Admin).
+                </p>
+              )}
+
+              {paymentMode === 'credit' && selectedCreditMember && (
+                <p className="mt-2 text-xs font-semibold text-emerald-700">
+                  Verified credit account: {selectedCreditMember.name} ({selectedCreditMember.membershipNumber})
+                </p>
+              )}
 
               {paymentMode === 'credit' && (
                 <div className="mt-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2 shadow-sm">

@@ -1013,11 +1013,84 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
           `${prefix}${String(Number(issued[0].issued_number)).padStart(5, "0")}`;
       }
 
+      // POS checkout must never create or enroll a member.
+      // Link only an already registered member whose name matches the bill.
+      const customerPhoneKey = cleanCustomerPhone.replace(/\D/g, "");
+      const customerDisplayName = String(customerName ?? "").trim();
+      let customerId: number | null = null;
+
+      // CREDIT_MEMBER_127S: only a verified registered member
+      // may receive a new credit invoice.
+      if (isCredit) {
+        const submittedId: unknown = req.body?.memberCustomerId;
+
+        if (
+          typeof submittedId !== "number" ||
+          !Number.isSafeInteger(submittedId) ||
+          submittedId <= 0
+        ) {
+          throw new BillValidationError(
+            "Credit requires registered membership. Search and select the member in POS before checkout.",
+            400
+          );
+        }
+
+        const member = await tx.customer.findUnique({
+          where: { id: submittedId },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            membershipNumber: true,
+            memberSince: true,
+          },
+        });
+
+        const sameName = (a: string, b: string) =>
+          a.trim().replace(/\s+/g, " ").toLowerCase() ===
+          b.trim().replace(/\s+/g, " ").toLowerCase();
+
+        if (
+          !member?.membershipNumber ||
+          !member.memberSince ||
+          member.phone !== customerPhoneKey ||
+          !sameName(member.name, customerDisplayName)
+        ) {
+          throw new BillValidationError(
+            "Membership does not match this sale. Re-select the correct registered member before giving credit.",
+            409
+          );
+        }
+
+        customerId = member.id;
+      }
+
+      // Cash, QR and card remain available to non-members.
+      if (!isCredit && /^\d{7,10}$/.test(customerPhoneKey) &&
+          customerDisplayName &&
+          !/^(counter customer|counter patient)$/i.test(customerDisplayName)) {
+        const member = await tx.customer.findFirst({
+          where: {
+            phone: customerPhoneKey,
+            membershipNumber: { not: null },
+            memberSince: { not: null },
+          },
+          select: { id: true, name: true },
+        });
+        const normalizedName = (value: string) =>
+          value.trim().replace(/\s+/g, " ").toLowerCase();
+        if (member &&
+            normalizedName(member.name) === normalizedName(customerDisplayName)) {
+          customerId = member.id;
+        }
+      }
+
       // Create Master Bill record
       const bill = await tx.bill.create({
         data: {
           invoiceNumber: finalInvoiceNumber,
           clientRequestId: cleanClientRequestId || null,
+          customerId,
           customerName: customerName ? String(customerName).trim() : "Counter Patient",
           customerPhone: cleanCustomerPhone || null,
           customerAddress: cleanCustomerAddress || null,
@@ -2013,78 +2086,317 @@ export const getBillingSummary = async (_req: Request, res: Response): Promise<v
 // ==========================================
 // 4B. SETTLE CUSTOMER CREDIT (Mark Credit Invoice Paid)
 // ==========================================
-export const settleBillCredit = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const settleBillCredit = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
   try {
-    const rawId = req.params.id;
-    const { paymentMethod = "cash" } = req.body;
-    const parsedId = parseInt(String(rawId || ""), 10);
-    if (isNaN(parsedId)) {
-      res.status(400).json({ success: false, message: "Invalid invoice ID." });
-      return;
+    const rawId = String(req.params.id || "").trim();
+    const id = Number(rawId);
+    const method = String(req.body?.paymentMethod ?? "cash")
+      .trim().toLowerCase();
+
+    if (
+      !/^\d+$/.test(rawId) ||
+      !Number.isSafeInteger(id) ||
+      id <= 0
+    ) {
+      throw new BillValidationError("Invalid invoice ID.");
     }
 
-    const bill = await prisma.bill.findUnique({
-      where: { id: parsedId },
-      include: {
-        salesReturns: true,
-      },
-    });
-
-    if (!bill) {
-      res.status(404).json({ success: false, message: "Invoice not found." });
-      return;
+    if (!["cash", "fonepay_qr", "card"].includes(method)) {
+      throw new BillValidationError("Invalid payment method.");
     }
 
-    if (bill.paymentStatus === "paid") {
-      res.status(400).json({ success: false, message: "This invoice is already marked as paid." });
-      return;
-    }
+    const updated = await prisma.$transaction(async (tx) => {
+      // Shared invoice lock also used by bulk settlement.
+      const locked = await tx.$queryRaw<Array<{ id: number }>>`
+        SELECT id FROM bill_tbl WHERE id = ${id} FOR UPDATE
+      `;
 
-    const totalReturnsOnBill = (bill.salesReturns || []).reduce(
-      (sum: number, r: any) => sum + Number(r.refundAmount || 0),
-      0
-    );
-    const remainingToPay = roundMoney(
-      Math.max(0, Number(bill.grandTotal) - totalReturnsOnBill)
-    );
+      if (locked.length !== 1) {
+        throw new BillValidationError("Invoice not found.", 404);
+      }
 
-    const validSettlementMethods = ["cash", "fonepay_qr", "card"];
-    const chosenMethod = validSettlementMethods.includes(String(paymentMethod).toLowerCase())
-      ? String(paymentMethod).toLowerCase()
-      : "cash";
+      const bill = await tx.bill.findUnique({
+        where: { id },
+        include: { salesReturns: true },
+      });
 
-    const updated = await prisma.bill.update({
-      where: { id: parsedId },
-      data: {
-        paymentStatus: "paid",
-        amountReceived: remainingToPay,
-        changeReturned: 0,
-      },
-      include: {
-        cashier: true,
-        salesReturns: true,
-        items: {
-          include: {
-            salesReturnItems: true,
-            inventory: {
-              include: { generic: true, category: true, rack: true },
+      if (!bill) {
+        throw new BillValidationError("Invoice not found.", 404);
+      }
+
+      if (bill.paymentMethod !== "credit") {
+        throw new BillValidationError(
+          "Only credit invoices can be settled here."
+        );
+      }
+
+      if (bill.paymentStatus === "paid") {
+        throw new BillValidationError(
+          "This invoice is already settled.", 409
+        );
+      }
+
+      const totalCents = Math.round(Number(bill.grandTotal) * 100);
+
+      const returnCents = bill.salesReturns.reduce(
+        (sum, item) =>
+          sum + Math.round(Number(item.refundAmount) * 100),
+        0
+      );
+
+      const receivedCents = Math.round(
+        Number(bill.amountReceived) * 100
+      );
+
+      const dueCents = Math.max(
+        0, totalCents - returnCents - receivedCents
+      );
+
+      if (dueCents <= 0) {
+        throw new BillValidationError(
+          "No outstanding payment remains.", 409
+        );
+      }
+
+      return tx.bill.update({
+        where: { id },
+        data: {
+          paymentStatus: "paid",
+          amountReceived: (receivedCents + dueCents) / 100,
+          changeReturned: 0,
+        },
+        include: {
+          cashier: true,
+          salesReturns: true,
+          items: {
+            include: {
+              salesReturnItems: true,
+              inventory: {
+                include: {
+                  generic: true,
+                  category: true,
+                  rack: true,
+                },
+              },
             },
           },
         },
-      },
-    });
+      });
+    }, { timeout: 15000 });
 
     res.status(200).json({
       success: true,
-      message: `Invoice ${bill.invoiceNumber} credit marked as settled via ${chosenMethod.toUpperCase()}.`,
+      message:
+        `Invoice ${updated.invoiceNumber} settled via ` +
+        `${method.toUpperCase()}.`,
       data: formatBillResponse(updated),
     });
   } catch (error) {
     console.error("Error settling credit bill:", error);
-    res.status(500).json({ success: false, message: "Failed to settle credit bill." });
+
+    const statusCode =
+      error instanceof BillValidationError
+        ? error.statusCode
+        : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      message:
+        error instanceof BillValidationError
+          ? error.message
+          : "Failed to settle credit bill.",
+    });
   }
 };
 
+// Settle multiple credit invoices for one customer atomically.
+export const settleCustomerCreditBulk = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const phone = String(req.body?.customerPhone ?? "")
+      .replace(/\D/g, "");
+
+    const rawIds: unknown = req.body?.invoiceIds;
+    const method = String(req.body?.paymentMethod ?? "cash")
+      .trim()
+      .toLowerCase();
+
+    const expectedTotal = Number(req.body?.expectedTotal);
+
+    if (!/^\d{7,10}$/.test(phone)) {
+      throw new BillValidationError("Valid customer phone is required.");
+    }
+
+    if (
+      !Array.isArray(rawIds) ||
+      rawIds.length < 2 ||
+      rawIds.length > 500
+    ) {
+      throw new BillValidationError(
+        "Select between 2 and 500 unpaid credit invoices."
+      );
+    }
+
+    const invoiceIds = rawIds.map((id: unknown) => Number(id));
+
+    if (
+      invoiceIds.some(
+        (id: number) => !Number.isSafeInteger(id) || id <= 0
+      ) ||
+      new Set(invoiceIds).size !== invoiceIds.length
+    ) {
+      throw new BillValidationError("Invalid or duplicate invoice IDs.");
+    }
+
+    if (!["cash", "fonepay_qr", "card"].includes(method)) {
+      throw new BillValidationError("Invalid payment method.");
+    }
+
+    const expectedCents = Math.round(expectedTotal * 100);
+
+    if (
+      !Number.isSafeInteger(expectedCents) ||
+      expectedCents <= 0 ||
+      Math.abs(expectedTotal * 100 - expectedCents) > 0.0001
+    ) {
+      throw new BillValidationError("Invalid expected payment amount.");
+    }
+
+    invoiceIds.sort((a: number, b: number) => a - b);
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Lock ALL currently unpaid credit bills belonging to this phone.
+        // This prevents simultaneous bulk requests from paying twice.
+        const locked = await tx.$queryRaw<Array<{ id: number }>>`
+          SELECT id
+          FROM bill_tbl
+          WHERE payment_method = 'credit'
+            AND payment_status <> 'paid'
+            AND regexp_replace(
+              COALESCE(customer_phone, ''),
+              '[^0-9]', '', 'g'
+            ) = ${phone}
+          ORDER BY id
+          FOR UPDATE
+        `;
+
+        const lockedIds = locked.map((row) => row.id);
+
+        const bills = await tx.bill.findMany({
+          where: { id: { in: lockedIds } },
+          include: { salesReturns: true },
+        });
+
+        const dues = bills
+          .map((bill) => {
+            const returnsCents = bill.salesReturns.reduce(
+              (sum, item) =>
+                sum + Math.round(Number(item.refundAmount) * 100),
+              0
+            );
+
+            const receivedCents = Math.round(
+              Number(bill.amountReceived) * 100
+            );
+
+            const dueCents = Math.max(
+              0,
+              Math.round(Number(bill.grandTotal) * 100) -
+                returnsCents -
+                receivedCents
+            );
+
+            return { bill, dueCents, receivedCents };
+          })
+          .filter((entry) => entry.dueCents > 0)
+          .sort((a, b) => a.bill.id - b.bill.id);
+
+        const currentIds = dues.map((entry) => entry.bill.id);
+
+        if (
+          currentIds.length !== invoiceIds.length ||
+          currentIds.some((id, index) => id !== invoiceIds[index])
+        ) {
+          throw new BillValidationError(
+            "Customer invoices have changed. Refresh the ledger before payment.",
+            409
+          );
+        }
+
+        const actualCents = dues.reduce(
+          (sum, entry) => sum + entry.dueCents,
+          0
+        );
+
+        if (actualCents !== expectedCents) {
+          throw new BillValidationError(
+            "Customer balance has changed. Refresh the ledger before payment.",
+            409
+          );
+        }
+
+        for (const entry of dues) {
+          const updated = await tx.bill.updateMany({
+            where: {
+              id: entry.bill.id,
+              paymentMethod: "credit",
+              paymentStatus: { not: "paid" },
+            },
+            data: {
+              paymentStatus: "paid",
+              amountReceived:
+                (entry.receivedCents + entry.dueCents) / 100,
+              changeReturned: 0,
+            },
+          });
+
+          if (updated.count !== 1) {
+            throw new BillValidationError(
+              "Invoice status changed during payment.",
+              409
+            );
+          }
+        }
+
+        return {
+          customerPhone: phone,
+          invoiceIds: currentIds,
+          settledCount: dues.length,
+          amountPaid: actualCents / 100,
+          paymentMethod: method,
+        };
+      },
+      { timeout: 15000 }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.settledCount} credit invoices settled.`,
+      data: result,
+    });
+  } catch (error) {
+    console.error("Bulk credit settlement:", error);
+
+    const statusCode =
+      error instanceof BillValidationError
+        ? error.statusCode
+        : 500;
+
+    res.status(statusCode).json({
+      success: false,
+      message:
+        error instanceof BillValidationError
+          ? error.message
+          : "Failed to settle customer credit.",
+    });
+  }
+};
 // ==========================================
 // 5. CUSTOMER SALES RETURN / REFUND
 // ==========================================
