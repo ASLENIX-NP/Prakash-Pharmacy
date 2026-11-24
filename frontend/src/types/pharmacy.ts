@@ -10,6 +10,12 @@ export type MedicineCategory =
   | 'Inhaler'
   | 'Antiseptic Solution'
   | 'Medicated Gel'
+  | 'Gel'
+  | 'Powder'
+  | 'Lotion'
+  | 'Solution'
+  | 'Suppository'
+  | 'Patch'
   | 'Device / Surgical'
   | 'OTC Cosmetic'
   | 'Other';
@@ -149,6 +155,9 @@ export interface StockistPurchaseInvoice {
   items: StockistInvoiceItem[];
   subtotal: number;
   totalDiscount: number;
+  billDiscount?: number;
+  billDiscountType?: 'amount' | 'percent';
+  customCharge?: number;
   taxableAmount: number;
   vatAmount: number; // 13% on taxable items
   grandTotal: number;

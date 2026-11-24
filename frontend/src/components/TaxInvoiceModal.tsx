@@ -2,16 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Printer, 
-  Download, 
-  CheckCircle2, 
-  ShieldCheck, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  FileText,
-  FileCheck,
-  FileDown,
-  TrendingUp
+  FileDown, 
+  TrendingUp 
 } from 'lucide-react';
 import { SaleInvoice } from '../types/pharmacy';
 import { usePharmacy } from '../context/PharmacyContext';
@@ -26,22 +18,70 @@ interface TaxInvoiceModalProps {
 // Convert numbers to Nepali / English words for statutory bills
 function numberToWords(num: number): string {
   const rounded = Math.round(num);
-  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const ones = [
+    '',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+  const tens = [
+    '',
+    '',
+    'Twenty',
+    'Thirty',
+    'Forty',
+    'Fifty',
+    'Sixty',
+    'Seventy',
+    'Eighty',
+    'Ninety',
+  ];
 
   if (rounded === 0) return 'Zero Rupees Only';
-  if (rounded < 20) return `${ones[rounded]} Rupees Only`;
-  if (rounded < 100) return `${tens[Math.floor(rounded / 10)]} ${ones[rounded % 10]} Rupees Only`.trim();
-  if (rounded < 1000) {
-    return `${ones[Math.floor(rounded / 100)]} Hundred ${numberToWords(rounded % 100).replace(' Rupees Only', '')} Rupees Only`.trim();
+
+  function convertHelper(n: number): string {
+    if (n < 20) return ones[n];
+    if (n < 100) return `${tens[Math.floor(n / 10)]} ${ones[n % 10]}`.trim();
+    if (n < 1000) {
+      const rem = n % 100;
+      return `${ones[Math.floor(n / 100)]} Hundred${
+        rem > 0 ? ` ${convertHelper(rem)}` : ''
+      }`.trim();
+    }
+    if (n < 100000) {
+      const rem = n % 1000;
+      return `${convertHelper(Math.floor(n / 1000))} Thousand${
+        rem > 0 ? ` ${convertHelper(rem)}` : ''
+      }`.trim();
+    }
+    if (n < 10000000) {
+      const rem = n % 100000;
+      return `${convertHelper(Math.floor(n / 100000))} Lakh${
+        rem > 0 ? ` ${convertHelper(rem)}` : ''
+      }`.trim();
+    }
+    return `${convertHelper(Math.floor(n / 10000000))} Crore${
+      n % 10000000 > 0 ? ` ${convertHelper(n % 10000000)}` : ''
+    }`.trim();
   }
-  if (rounded < 100000) {
-    return `${numberToWords(Math.floor(rounded / 1000)).replace(' Rupees Only', '')} Thousand ${numberToWords(rounded % 1000).replace(' Rupees Only', '')} Rupees Only`.trim();
-  }
-  if (rounded < 10000000) {
-    return `${numberToWords(Math.floor(rounded / 100000)).replace(' Rupees Only', '')} Lakh ${numberToWords(rounded % 100000).replace(' Rupees Only', '')} Rupees Only`.trim();
-  }
-  return `${rounded} Rupees Only`;
+
+  return `${convertHelper(rounded)} Rupees Only`;
 }
 
 export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClose }) => {
@@ -115,11 +155,6 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
     window.print();
   };
 
-  const handleSavePdf = () => {
-    // Triggers standard print dialog with target set to Save as PDF
-    window.print();
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto print:items-start print:overflow-visible print:p-0 print:bg-white print:fixed print:inset-0">
       <div 
@@ -128,7 +163,7 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Minimal Info Header (No primary buttons here - as requested, print and close are at the bottom!) */}
+        {/* Top Minimal Info Header (print:hidden) */}
         <div className="bg-slate-900 text-white px-5 py-2.5 flex items-center justify-between text-xs print:hidden shrink-0">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
@@ -160,7 +195,7 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
           </div>
         </div>
 
-        {/* Admin Confidential Margin Audit Banner (Never printed on physical paper or PDF) */}
+        {/* Admin Confidential Margin Audit Banner (Never printed) */}
         {profitAudit && (
           <div className="bg-emerald-950 text-emerald-200 border-b border-emerald-800 px-5 py-2 text-xs flex flex-wrap items-center justify-between gap-2 print:hidden shrink-0">
             <div className="flex items-center gap-2">
@@ -186,279 +221,489 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
         )}
 
         {/* Scrollable Printable Bill Container */}
-        <div className="overflow-y-auto flex-1 p-4 sm:p-6 print:p-0 print:overflow-visible">
-          <div 
-            id="printable-bill-area"
-            className={`bg-white text-slate-900 font-sans mx-auto ${
-              format === 'thermal' 
-                ? 'max-w-[76mm] text-[11px] leading-tight space-y-2' 
-                : 'max-w-[148mm] text-xs leading-normal space-y-3'
-            }`}
-          >
-            {/* Pharmacy Branding Header */}
-            <div className="text-center border-b-2 border-slate-900 pb-2.5 space-y-1">
-              <img
-                src={settings.storeLogo || prakashLogo}
-                alt={`${settings.storeName || 'Pharmacy'} logo`}
-                className={`mx-auto mb-1 object-contain ${
-                  format === 'thermal'
-                    ? 'h-12 max-w-24'
-                    : 'h-40 max-w-64 scale-110'
-                }`}
-              />
-              <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
-                TAX INVOICE / VAT BILL (कर बीजक)
-              </h2>
-              <h1 className={`${format === 'thermal' ? 'text-base' : 'text-lg'} font-black text-slate-900 leading-tight`}>
-                {settings.storeName}
-              </h1>
-              <p className="text-[11px] text-slate-700 font-medium">
-                {settings.address}
-              </p>
-              <p className="text-[10px] text-slate-600">
-                Phone: {settings.phoneNumber} | Email: {settings.emailId}
-              </p>
-              
-              {/* Statutory Numbers */}
-              <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] font-mono font-bold pt-0.5">
-                <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
-                  PAN: {settings.panNumber}
-                </span>
-                <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
-                  DDA: {settings.ddaLicenceNumber}
-                </span>
-                <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
-                  {settings.vatRegistered ? 'VAT Registered' : 'Not VAT Registered'}
-                </span>
-              </div>
-              {(settings.pharmacistName || settings.pharmacistCouncilRegNumber) && (
-                <p className="text-[10px] text-slate-600">
-                  Pharmacist: {settings.pharmacistName}
-                  {settings.pharmacistCouncilRegNumber && ` · NPC Reg. No: ${settings.pharmacistCouncilRegNumber}`}
+        <div className="overflow-y-auto flex-1 p-3 sm:p-6 print:p-0 print:overflow-visible">
+          {format === 'thermal' ? (
+            /* ============================================================ */
+            /* 80mm POS Thermal Receipt Layout                              */
+            /* Tailored specifically for 76-80mm thermal receipt paper      */
+            /* ============================================================ */
+            <div
+              id="printable-bill-thermal"
+              className="bg-white text-slate-900 font-sans mx-auto max-w-[76mm] text-[10.5px] leading-tight space-y-2"
+            >
+              {/* Header */}
+              <div className="text-center border-b border-dashed border-slate-900 pb-2 space-y-0.5">
+                <img
+                  src={settings.storeLogo || prakashLogo}
+                  alt={`${settings.storeName || 'Pharmacy'} logo`}
+                  className="mx-auto mb-1 h-12 max-w-24 object-contain"
+                />
+                <h2 className="text-[10px] font-black tracking-wide uppercase text-slate-700">
+                  TAX INVOICE / VAT BILL (कर बीजक)
+                </h2>
+                <h1 className="text-sm font-black text-slate-900 leading-tight">
+                  {settings.storeName}
+                </h1>
+                <p className="text-[9.5px] text-slate-700 font-medium">
+                  {settings.address}
                 </p>
-              )}
-            </div>
-
-            {/* Invoice Meta Grid */}
-            <div className="grid grid-cols-2 gap-2 py-2 border-b border-slate-300 text-[11px]">
-              <div className="space-y-0.5">
-                <div>
-                  <span className="text-slate-500">Bill No:</span>{' '}
-                  <strong className="font-mono text-slate-900">{invoice.invoiceNumber}</strong>
+                <p className="text-[9px] text-slate-600">
+                  Phone: {settings.phoneNumber}
+                  {settings.emailId && ` | Email: ${settings.emailId}`}
+                </p>
+                <div className="flex items-center justify-center gap-1.5 text-[9px] font-mono font-bold pt-0.5">
+                  <span className="border border-slate-300 px-1 py-0.5 rounded bg-slate-50">
+                    PAN: {settings.panNumber}
+                  </span>
+                  {settings.ddaLicenceNumber && (
+                    <span className="border border-slate-300 px-1 py-0.5 rounded bg-slate-50">
+                      DDA: {settings.ddaLicenceNumber}
+                    </span>
+                  )}
+                  <span className="border border-slate-300 px-1 py-0.5 rounded bg-slate-50">
+                    {settings.vatRegistered ? 'VAT Registered' : 'Not VAT Registered'}
+                  </span>
                 </div>
-                <div>
-                  <span className="text-slate-500">FY:</span>{' '}
-                  <strong className="font-mono text-slate-900">{invoice.fiscalYear}</strong>
-                </div>
-                <div>
-                  <span className="text-slate-500">Date/Time:</span>{' '}
-                  <span className="font-mono text-slate-800">{displayInvoiceDate} {invoice.time}</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Payment:</span>{' '}
-                  <strong className="font-semibold uppercase text-slate-900">
-                    {invoice.paymentMode === 'credit'
-                      ? `CREDIT (${invoice.paymentStatus === 'paid' ? 'SETTLED' : 'DUE'})`
-                      : invoice.paymentMode.replace('_', ' ')}
-                  </strong>
-                </div>
-                {invoice.cashierName && (
-                  <div>
-                    <span className="text-slate-500">Cashier:</span>{' '}
-                    <strong className="text-teal-800">{invoice.cashierName}</strong>
-                  </div>
+                {(settings.pharmacistName || settings.pharmacistCouncilRegNumber) && (
+                  <p className="text-[9px] text-slate-600">
+                    Pharmacist: {settings.pharmacistName}
+                    {settings.pharmacistCouncilRegNumber && ` · NPC: ${settings.pharmacistCouncilRegNumber}`}
+                  </p>
                 )}
               </div>
 
-              <div className="space-y-0.5 text-right">
-                <div>
-                  <span className="text-slate-500">Customer:</span>{' '}
-                  <strong className="text-slate-900">{invoice.customerName}</strong>
+              {/* Metadata Block */}
+              <div className="py-1 border-b border-dashed border-slate-400 text-[10px] space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <span>
+                    Bill No: <strong className="font-mono text-slate-900">{invoice.invoiceNumber}</strong>
+                  </span>
+                  <span className="font-mono text-[9.5px] text-slate-800">
+                    {displayInvoiceDate}
+                  </span>
                 </div>
-                {invoice.customerPhone && (
-                  <div>
-                    <span className="text-slate-500">Phone:</span>{' '}
-                    <span className="font-mono text-slate-800">{invoice.customerPhone}</span>
-                  </div>
-                )}
-                {invoice.customerAddress && (
-                  <div>
-                    <span className="text-slate-500">Address:</span>{' '}
-                    <span className="text-slate-800">{invoice.customerAddress}</span>
-                  </div>
-                )}
-                {invoice.customerPan && (
-                  <div>
-                    <span className="text-slate-500">Buyer PAN:</span>{' '}
-                    <span className="font-mono font-bold text-slate-900">{invoice.customerPan}</span>
-                  </div>
-                )}
-                {invoice.doctorName && (
-                  <div>
-                    <span className="text-slate-500">Dr:</span>{' '}
-                    <span className="text-slate-800 font-medium">{invoice.doctorName}</span>
-                  </div>
-                )}
-              </div>
-            </div>
+                <div className="flex justify-between items-baseline text-[9px] text-slate-600">
+                  <span>
+                    FY: <strong className="font-mono text-slate-900">{invoice.fiscalYear}</strong>
+                  </span>
+                  <span>{invoice.time}</span>
+                </div>
 
-            {/* Line Items Table */}
-            <div className="py-1">
-              <table className="w-full text-left text-[11px] border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-800 font-bold text-slate-900 uppercase">
-                    <th className="py-1 px-1 text-center w-6">#</th>
-                    <th className="py-1 px-1">Medicine / Molecule</th>
-                    <th className="py-1 px-1 text-center">Batch</th>
-                    <th className="py-1 px-1 text-center">Exp</th>
-                    <th className="py-1 px-1 text-center">Qty</th>
-                    <th className="py-1 px-1 text-right">Rate</th>
-                    <th className="py-1 px-1 text-center">Tax</th>
-                    <th className="py-1 px-1 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {invoice.items.map((it, idx) => (
-                    <tr key={idx} className="py-0.5">
-                      <td className="py-1 px-1 text-center font-mono text-slate-500">{idx + 1}</td>
-                      <td className="py-1 px-1">
-                        <div className="font-bold text-slate-900">{it.medicineName}</div>
-                        {format !== 'thermal' && (
-                          <div className="text-[9px] text-slate-500 truncate max-w-[130px]">{it.genericName}</div>
-                        )}
-                      </td>
-                      <td className="py-1 px-1 text-center font-mono text-[10px]">{it.batchNumber}</td>
-                      <td className="py-1 px-1 text-center font-mono text-[10px] text-slate-600">{it.expiryDate}</td>
-                      <td className="py-1 px-1 text-center font-mono font-bold">
-                        {it.quantity} {it.isLooseUnit ? 'tab' : 'pk'}
-                      </td>
-                      <td className="py-1 px-1 text-right font-mono">
-                        {it.unitPrice.toFixed(2)}
-                      </td>
-                      <td className="py-1 px-1 text-center font-semibold text-[9px]">
-                        {it.isVatApplicable ? '13%' : '0%'}
-                      </td>
-                      <td className="py-1 px-1 text-right font-mono font-bold">
-                        {it.lineTotal.toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                <div className="border-t border-dotted border-slate-300 pt-1">
+                  <div className="flex justify-between items-baseline">
+                    <span className="font-bold text-slate-900">
+                      {invoice.customerName}
+                    </span>
+                    {invoice.customerPhone && (
+                      <span className="font-mono text-[9.5px] text-slate-700">
+                        {invoice.customerPhone}
+                      </span>
+                    )}
+                  </div>
+                  {(invoice.customerAddress || invoice.customerPan) && (
+                    <div className="flex justify-between text-[9px] text-slate-600">
+                      <span>{invoice.customerAddress || ''}</span>
+                      {invoice.customerPan && <span>PAN: {invoice.customerPan}</span>}
+                    </div>
+                  )}
+                </div>
 
-            {/* Statutory Nepal VAT Breakdown Box */}
-            <div className={`border-t-2 border-slate-800 ${format === 'thermal' ? 'pt-1.5' : 'pt-2 space-y-2'}`}>
-              <div
-                className={`flex items-start justify-between ${
-                  format === 'thermal'
-                    ? 'gap-2 text-[9px]'
-                    : 'gap-4 text-[11px]'
-                }`}
-              >
-                {/* Left Column: In Words + Statutory Notes */}
-                <div
-                  className={`${
-                    format === 'thermal'
-                      ? 'flex-1 min-w-0 pr-2 space-y-1'
-                      : 'flex-1 min-w-0 max-w-[50%] space-y-1'
-                  }`}
-                >
-                  <div>
-                    <span className="text-slate-500 block text-[9px] sm:text-[10px]">In Words:</span>
-                    <strong
-                      className={`text-slate-900 italic font-semibold leading-tight block break-words ${
-                        format === 'thermal' ? 'text-[9.5px]' : 'text-[11px]'
-                      }`}
-                    >
-                      {numberToWords(invoice.grandTotal)}
+                <div className="border-t border-dotted border-slate-300 pt-1 flex justify-between items-baseline text-[9px]">
+                  <span>
+                    Payment:{' '}
+                    <strong className="font-semibold uppercase text-slate-900">
+                      {invoice.paymentMode === 'credit'
+                        ? `CREDIT (${invoice.paymentStatus === 'paid' ? 'SETTLED' : 'DUE'})`
+                        : invoice.paymentMode.replace('_', ' ')}
                     </strong>
-                  </div>
-                  <div
-                    className={`text-slate-500 pt-1 border-t border-slate-200 ${
-                      format === 'thermal' ? 'text-[8px] leading-tight space-y-0.5' : 'text-[9px]'
-                    }`}
-                  >
-                    <p>• Statutory 0% VAT on essential oral medications (VAT Act 2052).</p>
-                    <p>• {settings.receiptFooterNote}</p>
-                  </div>
+                  </span>
+                  {invoice.cashierName && (
+                    <span>
+                      Cashier: <strong className="text-teal-900">{invoice.cashierName}</strong>
+                    </span>
+                  )}
                 </div>
+                {invoice.doctorName && (
+                  <div className="text-[9px] text-slate-600">
+                    Dr: <span className="font-medium text-slate-800">{invoice.doctorName}</span>
+                  </div>
+                )}
+              </div>
 
-                {/* Right Column: Totals Table */}
-                <div
-                  className={`${
-                    format === 'thermal'
-                      ? 'w-[49%] shrink-0 text-[9px] pr-1'
-                      : 'w-52 shrink-0 pr-1 text-[11px]'
-                  } ml-auto space-y-0.5 text-right font-mono`}
-                >
-                  <div className="flex justify-between text-slate-600 gap-1">
-                    <span className="whitespace-nowrap">Gross Subtotal:</span>
+              {/* Line Items Table: 4 clean columns */}
+              <div className="py-0.5">
+                <table className="w-full text-left text-[10px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 font-bold uppercase text-[9px] text-slate-800">
+                      <th className="py-1 px-0.5">Medicine / Batch</th>
+                      <th className="py-1 px-0.5 text-center w-10">Qty</th>
+                      <th className="py-1 px-0.5 text-right w-12">Rate</th>
+                      <th className="py-1 px-0.5 text-right w-16">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {invoice.items.map((it, idx) => (
+                      <tr key={idx} className="py-0.5">
+                        <td className="py-1 px-0.5">
+                          <div className="font-bold text-slate-900 leading-tight">{it.medicineName}</div>
+                          <div className="text-[8.5px] text-slate-500 font-mono">
+                            B: {it.batchNumber} · E: {it.expiryDate}
+                          </div>
+                        </td>
+                        <td className="py-1 px-0.5 text-center font-mono whitespace-nowrap">
+                          {it.quantity} {it.isLooseUnit ? 'tab' : 'pk'}
+                        </td>
+                        <td className="py-1 px-0.5 text-right font-mono whitespace-nowrap">
+                          {it.unitPrice.toFixed(2)}
+                        </td>
+                        <td className="py-1 px-0.5 text-right font-mono font-bold whitespace-nowrap">
+                          {it.lineTotal.toFixed(2)}
+                          {it.isVatApplicable && <span className="text-[8px] font-normal text-blue-700 ml-0.5">*</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totals Section: Full Width */}
+              <div className="border-t-2 border-slate-800 pt-1.5 space-y-1">
+                <div className="w-full space-y-0.5 text-right font-mono text-[10px]">
+                  <div className="flex justify-between text-slate-600">
+                    <span>Gross Subtotal:</span>
                     <span className="whitespace-nowrap">Rs. {invoice.grossSubtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-emerald-800 gap-1">
-                    <span className="whitespace-nowrap">0% VAT Free:</span>
+                  <div className="flex justify-between text-emerald-800">
+                    <span>0% VAT Free:</span>
                     <span className="whitespace-nowrap">Rs. {invoice.vatExemptSubtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-blue-900 gap-1">
-                    <span className="whitespace-nowrap">Taxable Base:</span>
-                    <span className="whitespace-nowrap">Rs. {invoice.taxableBaseSubtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-blue-900 font-bold gap-1">
-                    <span className="whitespace-nowrap">13% VAT:</span>
-                    <span className="whitespace-nowrap">Rs. {invoice.vatAmount.toFixed(2)}</span>
-                  </div>
+                  {invoice.taxableBaseSubtotal > 0 && (
+                    <div className="flex justify-between text-blue-900">
+                      <span>Taxable Base:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.taxableBaseSubtotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {invoice.vatAmount > 0 && (
+                    <div className="flex justify-between text-blue-900 font-bold">
+                      <span>13% VAT:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.vatAmount.toFixed(2)}</span>
+                    </div>
+                  )}
                   {invoice.discountAmount > 0 && (
-                    <div className="flex justify-between text-rose-700 gap-1">
-                      <span className="whitespace-nowrap">Discount:</span>
+                    <div className="flex justify-between text-rose-700">
+                      <span>Discount:</span>
                       <span className="whitespace-nowrap">- Rs. {invoice.discountAmount.toFixed(2)}</span>
                     </div>
                   )}
-                  <div
-                    className={`flex justify-between border-t-2 border-b-2 border-slate-900 font-black text-slate-900 gap-1 ${
-                      format === 'thermal' ? 'py-0.5 text-[10.5px]' : 'py-1 text-xs'
-                    }`}
-                  >
-                    <span className="whitespace-nowrap">Grand Total:</span>
+
+                  {/* Grand Total */}
+                  <div className="flex justify-between border-t-2 border-b-2 border-slate-900 font-black text-slate-900 py-1 text-[11px]">
+                    <span className="whitespace-nowrap">GRAND TOTAL:</span>
                     <span className="whitespace-nowrap">Rs. {invoice.grandTotal.toFixed(2)}</span>
                   </div>
+
                   {invoice.paymentMode === 'credit' && (() => {
                     const returnsTotal = (invoice.salesReturns || []).reduce((sum, r) => sum + (r.refundAmount || 0), 0);
                     const netCreditDue = Math.max(0, invoice.grandTotal - returnsTotal - (invoice.cashTendered || 0));
                     return (
-                      <div className={`${format === 'thermal' ? 'text-[9px]' : 'text-[10px]'} space-y-0.5 pt-1`}>
+                      <div className="text-[9.5px] space-y-0.5 pt-0.5">
                         {returnsTotal > 0 && (
-                          <div className="flex justify-between text-rose-700 font-semibold gap-1">
-                            <span className="whitespace-nowrap">Returns Deducted:</span>
+                          <div className="flex justify-between text-rose-700 font-semibold">
+                            <span>Returns Deducted:</span>
                             <span className="whitespace-nowrap">- Rs. {returnsTotal.toFixed(2)}</span>
                           </div>
                         )}
-                        <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5 gap-1">
-                          <span className="whitespace-nowrap">Balance Due:</span>
-                          <span className="whitespace-nowrap">{invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}</span>
+                        <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5">
+                          <span>Balance Due:</span>
+                          <span className="whitespace-nowrap">
+                            {invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}
+                          </span>
                         </div>
                       </div>
                     );
                   })()}
+
                   {invoice.paymentMode === 'cash' && (
-                    <div className={`${format === 'thermal' ? 'text-[9px]' : 'text-[10px]'} text-slate-500 space-y-0.5 pt-0.5`}>
-                      <div className="flex justify-between gap-1">
-                        <span className="whitespace-nowrap">Tendered:</span>
+                    <div className="text-[9.5px] text-slate-600 space-y-0.5 pt-0.5">
+                      <div className="flex justify-between">
+                        <span>Tendered:</span>
                         <span className="whitespace-nowrap">Rs. {invoice.cashTendered.toFixed(2)}</span>
                       </div>
-                      <div className="flex justify-between font-bold text-slate-800 gap-1">
-                        <span className="whitespace-nowrap">Change:</span>
+                      <div className="flex justify-between font-bold text-slate-800">
+                        <span>Change:</span>
                         <span className="text-emerald-700 whitespace-nowrap">Rs. {invoice.changeGiven.toFixed(2)}</span>
                       </div>
                     </div>
                   )}
                 </div>
+
+                {/* In Words - Full Width */}
+                <div className="pt-1.5 border-t border-dashed border-slate-300 text-[9.5px] leading-tight">
+                  <span className="text-slate-500">In Words: </span>
+                  <strong className="text-slate-900 italic font-semibold block sm:inline">
+                    {numberToWords(invoice.grandTotal)}
+                  </strong>
+                </div>
+
+                {/* Statutory Notes */}
+                <div className="text-[8.5px] text-slate-500 pt-1 border-t border-slate-200 space-y-0.5">
+                  <p>• Statutory 0% VAT on essential oral medications (VAT Act 2052).</p>
+                  <p>• {settings.receiptFooterNote}</p>
+                  <p className="font-semibold text-emerald-800">• Get well soon! (स्वास्थ्य लाभको शुभकामना!)</p>
+                </div>
+
+                {/* Staff / Billed Info (No signature line) */}
+                <div className="pt-2 text-[9px] text-slate-500">
+                  <span>Billed By: </span>
+                  <strong className="text-slate-800">{invoice.cashierName || 'Cashier'}</strong>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            /* ============================================================ */
+            /* A5 Size Standard Bill Layout                                 */
+            /* Spacious 148mm width format for half-sheet / laser printer   */
+            /* ============================================================ */
+            <div 
+              id="printable-bill-a5"
+              className="bg-white text-slate-900 font-sans mx-auto max-w-[148mm] text-xs leading-normal space-y-3"
+            >
+              {/* Pharmacy Branding Header */}
+              <div className="text-center border-b-2 border-slate-900 pb-2.5 space-y-1">
+                <img
+                  src={settings.storeLogo || prakashLogo}
+                  alt={`${settings.storeName || 'Pharmacy'} logo`}
+                  className="mx-auto mb-1 h-40 max-w-64 scale-110 object-contain"
+                />
+                <h2 className="text-xs font-black tracking-wider uppercase text-slate-800">
+                  TAX INVOICE / VAT BILL (कर बीजक)
+                </h2>
+                <h1 className="text-lg font-black text-slate-900 leading-tight">
+                  {settings.storeName}
+                </h1>
+                <p className="text-[11px] text-slate-700 font-medium">
+                  {settings.address}
+                </p>
+                <p className="text-[10px] text-slate-600">
+                  Phone: {settings.phoneNumber} | Email: {settings.emailId}
+                </p>
+                
+                {/* Statutory Numbers */}
+                <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] font-mono font-bold pt-0.5">
+                  <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                    PAN: {settings.panNumber}
+                  </span>
+                  <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                    DDA: {settings.ddaLicenceNumber}
+                  </span>
+                  <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+                    {settings.vatRegistered ? 'VAT Registered' : 'Not VAT Registered'}
+                  </span>
+                </div>
+                {(settings.pharmacistName || settings.pharmacistCouncilRegNumber) && (
+                  <p className="text-[10px] text-slate-600">
+                    Pharmacist: {settings.pharmacistName}
+                    {settings.pharmacistCouncilRegNumber && ` · NPC Reg. No: ${settings.pharmacistCouncilRegNumber}`}
+                  </p>
+                )}
+              </div>
+
+              {/* Invoice Meta Grid */}
+              <div className="grid grid-cols-2 gap-3 py-2 border-b border-slate-300 text-[11px]">
+                <div className="space-y-0.5">
+                  <div>
+                    <span className="text-slate-500">Bill No:</span>{' '}
+                    <strong className="font-mono text-slate-900">{invoice.invoiceNumber}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">FY:</span>{' '}
+                    <strong className="font-mono text-slate-900">{invoice.fiscalYear}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Date/Time:</span>{' '}
+                    <span className="font-mono text-slate-800">{displayInvoiceDate} {invoice.time}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Payment:</span>{' '}
+                    <strong className="font-semibold uppercase text-slate-900">
+                      {invoice.paymentMode === 'credit'
+                        ? `CREDIT (${invoice.paymentStatus === 'paid' ? 'SETTLED' : 'DUE'})`
+                        : invoice.paymentMode.replace('_', ' ')}
+                    </strong>
+                  </div>
+                  {invoice.cashierName && (
+                    <div>
+                      <span className="text-slate-500">Cashier:</span>{' '}
+                      <strong className="text-teal-800">{invoice.cashierName}</strong>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-0.5 text-right">
+                  <div>
+                    <span className="text-slate-500">Customer:</span>{' '}
+                    <strong className="text-slate-900">{invoice.customerName}</strong>
+                  </div>
+                  {invoice.customerPhone && (
+                    <div>
+                      <span className="text-slate-500">Phone:</span>{' '}
+                      <span className="font-mono text-slate-800">{invoice.customerPhone}</span>
+                    </div>
+                  )}
+                  {invoice.customerAddress && (
+                    <div>
+                      <span className="text-slate-500">Address:</span>{' '}
+                      <span className="text-slate-800">{invoice.customerAddress}</span>
+                    </div>
+                  )}
+                  {invoice.customerPan && (
+                    <div>
+                      <span className="text-slate-500">Buyer PAN:</span>{' '}
+                      <span className="font-mono font-bold text-slate-900">{invoice.customerPan}</span>
+                    </div>
+                  )}
+                  {invoice.doctorName && (
+                    <div>
+                      <span className="text-slate-500">Dr:</span>{' '}
+                      <span className="text-slate-800 font-medium">{invoice.doctorName}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Line Items Table: 8 columns */}
+              <div className="py-1">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-800 font-bold text-slate-900 uppercase">
+                      <th className="py-1 px-1 text-center w-6">#</th>
+                      <th className="py-1 px-1">Medicine / Molecule</th>
+                      <th className="py-1 px-1 text-center">Batch</th>
+                      <th className="py-1 px-1 text-center">Exp</th>
+                      <th className="py-1 px-1 text-center">Qty</th>
+                      <th className="py-1 px-1 text-right">Rate</th>
+                      <th className="py-1 px-1 text-center">Tax</th>
+                      <th className="py-1 px-1 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {invoice.items.map((it, idx) => (
+                      <tr key={idx} className="py-0.5">
+                        <td className="py-1 px-1 text-center font-mono text-slate-500">{idx + 1}</td>
+                        <td className="py-1 px-1">
+                          <div className="font-bold text-slate-900">{it.medicineName}</div>
+                          <div className="text-[9px] text-slate-500 truncate max-w-[130px]">{it.genericName}</div>
+                        </td>
+                        <td className="py-1 px-1 text-center font-mono text-[10px]">{it.batchNumber}</td>
+                        <td className="py-1 px-1 text-center font-mono text-[10px] text-slate-600">{it.expiryDate}</td>
+                        <td className="py-1 px-1 text-center font-mono font-bold">
+                          {it.quantity} {it.isLooseUnit ? 'tab' : 'pk'}
+                        </td>
+                        <td className="py-1 px-1 text-right font-mono">
+                          {it.unitPrice.toFixed(2)}
+                        </td>
+                        <td className="py-1 px-1 text-center font-semibold text-[9px]">
+                          {it.isVatApplicable ? '13%' : '0%'}
+                        </td>
+                        <td className="py-1 px-1 text-right font-mono font-bold">
+                          {it.lineTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Statutory Nepal VAT Breakdown Box */}
+              <div className="border-t-2 border-slate-800 pt-2 space-y-2">
+                <div className="flex items-start justify-between gap-4 text-[11px]">
+                  {/* Left Column: In Words + Statutory Notes */}
+                  <div className="flex-1 min-w-0 max-w-[50%] space-y-1">
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">In Words:</span>
+                      <strong className="text-slate-900 italic font-semibold leading-tight block break-words text-[11px]">
+                        {numberToWords(invoice.grandTotal)}
+                      </strong>
+                    </div>
+                    <div className="text-slate-500 pt-1 border-t border-slate-200 text-[9px] space-y-0.5">
+                      <p>• Statutory 0% VAT on essential oral medications (VAT Act 2052).</p>
+                      <p>• {settings.receiptFooterNote}</p>
+                      <p className="font-medium text-emerald-800">• Get well soon! (स्वास्थ्य लाभको शुभकामना!)</p>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Totals Table */}
+                  <div className="w-60 shrink-0 pr-1 text-[11px] ml-auto space-y-0.5 text-right font-mono">
+                    <div className="flex justify-between text-slate-600 gap-2">
+                      <span className="whitespace-nowrap">Gross Subtotal:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.grossSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-800 gap-2">
+                      <span className="whitespace-nowrap">0% VAT Free:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.vatExemptSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-blue-900 gap-2">
+                      <span className="whitespace-nowrap">Taxable Base:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.taxableBaseSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-blue-900 font-bold gap-2">
+                      <span className="whitespace-nowrap">13% VAT:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.vatAmount.toFixed(2)}</span>
+                    </div>
+                    {invoice.discountAmount > 0 && (
+                      <div className="flex justify-between text-rose-700 gap-2">
+                        <span className="whitespace-nowrap">Discount:</span>
+                        <span className="whitespace-nowrap">- Rs. {invoice.discountAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t-2 border-b-2 border-slate-900 font-black text-slate-900 gap-2 py-1 text-xs">
+                      <span className="whitespace-nowrap">Grand Total:</span>
+                      <span className="whitespace-nowrap">Rs. {invoice.grandTotal.toFixed(2)}</span>
+                    </div>
+                    {invoice.paymentMode === 'credit' && (() => {
+                      const returnsTotal = (invoice.salesReturns || []).reduce((sum, r) => sum + (r.refundAmount || 0), 0);
+                      const netCreditDue = Math.max(0, invoice.grandTotal - returnsTotal - (invoice.cashTendered || 0));
+                      return (
+                        <div className="text-[10px] space-y-0.5 pt-1">
+                          {returnsTotal > 0 && (
+                            <div className="flex justify-between text-rose-700 font-semibold gap-2">
+                              <span className="whitespace-nowrap">Returns Deducted:</span>
+                              <span className="whitespace-nowrap">- Rs. {returnsTotal.toFixed(2)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between font-bold text-amber-900 border-t border-slate-200 pt-0.5 gap-2">
+                            <span className="whitespace-nowrap">Balance Due:</span>
+                            <span className="whitespace-nowrap">{invoice.paymentStatus === 'paid' || netCreditDue <= 0.001 ? 'PAID / CLEARED' : `Rs. ${netCreditDue.toFixed(2)}`}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    {invoice.paymentMode === 'cash' && (
+                      <div className="text-[10px] text-slate-500 space-y-0.5 pt-0.5">
+                        <div className="flex justify-between gap-2">
+                          <span className="whitespace-nowrap">Tendered:</span>
+                          <span className="whitespace-nowrap">Rs. {invoice.cashTendered.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-slate-800 gap-2">
+                          <span className="whitespace-nowrap">Change:</span>
+                          <span className="text-emerald-700 whitespace-nowrap">Rs. {invoice.changeGiven.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Staff / Billed Info (No signature line) */}
+                <div className="pt-3 text-[10px] text-slate-500">
+                  <span>Billed By: </span>
+                  <strong className="text-slate-800">{invoice.cashierName || 'Cashier'}</strong>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* BOTTOM ACTION BAR - As requested: Easy accessible at the BOTTOM of the screen! */}
+        {/* BOTTOM ACTION BAR */}
         <div className="bg-slate-100 border-t border-slate-300 p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 print:hidden shrink-0">
           <div className="flex items-center gap-2 text-xs text-slate-600">
             <span className="hidden sm:inline">Format:</span>
@@ -470,7 +715,6 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
             </span>
           </div>
 
-          {/* Large, Easy-to-Click Bottom Actions */}
           <div className="flex items-center gap-2">
             {/* Close / Skip Button */}
             <button
@@ -486,7 +730,7 @@ export const TaxInvoiceModal: React.FC<TaxInvoiceModalProps> = ({ invoice, onClo
             {/* Save as PDF Button */}
             <button
               type="button"
-              onClick={handleSavePdf}
+              onClick={handlePrint}
               className="px-4 py-2.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 text-indigo-800 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
               title="Save as PDF using browser print dialog"
             >

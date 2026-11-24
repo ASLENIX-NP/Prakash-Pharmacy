@@ -51,7 +51,9 @@ export const formatPurchaseResponse = (purchase: any) => {
     paymentMode: (purchase.paymentMode || "credit").toLowerCase(),
     dueDate: purchase.dueDate ? formatNepalDateOnly(purchase.dueDate) : undefined,
     subtotal: Number(purchase.subtotal || 0),
+    totalDiscount: Number(purchase.discountAmount || 0),
     discountAmount: Number(purchase.discountAmount || 0),
+    customCharge: Number((purchase as any).customCharge || 0),
     taxableAmount: Number(purchase.taxableAmount || 0),
     vatAmount: Number(purchase.vatAmount || 0),
     grandTotal: Number(purchase.grandTotal || 0),
@@ -249,6 +251,11 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
       dueDate,
       notes,
       items,
+      billDiscount,
+      billDiscountType,
+      overallDiscount,
+      customCharge,
+      customsCharge,
     } = req.body;
 
     const authUser = (req as any).user ?? {};
@@ -513,24 +520,67 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
     const calcSubtotal = roundPurchaseMoney(
       normalizedItems.reduce((sum, item) => sum + item.grossLine, 0)
     );
-    const calcDiscount = roundPurchaseMoney(
+    const lineDiscountsTotal = roundPurchaseMoney(
       normalizedItems.reduce((sum, item) => sum + item.lineDiscount, 0)
     );
-    const calcTaxable = roundPurchaseMoney(
-      normalizedItems.reduce(
-        (sum, item) => sum + (item.isVatApplicable ? item.lineTotal : 0),
-        0
-      )
+    const netItemSubtotal = Math.max(0, calcSubtotal - lineDiscountsTotal);
+
+    // Overall / Bill-Level Discount (flat amount or percentage of subtotal)
+    let parsedBillDiscount = 0;
+    const rawBillDiscount = Number(overallDiscount ?? billDiscount ?? req.body.totalDiscount ?? 0);
+    const discountType = String(billDiscountType || 'amount').toLowerCase();
+
+    if (Number.isFinite(rawBillDiscount) && rawBillDiscount > 0) {
+      if (discountType === 'percent') {
+        if (rawBillDiscount > 100) {
+          throw new PurchaseValidationError("Overall bill discount percent cannot exceed 100%.");
+        }
+        parsedBillDiscount = roundPurchaseMoney((netItemSubtotal * rawBillDiscount) / 100);
+      } else {
+        if (overallDiscount !== undefined || billDiscount !== undefined) {
+          if (rawBillDiscount > netItemSubtotal) {
+            throw new PurchaseValidationError(
+              `Overall bill discount (Rs. ${rawBillDiscount.toFixed(2)}) cannot exceed net subtotal of Rs. ${netItemSubtotal.toFixed(2)}.`
+            );
+          }
+          parsedBillDiscount = roundPurchaseMoney(rawBillDiscount);
+        } else if (rawBillDiscount > lineDiscountsTotal) {
+          parsedBillDiscount = roundPurchaseMoney(rawBillDiscount - lineDiscountsTotal);
+        }
+      }
+    }
+    // Cap bill discount so total discount cannot exceed gross subtotal
+    parsedBillDiscount = Math.min(parsedBillDiscount, netItemSubtotal);
+
+    const calcDiscount = roundPurchaseMoney(lineDiscountsTotal + parsedBillDiscount);
+
+    // Allocate bill discount proportionally across taxable and VAT-exempt goods
+    const taxableGross = normalizedItems.reduce(
+      (sum, item) => sum + (item.isVatApplicable ? item.lineTotal : 0),
+      0
     );
-    const calcVat = roundPurchaseMoney(
-      normalizedItems.reduce((sum, item) => sum + item.lineVat, 0)
-    );
+
+    let calcTaxable = taxableGross;
+    if (parsedBillDiscount > 0 && netItemSubtotal > 0 && taxableGross > 0) {
+      const taxableDiscountShare = roundPurchaseMoney((taxableGross / netItemSubtotal) * parsedBillDiscount);
+      calcTaxable = Math.max(0, taxableGross - taxableDiscountShare);
+    }
+    calcTaxable = roundPurchaseMoney(calcTaxable);
+
+    const rawCustomCharge = Number(customCharge ?? customsCharge ?? 0);
+    const parsedCustomCharge = Number.isFinite(rawCustomCharge) && rawCustomCharge > 0
+      ? roundPurchaseMoney(rawCustomCharge)
+      : 0;
+
+    const calcVat = roundPurchaseMoney(calcTaxable * 0.13);
+    // Net bill formula: (Total Bill amount - Discount) + VAT + Custom Charge (never negative)
     const calcGrandTotal = roundPurchaseMoney(
-      normalizedItems.reduce((sum, item) => sum + item.lineTotal, 0) + calcVat
+      Math.max(0, (calcSubtotal - calcDiscount) + calcVat + parsedCustomCharge)
     );
 
     assertPurchaseNumberFits(calcSubtotal, MAX_DECIMAL_12_2, "Purchase subtotal");
     assertPurchaseNumberFits(calcDiscount, MAX_DECIMAL_12_2, "Purchase discount");
+    assertPurchaseNumberFits(parsedCustomCharge, MAX_DECIMAL_12_2, "Purchase custom charge");
     assertPurchaseNumberFits(calcTaxable, MAX_DECIMAL_12_2, "Purchase taxable amount");
     assertPurchaseNumberFits(calcVat, MAX_DECIMAL_12_2, "Purchase VAT amount");
     assertPurchaseNumberFits(calcGrandTotal, MAX_DECIMAL_12_2, "Purchase grand total");
@@ -593,6 +643,7 @@ export const createPurchase = async (req: Request, res: Response): Promise<void>
           dueDate: parsedDueDate,
           subtotal: calcSubtotal,
           discountAmount: calcDiscount,
+          customCharge: parsedCustomCharge,
           taxableAmount: calcTaxable,
           vatAmount: calcVat,
           grandTotal: calcGrandTotal,

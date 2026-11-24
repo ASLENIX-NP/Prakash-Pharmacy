@@ -116,6 +116,10 @@ app.listen(PORT, async () => {
           ALTER COLUMN "pack_qty" TYPE DECIMAL(10, 2),
           ALTER COLUMN "free_packs" TYPE DECIMAL(10, 2);
       `);
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "purchase_invoice_tbl"
+          ADD COLUMN IF NOT EXISTS "custom_charge" DECIMAL(12, 2) DEFAULT 0.00;
+      `);
     } catch {
       // Safe fallback if already migrated or during initial table provisioning
     }

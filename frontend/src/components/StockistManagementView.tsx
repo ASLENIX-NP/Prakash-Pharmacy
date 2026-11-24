@@ -9,7 +9,6 @@ import {
   Search, 
   Download, 
   Upload,
-  FileSpreadsheet,
   Check, 
   AlertTriangle, 
   Building, 
@@ -26,6 +25,8 @@ import {
   Edit3,
   Gift,
   TrendingUp,
+  Percent,
+  PlusCircle,
   X
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
@@ -44,7 +45,6 @@ import {
   exportStockistLedgerToExcel, 
   exportWholesalerAnalyticsToExcel,
   exportPurchaseBillToExcel,
-  parseMedicinesFromExcel,
   downloadMedicineExcelTemplate
 } from '../utils/excelUtils';
 import { BulkMedicineImportModal } from './BulkMedicineImportModal';
@@ -251,8 +251,11 @@ export const StockistManagementView: React.FC = () => {
   const [invoiceItems, setInvoiceItems] = useState<StockistInvoiceItem[]>([
     createEmptyInvoiceItem('row-1')
   ]);
-  const excelBillInputRef = useRef<HTMLInputElement>(null);
-  const [isImportingExcelBill, setIsImportingExcelBill] = useState(false);
+  const [activeSuggestionRow, setActiveSuggestionRow] = useState<number | null>(null);
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState<number>(0);
+  const [billDiscountType, setBillDiscountType] = useState<'amount' | 'percent'>('amount');
+  const [billDiscountValue, setBillDiscountValue] = useState<string>('');
+  const [customChargeValue, setCustomChargeValue] = useState<string>('');
   const [isSubmittingPurchaseInvoice, setIsSubmittingPurchaseInvoice] = useState(false);
 
   // Return to Stockist (Debit Note) Form State
@@ -908,6 +911,7 @@ export const StockistManagementView: React.FC = () => {
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
+    setActiveSuggestionRow(null);
     setInvoiceItems(prev => [
       ...prev,
       createEmptyInvoiceItem(`row-${Date.now()}-${prev.length + 1}`)
@@ -916,120 +920,81 @@ export const StockistManagementView: React.FC = () => {
 
   // Update Item in Purchase Invoice
   const handleUpdateInvoiceItem = (index: number, updates: Partial<StockistInvoiceItem>) => {
-    const updated = [...invoiceItems];
-    const current = { ...updated[index], ...updates };
+    setInvoiceItems(prev => {
+      const updated = [...prev];
+      if (!updated[index]) return prev;
+      const current = { ...updated[index], ...updates };
 
-    // Purchases from distributors are in packs (can be decimal e.g. 4.5 packs)
-    const packQty = Number(current.packQty) || 0;
-    const costPrice = Number(current.costPrice) || 0;
-    const discountPercent = Number(current.discountPercent) || 0;
-    const baseAmount = packQty * costPrice;
-    const discountAmt = (baseAmount * discountPercent) / 100;
-    current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
+      // Purchases from distributors are in packs (can be decimal e.g. 4.5 packs)
+      const packQty = Number(current.packQty) || 0;
+      const costPrice = Number(current.costPrice) || 0;
+      const discountPercent = Number(current.discountPercent) || 0;
+      const baseAmount = packQty * costPrice;
+      const discountAmt = (baseAmount * discountPercent) / 100;
+      current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
 
-    updated[index] = current;
-    setInvoiceItems(updated);
+      updated[index] = current;
+      return updated;
+    });
   };
 
   // Remove Item from Purchase Invoice
   const handleRemoveInvoiceItem = (index: number) => {
+    setActiveSuggestionRow(null);
     setInvoiceItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Auto-fill from existing medicine in stock
+  // Auto-fill from existing medicine in stock (only links medicine & master metadata, keeping batch, expiry, and prices empty for new bill entry)
   const handleSelectExistingMedicineForInvoice = (index: number, medId: string) => {
     const med = medicines.find(m => m.id === medId);
     if (!med) return;
 
-    const costPrice = med.costPrice > 0 ? med.costPrice : (med.mrpPrice > 0 ? med.mrpPrice : 0);
-
     handleUpdateInvoiceItem(index, {
       medicineId: med.id,
       medicineName: med.name,
-      genericName: med.genericName,
-      category: med.category,
-      batchNumber: med.batchNumber,
-      expiryDate: med.expiryDate,
-      unitsPerPack: med.unitsPerPack,
-      costPrice,
-      mrpPrice: med.mrpPrice,
-      isVatApplicable: med.isVatApplicable,
+      genericName: med.genericName || '',
+      category: med.category || 'Tablet',
+      batchNumber: '',
+      expiryDate: '',
+      unitsPerPack: med.unitsPerPack || 10,
+      costPrice: 0,
+      mrpPrice: 0,
+      isVatApplicable: Boolean(med.isVatApplicable),
       prescriptionRequired: Boolean(med.prescriptionRequired),
-      rackLocation: med.rackLocation
+      rackLocation: med.rackLocation || 'Unassigned'
     });
   };
 
-  // Import Invoice Items from Excel / CSV
-  const handleImportExcelBill = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setIsImportingExcelBill(true);
-      const res = await parseMedicinesFromExcel(file);
-      if (res.success.length === 0) {
-        showToast('No medicine items could be recognized from this file.', 'warning', 'Import Notice');
-        return;
-      }
-
-      const importedRows: StockistInvoiceItem[] = res.success.map((m, idx) => {
-        const packQty = m.stockPacks || 0;
-        const freePacks = m.freePacks || 0;
-        const discountPercent = m.discountPercent || 0;
-        const costPrice = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
-        const unitsPerPack = m.unitsPerPack || 10;
-        const baseAmount = packQty * costPrice;
-        const discountAmt = (baseAmount * discountPercent) / 100;
-        const lineTotal = Math.round((baseAmount - discountAmt) * 100) / 100;
-
-        return {
-          id: `imp-${Date.now()}-${idx}`,
-          medicineName: m.name,
-          genericName: m.genericName || '',
-          category: m.category || 'Tablet',
-          batchNumber: m.batchNumber || '',
-          expiryDate: m.expiryDate || '',
-          packQty: packQty > 0 ? packQty : (freePacks > 0 ? 0 : 1),
-          looseUnits: 0,
-          freePacks,
-          unitsPerPack,
-          costPrice,
-          discountPercent,
-          isVatApplicable: Boolean(m.isVatApplicable),
-          prescriptionRequired: Boolean(m.prescriptionRequired),
-          mrpPrice: m.mrpPrice || (costPrice > 0 ? Math.round(costPrice * 1.25 * 100) / 100 : 0),
-          rackLocation: m.rackLocation || 'Unassigned',
-          lineTotal
-        };
-      });
-
-      setInvoiceItems(importedRows);
-
-      // Auto-match stockist if specified in sheet
-      const detectedSupplier = res.success.find(item => item.supplierName?.trim())?.supplierName?.trim();
-      if (detectedSupplier) {
-        const match = stockists.find(s => s.name.toLowerCase() === detectedSupplier.toLowerCase());
-        if (match) {
-          setInvoiceHeader(prev => ({ ...prev, stockistId: match.id }));
-        }
-      }
-
-
-      showToast(`Successfully loaded ${importedRows.length} invoice items from Excel file!`, 'success', 'Excel Imported');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to read Excel bill', 'error', 'Import Error');
-    } finally {
-      setIsImportingExcelBill(false);
-      if (e.target) e.target.value = '';
+  // Case-insensitive medicine suggestions for purchase invoice entry
+  const getMedicineSuggestions = (query: string) => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) {
+      return medicines.slice(0, 8);
     }
+
+    const matches = medicines.filter(m => {
+      const name = (m.name || '').toLowerCase();
+      const generic = (m.genericName || '').toLowerCase();
+      return name.includes(q) || generic.includes(q);
+    });
+
+    matches.sort((a, b) => {
+      const aName = (a.name || '').toLowerCase();
+      const bName = (b.name || '').toLowerCase();
+      const aStarts = aName.startsWith(q);
+      const bStarts = bName.startsWith(q);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return aName.localeCompare(bName);
+    });
+
+    return matches.slice(0, 10);
   };
 
   // Totals of Purchase Invoice
   const purchaseInvoiceTotals = useMemo(() => {
     let subtotal = 0;
-    let totalDiscount = 0;
-    let taxableAmount = 0;
-    let vatAmount = 0;
+    let itemDiscountsTotal = 0;
     let totalFreePacks = 0;
     let freeBonusProfitCost = 0;
     let freeBonusValueMrp = 0;
@@ -1042,15 +1007,9 @@ export const StockistManagementView: React.FC = () => {
       const discountPercent = Number(it.discountPercent) || 0;
       const gross = packQty * costPrice;
       const disc = (gross * discountPercent) / 100;
-      const net = gross - disc;
 
       subtotal += gross;
-      totalDiscount += disc;
-
-      if (it.isVatApplicable) {
-        taxableAmount += net;
-        vatAmount += net * 0.13;
-      }
+      itemDiscountsTotal += disc;
 
       if (freeQty > 0) {
         totalFreePacks += freeQty;
@@ -1059,11 +1018,50 @@ export const StockistManagementView: React.FC = () => {
       }
     });
 
-    const grandTotal = (subtotal - totalDiscount) + vatAmount;
+    const netItemSubtotal = Math.max(0, subtotal - itemDiscountsTotal);
+    const rawVal = parseFloat(billDiscountValue) || 0;
+    let billDiscountAmount = 0;
+
+    if (rawVal > 0) {
+      if (billDiscountType === 'percent') {
+        const clampedPercent = Math.min(100, Math.max(0, rawVal));
+        billDiscountAmount = Math.round(((netItemSubtotal * clampedPercent) / 100) * 100) / 100;
+      } else {
+        billDiscountAmount = Math.min(netItemSubtotal, Math.round(rawVal * 100) / 100);
+      }
+    }
+    billDiscountAmount = Math.min(billDiscountAmount, netItemSubtotal);
+
+    const totalDiscount = Math.round((itemDiscountsTotal + billDiscountAmount) * 100) / 100;
+
+    // Allocate bill discount proportionally across taxable items
+    const taxableGross = invoiceItems.reduce((acc, it) => {
+      if (!it.isVatApplicable) return acc;
+      const pq = Number(it.packQty) || 0;
+      const cp = Number(it.costPrice) || 0;
+      const dp = Number(it.discountPercent) || 0;
+      const gross = pq * cp;
+      return acc + (gross - (gross * dp) / 100);
+    }, 0);
+
+    let taxableAmount = taxableGross;
+    if (billDiscountAmount > 0 && netItemSubtotal > 0 && taxableGross > 0) {
+      const taxableDiscountShare = (taxableGross / netItemSubtotal) * billDiscountAmount;
+      taxableAmount = Math.max(0, taxableGross - taxableDiscountShare);
+    }
+    taxableAmount = Math.round(taxableAmount * 100) / 100;
+
+    const parsedCustomCharge = Math.max(0, parseFloat(customChargeValue) || 0);
+    const vatAmount = Math.round((taxableAmount * 0.13) * 100) / 100;
+    // Net Bill Amount = (Total Bill amount - Discount) + VAT + Custom Charge
+    const grandTotal = Math.max(0, Math.round(((subtotal - totalDiscount) + vatAmount + parsedCustomCharge) * 100) / 100);
 
     return {
-      subtotal,
+      subtotal: Math.round(subtotal * 100) / 100,
+      itemDiscountsTotal: Math.round(itemDiscountsTotal * 100) / 100,
+      billDiscountAmount,
       totalDiscount,
+      customCharge: parsedCustomCharge,
       taxableAmount,
       vatAmount,
       grandTotal,
@@ -1071,7 +1069,7 @@ export const StockistManagementView: React.FC = () => {
       freeBonusProfitCost: Math.round(freeBonusProfitCost * 100) / 100,
       freeBonusValueMrp: Math.round(freeBonusValueMrp * 100) / 100,
     };
-  }, [invoiceItems]);
+  }, [invoiceItems, billDiscountType, billDiscountValue, customChargeValue]);
 
   // Submit Purchase Invoice
   const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
@@ -1115,6 +1113,19 @@ export const StockistManagementView: React.FC = () => {
       return;
     }
 
+    const rawDisc = parseFloat(billDiscountValue) || 0;
+    if (rawDisc > 0) {
+      if (billDiscountType === 'percent' && rawDisc > 100) {
+        showToast('Overall bill discount percent cannot exceed 100%.', 'warning', 'Discount Validation');
+        return;
+      }
+      const netSubtotal = Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal);
+      if (billDiscountType === 'amount' && rawDisc > netSubtotal) {
+        showToast(`Overall bill discount cannot exceed the net subtotal of Rs. ${netSubtotal.toFixed(2)}.`, 'warning', 'Discount Validation');
+        return;
+      }
+    }
+
     const stockist =
       stockists.find(s => s.id === invoiceHeader.stockistId) ||
       stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s)) ||
@@ -1149,6 +1160,9 @@ export const StockistManagementView: React.FC = () => {
         })),
         subtotal: purchaseInvoiceTotals.subtotal,
         totalDiscount: purchaseInvoiceTotals.totalDiscount,
+        billDiscount: purchaseInvoiceTotals.billDiscountAmount,
+        billDiscountType,
+        customCharge: purchaseInvoiceTotals.customCharge,
         taxableAmount: purchaseInvoiceTotals.taxableAmount,
         vatAmount: purchaseInvoiceTotals.vatAmount,
         grandTotal: purchaseInvoiceTotals.grandTotal,
@@ -1166,6 +1180,8 @@ export const StockistManagementView: React.FC = () => {
         dueDate: '',
         notes: ''
       });
+      setBillDiscountValue('');
+      setCustomChargeValue('');
       setInvoiceItems([createEmptyInvoiceItem('row-1')]);
       setSelectedStockistId(stockist.id);
       setActiveTab('ledger');
@@ -2133,23 +2149,6 @@ export const StockistManagementView: React.FC = () => {
                 Item-Wise Medicine Invoice Details ({invoiceItems.length} items)
               </span>
               <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  ref={excelBillInputRef}
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleImportExcelBill}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => excelBillInputRef.current?.click()}
-                  disabled={isImportingExcelBill}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Upload Excel or CSV bill to auto-populate invoice line items"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-700" />
-                  <span>{isImportingExcelBill ? 'Importing Bill...' : 'Import Bill from Excel'}</span>
-                </button>
                 <button
                   type="button"
                   onClick={handleAddInvoiceItemRow}
@@ -2161,11 +2160,11 @@ export const StockistManagementView: React.FC = () => {
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-x-auto">
+            <div className="border border-slate-200 rounded-xl overflow-x-auto min-h-[380px]">
               <table className="w-full text-left text-xs min-w-[950px]">
                 <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-semibold">
                   <tr>
-                    <th className="py-2.5 px-3">Medicine Name</th>
+                    <th className="py-2.5 px-3 min-w-[260px]">Medicine Name</th>
                     <th className="py-2.5 px-2">Batch #</th>
                     <th className="py-2.5 px-2">Expiry</th>
                     <th className="py-2.5 px-2 text-center">Packs</th>
@@ -2196,30 +2195,176 @@ export const StockistManagementView: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    invoiceItems.map((item, idx) => (
+                    invoiceItems.map((item, idx) => {
+                      const currentSuggestions = activeSuggestionRow === idx ? getMedicineSuggestions(item.medicineName) : [];
+                      return (
                       <tr key={item.id} className="hover:bg-slate-50/50">
-                        <td className="py-2 px-3">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Medicine name"
-                            value={item.medicineName}
-                            onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
-                          />
-                          <div className="mt-1 flex items-center gap-1">
-                            <select
-                              onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
-                              className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
-                            >
-                              <option value="">Or Pick Existing...</option>
-                              {medicines.map(m => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
-                                </option>
-                              ))}
-                            </select>
+                        <td className="py-2 px-3 relative min-w-[260px]">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              placeholder="Type medicine name (e.g. Paracetamol)..."
+                              value={item.medicineName}
+                              autoComplete="off"
+                              onChange={(e) => {
+                                handleUpdateInvoiceItem(idx, {
+                                  medicineName: e.target.value,
+                                  medicineId: undefined
+                                });
+                                setActiveSuggestionRow(idx);
+                                setHighlightedSuggestionIndex(0);
+                              }}
+                              onFocus={() => {
+                                setActiveSuggestionRow(idx);
+                                setHighlightedSuggestionIndex(0);
+                              }}
+                              onBlur={() => {
+                                setTimeout(() => {
+                                  setActiveSuggestionRow(prev => (prev === idx ? null : prev));
+                                }, 200);
+                              }}
+                              onKeyDown={(e) => {
+                                if (activeSuggestionRow === idx && currentSuggestions.length > 0) {
+                                  if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    setHighlightedSuggestionIndex(prev => (prev + 1) % currentSuggestions.length);
+                                  } else if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    setHighlightedSuggestionIndex(prev => (prev - 1 + currentSuggestions.length) % currentSuggestions.length);
+                                  } else if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const selected = currentSuggestions[highlightedSuggestionIndex];
+                                    if (selected) {
+                                      handleSelectExistingMedicineForInvoice(idx, selected.id);
+                                      setActiveSuggestionRow(null);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setActiveSuggestionRow(null);
+                                  }
+                                }
+                              }}
+                              className={`w-full border rounded px-2.5 py-1 text-xs font-semibold text-slate-900 transition-colors focus:outline-none ${
+                                item.medicineId
+                                  ? 'border-teal-500 bg-teal-50/20'
+                                  : 'border-slate-300 focus:border-teal-500'
+                              }`}
+                            />
+
+                            {item.medicineId ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-teal-700 font-medium">
+                                <CheckCircle2 className="w-3 h-3 text-teal-600 shrink-0" />
+                                <span className="truncate">Linked to inventory</span>
+                                {item.genericName && (
+                                  <span className="text-slate-400 font-normal truncate">• {item.genericName}</span>
+                                )}
+                              </div>
+                            ) : item.medicineName.trim() ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-amber-600">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                                <span className="truncate">New medicine (not linked)</span>
+                              </div>
+                            ) : (
+                              <div className="mt-0.5 text-[9.5px] text-slate-400">
+                                Suggests as you type (case-insensitive)
+                              </div>
+                            )}
                           </div>
+
+                          {/* Autocomplete Suggestion Dropdown */}
+                          {activeSuggestionRow === idx && (
+                            <div
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className={`absolute left-3 w-80 sm:w-96 bg-white border border-slate-300 rounded-xl shadow-2xl z-50 divide-y divide-slate-100 overflow-hidden ${
+                                invoiceItems.length > 2 && idx >= invoiceItems.length - 2
+                                  ? 'bottom-[calc(100%+4px)]'
+                                  : 'top-[calc(100%+2px)]'
+                              }`}
+                            >
+                              <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                                <span>
+                                  {item.medicineName.trim()
+                                    ? `Matching Medicines (${currentSuggestions.length})`
+                                    : `Inventory Catalog (${currentSuggestions.length})`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setActiveSuggestionRow(null);
+                                  }}
+                                  className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                                {currentSuggestions.length === 0 ? (
+                                  <div className="p-3 text-center text-xs text-slate-500">
+                                    <p className="font-medium text-slate-700">No existing medicine found matching "{item.medicineName}".</p>
+                                    <p className="text-[10.5px] text-slate-400 mt-0.5">
+                                      You can continue typing to save this as a new medicine.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  currentSuggestions.map((m, sIdx) => {
+                                    const isHighlighted = highlightedSuggestionIndex === sIdx;
+                                    const rate = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
+                                    return (
+                                      <div
+                                        key={m.id}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          handleSelectExistingMedicineForInvoice(idx, m.id);
+                                          setActiveSuggestionRow(null);
+                                        }}
+                                        onMouseEnter={() => setHighlightedSuggestionIndex(sIdx)}
+                                        className={`px-3 py-2 cursor-pointer transition-colors flex items-center justify-between gap-2 text-left ${
+                                          isHighlighted ? 'bg-teal-50 border-l-4 border-teal-600' : 'hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold text-slate-900 text-xs truncate">{m.name}</span>
+                                            {m.category && (
+                                              <span className="text-[9.5px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                                                {m.category}
+                                              </span>
+                                            )}
+                                            {m.isVatApplicable && (
+                                              <span className="text-[9.5px] bg-blue-50 text-blue-700 px-1 rounded border border-blue-200 shrink-0 font-medium">
+                                                VAT
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10.5px] text-slate-500 truncate mt-0.5">
+                                            {m.genericName ? <span className="font-medium text-slate-600">{m.genericName} • </span> : null}
+                                            <span>{m.unitsPerPack || 10}/pack</span>
+                                            {m.batchNumber ? <span className="text-slate-400"> • Batch: {m.batchNumber}</span> : null}
+                                            {m.supplierName ? <span className="text-slate-400"> • {m.supplierName}</span> : null}
+                                          </div>
+                                        </div>
+
+                                        <div className="text-right shrink-0 font-mono text-[11px] pl-2">
+                                          <div className="font-bold text-teal-700 whitespace-nowrap">Rs. {Number(rate).toFixed(2)}</div>
+                                          <div className="text-[9.5px] text-slate-400 whitespace-nowrap">MRP Rs. {Number(m.mrpPrice || 0).toFixed(2)}</div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              {currentSuggestions.length > 0 && (
+                                <div className="bg-slate-50 px-3 py-1 border-t border-slate-200 text-[10px] text-slate-400 flex items-center justify-between">
+                                  <span>Use ↑ ↓ then Enter to select</span>
+                                  <span>Click to choose</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-2 px-2">
@@ -2234,8 +2379,9 @@ export const StockistManagementView: React.FC = () => {
 
                         <td className="py-2 px-2">
                           <input
+                            key={`expiry-${item.id}-${item.medicineId || 'empty'}`}
                             type="date"
-                            value={item.expiryDate}
+                            value={item.expiryDate || ''}
                             onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
                             className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
                           />
@@ -2362,35 +2508,202 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                           </button>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
           </div>
 
           {/* Invoice Summary Box */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
-            <div className="max-w-md">
-              <label className="block font-semibold text-slate-700 mb-1">Invoice Remarks &amp; Terms:</label>
-              <input
-                type="text"
-                value={invoiceHeader.notes}
-                onChange={(e) => setInvoiceHeader({ ...invoiceHeader, notes: e.target.value })}
-                placeholder="e.g. Delivery checked, 15 days credit due date"
-                className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs"
-              />
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-start justify-between gap-4 text-xs">
+            <div className="max-w-xs flex-1 min-w-[220px] space-y-2">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Invoice Remarks &amp; Terms:</label>
+                <input
+                  type="text"
+                  value={invoiceHeader.notes}
+                  onChange={(e) => setInvoiceHeader({ ...invoiceHeader, notes: e.target.value })}
+                  placeholder="e.g. Delivery checked, 15 days credit due date"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs"
+                />
+              </div>
             </div>
 
-            <div className="w-72 space-y-1.5 text-right font-mono">
+            {/* Overall Bill Discount & Custom Charge */}
+            <div className="space-y-2.5 max-w-sm flex-1 min-w-[260px]">
+              {/* Overall Bill Discount (Entire Invoice) */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Percent className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Overall Bill Discount</span>
+                  </label>
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (billDiscountType !== 'amount') {
+                          setBillDiscountType('amount');
+                          setBillDiscountValue('');
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        billDiscountType === 'amount'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      Rs. Flat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (billDiscountType !== 'percent') {
+                          setBillDiscountType('percent');
+                          setBillDiscountValue('');
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        billDiscountType === 'percent'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      % Percent
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      {billDiscountType === 'amount' ? 'Rs.' : '%'}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={billDiscountType === 'percent' ? 100 : Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal)}
+                      placeholder="0.00"
+                      value={billDiscountValue}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setBillDiscountValue('');
+                          return;
+                        }
+                        const num = parseFloat(val);
+                        if (billDiscountType === 'percent') {
+                          if (num > 100) {
+                            setBillDiscountValue('100');
+                            return;
+                          }
+                        } else {
+                          const maxAmt = Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal);
+                          if (num > maxAmt) {
+                            setBillDiscountValue(String(maxAmt));
+                            return;
+                          }
+                        }
+                        setBillDiscountValue(val);
+                      }}
+                      className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+                  {billDiscountValue && Number(billDiscountValue) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setBillDiscountValue('')}
+                      className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  {billDiscountValue && Number(billDiscountValue) > 0
+                    ? billDiscountType === 'percent'
+                      ? `Applied: ${billDiscountValue}% discount on the net bill subtotal (Max 100%).`
+                      : `Applied: Flat Rs. ${billDiscountValue} discount on the bill (Max: Rs. ${(purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal).toFixed(2)}).`
+                    : 'Choose either Flat (Rs.) OR Percent (%), then enter the discount value.'}
+                </p>
+              </div>
+
+              {/* Custom Charge Field */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Custom / Additional Charge</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">Optional</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      Rs.
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={customChargeValue}
+                      onChange={(e) => setCustomChargeValue(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  {customChargeValue && Number(customChargeValue) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomChargeValue('')}
+                      className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  Applied to total bill depending on medicine type (e.g. customs duty / freight).
+                </p>
+              </div>
+            </div>
+
+            {/* Calculations Breakdown */}
+            <div className="w-80 space-y-1.5 text-right font-mono">
               <div className="flex justify-between text-slate-600">
-                <span>Subtotal:</span>
+                <span>Gross Subtotal:</span>
                 <span>Rs. {purchaseInvoiceTotals.subtotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-rose-600">
-                <span>Total Discount:</span>
-                <span>- Rs. {purchaseInvoiceTotals.totalDiscount.toFixed(2)}</span>
-              </div>
+              {purchaseInvoiceTotals.itemDiscountsTotal > 0 && (
+                <div className="flex justify-between text-rose-600 text-[11px]">
+                  <span>Item Discounts:</span>
+                  <span>- Rs. {purchaseInvoiceTotals.itemDiscountsTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.billDiscountAmount > 0 && (
+                <div className="flex justify-between text-rose-600 font-semibold text-[11px]">
+                  <span>Bill Discount ({billDiscountType === 'percent' ? `${billDiscountValue}%` : 'Flat'}):</span>
+                  <span>- Rs. {purchaseInvoiceTotals.billDiscountAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.itemDiscountsTotal > 0 && purchaseInvoiceTotals.billDiscountAmount > 0 && (
+                <div className="flex justify-between text-rose-700 font-bold border-t border-dashed border-slate-200 pt-0.5">
+                  <span>Total Discount:</span>
+                  <span>- Rs. {purchaseInvoiceTotals.totalDiscount.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.customCharge > 0 && (
+                <div className="flex justify-between text-amber-700 font-semibold text-[11px]">
+                  <span>Custom Charge:</span>
+                  <span>+ Rs. {purchaseInvoiceTotals.customCharge.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-blue-700">
                 <span>13% VAT Portion:</span>
                 <span>+ Rs. {purchaseInvoiceTotals.vatAmount.toFixed(2)}</span>
@@ -2410,7 +2723,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
               </div>
               {purchaseInvoiceTotals.freeBonusProfitCost > 0 && (
                 <p className="text-[10px] text-emerald-700 text-right font-sans font-medium">
-                  Includes {purchaseInvoiceTotals.totalFreePacks} free pack(s) received @ Rs. 0 cost (100% profit when sold)
+                  Includes {purchaseInvoiceTotals.totalFreePacks} free pack(s) received @ Rs. 0 cost
                 </p>
               )}
             </div>
@@ -4186,6 +4499,14 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                         <td colSpan={6} className="py-2.5 px-3 text-rose-700">Total Discount</td>
                         <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-rose-700">
                           - Rs. {Number(viewingPurchaseBill.totalDiscount).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
+                    {Number(viewingPurchaseBill.customCharge) > 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-2.5 px-3 text-amber-700">Custom / Additional Charge</td>
+                        <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-amber-700">
+                          + Rs. {Number(viewingPurchaseBill.customCharge).toFixed(2)}
                         </td>
                       </tr>
                     )}
