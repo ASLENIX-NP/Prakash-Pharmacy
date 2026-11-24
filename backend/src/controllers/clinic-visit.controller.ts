@@ -236,6 +236,12 @@ const formatVisit = (
           "completed"
       ).toLowerCase(),
 
+    paymentMethod:
+      String(
+        visit.paymentMethod ||
+          "cash"
+      ).toLowerCase(),
+
     completedAt:
       visit.completedAt
         ? new Date(
@@ -890,7 +896,24 @@ export const completeClinicVisit = async (
       additionalCharge,
 
       additionalChargeNote,
+
+      paymentMethod:
+        rawPaymentMethod,
     } = req.body;
+
+    const paymentMethod =
+      rawPaymentMethod &&
+      [
+        "cash",
+        "fonepay",
+        "fonepay_qr",
+        "card",
+        "credit",
+      ].includes(
+        String(rawPaymentMethod).toLowerCase().trim()
+      )
+        ? String(rawPaymentMethod).toLowerCase().trim()
+        : existingVisit.paymentMethod || "cash";
 
 
     const parsedConsultationFee =
@@ -987,6 +1010,8 @@ export const completeClinicVisit = async (
         data: {
           consultationFee:
             parsedConsultationFee,
+
+          paymentMethod,
 
           additionalCharge:
             parsedAdditionalCharge,
@@ -1181,6 +1206,9 @@ export const createClinicVisit = async (
 
       consultationFee,
 
+      paymentMethod:
+        rawPaymentMethod,
+
       /*
        * Accepted temporarily so the existing
        * frontend keeps working until its next patch.
@@ -1188,6 +1216,17 @@ export const createClinicVisit = async (
       totalCharge:
         legacyTotalCharge,
     } = req.body;
+
+    const paymentMethod = [
+      "fonepay",
+      "fonepay_qr",
+      "card",
+      "credit",
+    ].includes(
+      String(rawPaymentMethod || "").toLowerCase().trim()
+    )
+      ? String(rawPaymentMethod).toLowerCase().trim()
+      : "cash";
 
 
     const patientId =
@@ -1430,6 +1469,8 @@ export const createClinicVisit = async (
 
           consultationFee:
             parsedConsultationFee,
+
+          paymentMethod,
 
           additionalCharge:
             0,
