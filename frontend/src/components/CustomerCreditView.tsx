@@ -52,6 +52,7 @@ export const CustomerCreditView: React.FC = () => {
   };
 
   type BulkSettlementDraft = {
+    customerId: number;
     customerName: string;
     phone: string;
     invoiceIds: number[];
@@ -141,11 +142,21 @@ export const CustomerCreditView: React.FC = () => {
     return Math.max(0, (inv.grandTotal || 0) - returned - (inv.cashTendered || 0));
   };
 
-  // Customer identity is based on normalized phone, never invoice name.
-  // Historical invoices remain unchanged.
+  // Group only by verified database customer identity.
+  // Unlinked historical invoices remain individually identifiable.
+  const creditIdentityKey = (inv: SaleInvoice): string => {
+    const id = inv.customerId;
+    return typeof id === 'number' &&
+      Number.isSafeInteger(id) &&
+      id > 0
+      ? `customer:${id}`
+      : `invoice:${inv.id}`;
+  };
+
   const groupedCustomers = useMemo(() => {
     type CreditGroup = {
       key: string;
+      customerId: number | null;
       name: string;
       phone: string;
       address: string;
@@ -168,15 +179,20 @@ export const CustomerCreditView: React.FC = () => {
 
     for (const inv of chronological) {
       const phone = (inv.customerPhone || '').replace(/\D/g, '');
-      const key = phone
-        ? `phone:${phone}`
-        : `invoice:${inv.id}`;
+      const customerId =
+        typeof inv.customerId === 'number' &&
+        Number.isSafeInteger(inv.customerId) &&
+        inv.customerId > 0
+          ? inv.customerId
+          : null;
+      const key = creditIdentityKey(inv);
 
       let group = groups.get(key);
 
       if (!group) {
         group = {
           key,
+          customerId,
           name: inv.customerName || 'Unknown Customer',
           phone,
           address: inv.customerAddress || '',
@@ -235,12 +251,7 @@ export const CustomerCreditView: React.FC = () => {
       } else {
         totalOutstanding += netDue;
         unpaidCount++;
-        const normalizedPhone = (inv.customerPhone || '').replace(/\D/g, '');
-        customerSet.add(
-          normalizedPhone
-            ? `phone:${normalizedPhone}`
-            : `invoice:${inv.id}`
-        );
+        customerSet.add(creditIdentityKey(inv));
       }
     });
 
@@ -288,6 +299,7 @@ export const CustomerCreditView: React.FC = () => {
   };
 
   const openBulkSettlement = (group: {
+    customerId: number | null;
     phone: string;
     name: string;
     invoices: SaleInvoice[];
@@ -301,13 +313,13 @@ export const CustomerCreditView: React.FC = () => {
     const ids = due.map((inv) => Number(inv.id));
 
     if (
-      !/^\d{7,10}$/.test(group.phone) ||
+      group.customerId === null ||
       due.length < 2 ||
       ids.some((id) => !Number.isSafeInteger(id) || id <= 0) ||
       new Set(ids).size !== ids.length
     ) {
       window.alert(
-        'Bulk settlement requires at least two valid unpaid invoices for one phone number.'
+        'Bulk settlement requires a verified customer and at least two unpaid invoices.'
       );
       return;
     }
@@ -317,6 +329,7 @@ export const CustomerCreditView: React.FC = () => {
     ) / 100;
 
     setBulkSettlement({
+      customerId: group.customerId,
       customerName: group.name,
       phone: group.phone,
       invoiceIds: ids,
@@ -340,7 +353,7 @@ export const CustomerCreditView: React.FC = () => {
       }>('/bills/settle-credit-bulk', {
         method: 'POST',
         body: JSON.stringify({
-          customerPhone: bulkSettlement.phone,
+          customerId: bulkSettlement.customerId,
           invoiceIds: bulkSettlement.invoiceIds,
           expectedTotal: bulkSettlement.amount,
           paymentMethod: bulkPaymentMethod,
@@ -698,7 +711,7 @@ export const CustomerCreditView: React.FC = () => {
                   </button>
 
                   {statusFilter !== 'paid' &&
-                    /^\d{7,10}$/.test(group.phone) &&
+                    group.customerId !== null &&
                     group.invoices.filter(
                       (inv) =>
                         inv.paymentStatus !== 'paid' &&
@@ -982,8 +995,8 @@ export const CustomerCreditView: React.FC = () => {
             </div>
 
             <p className="mt-3 text-xs text-slate-600">
-              This payment covers every outstanding credit invoice for this
-              phone number, including invoices outside the selected date filter.
+              This payment covers outstanding credit invoices linked to this
+              verified customer ID, including invoices outside the date filter.
               Individual invoice records will remain separate.
             </p>
 

@@ -305,6 +305,7 @@ export interface SaleInvoice {
   time: string; // HH:mm:ss
   customerName: string;
   customerPhone?: string;
+  customerId?: number | null; // Verified database-linked customer identity
   customerAddress?: string;
   memberCustomerId?: number; // Verified member for credit checkout
   customerPan?: string; // Optional buyer PAN for statutory tax invoices
