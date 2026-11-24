@@ -558,6 +558,7 @@ export const formatBillResponse = (bill: any) => {
     time: timeStr,
     customerName: bill.customerName || "Counter Customer",
     customerPhone: bill.customerPhone || undefined,
+    customerId: bill.customerId ?? null,
     customerAddress: bill.customerAddress || undefined,
     customerPan: bill.customerPan || undefined,
     doctorName: bill.prescribingDoctor || undefined,
@@ -2091,6 +2092,11 @@ export const settleBillCredit = async (
   res: Response
 ): Promise<void> => {
   try {
+    const collectedById = String(req.user?.id ?? "").trim();
+    if (!collectedById) {
+      throw new BillValidationError("Authentication required.", 401);
+    }
+
     const rawId = String(req.params.id || "").trim();
     const id = Number(rawId);
     const method = String(req.body?.paymentMethod ?? "cash")
@@ -2161,7 +2167,7 @@ export const settleBillCredit = async (
         );
       }
 
-      return tx.bill.update({
+      const settledBill = await tx.bill.update({
         where: { id },
         data: {
           paymentStatus: "paid",
@@ -2185,6 +2191,17 @@ export const settleBillCredit = async (
           },
         },
       });
+
+      await tx.creditSettlement.create({
+        data: {
+          billId: id,
+          amount: dueCents / 100,
+          paymentMethod: method,
+          collectedById,
+        },
+      });
+
+      return settledBill;
     }, { timeout: 15000 });
 
     res.status(200).json({
@@ -2218,8 +2235,12 @@ export const settleCustomerCreditBulk = async (
   res: Response
 ): Promise<void> => {
   try {
-    const phone = String(req.body?.customerPhone ?? "")
-      .replace(/\D/g, "");
+    const collectedById = String(req.user?.id ?? "").trim();
+    if (!collectedById) {
+      throw new BillValidationError("Authentication required.", 401);
+    }
+
+    const customerId = Number(req.body?.customerId);
 
     const rawIds: unknown = req.body?.invoiceIds;
     const method = String(req.body?.paymentMethod ?? "cash")
@@ -2228,8 +2249,8 @@ export const settleCustomerCreditBulk = async (
 
     const expectedTotal = Number(req.body?.expectedTotal);
 
-    if (!/^\d{7,10}$/.test(phone)) {
-      throw new BillValidationError("Valid customer phone is required.");
+    if (!Number.isSafeInteger(customerId) || customerId <= 0) {
+      throw new BillValidationError("Valid verified customer ID is required.");
     }
 
     if (
@@ -2271,17 +2292,14 @@ export const settleCustomerCreditBulk = async (
 
     const result = await prisma.$transaction(
       async (tx) => {
-        // Lock ALL currently unpaid credit bills belonging to this phone.
-        // This prevents simultaneous bulk requests from paying twice.
+        // Lock all unpaid credit bills linked to this customer ID.
+        // Never combine different customers using a shared phone.
         const locked = await tx.$queryRaw<Array<{ id: number }>>`
           SELECT id
           FROM bill_tbl
           WHERE payment_method = 'credit'
             AND payment_status <> 'paid'
-            AND regexp_replace(
-              COALESCE(customer_phone, ''),
-              '[^0-9]', '', 'g'
-            ) = ${phone}
+            AND customer_id = ${customerId}
           ORDER BY id
           FOR UPDATE
         `;
@@ -2362,10 +2380,19 @@ export const settleCustomerCreditBulk = async (
               409
             );
           }
+
+          await tx.creditSettlement.create({
+            data: {
+              billId: entry.bill.id,
+              amount: entry.dueCents / 100,
+              paymentMethod: method,
+              collectedById,
+            },
+          });
         }
 
         return {
-          customerPhone: phone,
+          customerId,
           invoiceIds: currentIds,
           settledCount: dues.length,
           amountPaid: actualCents / 100,

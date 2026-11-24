@@ -151,6 +151,7 @@ model User {
   createdAt   DateTime @default(now()) @map("created_at")
 
   bills        Bill[]
+  creditSettlements CreditSettlement[]
   clinicVisits ClinicVisit[]
 
   passwordResetChallenge PasswordResetChallenge?
@@ -190,6 +191,7 @@ model Bill {
   items BillItem[]
 
   salesReturns SalesReturn[]
+  creditSettlement CreditSettlement?
 
   customerId Int?      @map("customer_id")
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -658,4 +660,21 @@ model Customer {
 
   @@index([name])
   @@map("customers_tbl")
+}
+
+/// Permanent audit record of final credit invoice settlement.
+/// Historical previously settled invoices may have no audit row.
+model CreditSettlement {
+  id            Int      @id @default(autoincrement())
+  billId        Int      @unique @map("bill_id")
+  bill          Bill     @relation(fields: [billId], references: [id], onDelete: Restrict)
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentMethod String   @map("payment_method")
+  collectedById String   @map("collected_by_id")
+  collectedBy   User     @relation(fields: [collectedById], references: [id], onDelete: Restrict)
+  settledAt     DateTime @default(now()) @map("settled_at")
+
+  @@index([collectedById])
+  @@index([settledAt])
+  @@map("credit_settlements_tbl")
 }
