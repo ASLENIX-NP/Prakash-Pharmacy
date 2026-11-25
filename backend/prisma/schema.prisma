@@ -564,6 +564,9 @@ model ClinicVisit {
   // New registrations explicitly set this to "open".
   status String @default("completed") @map("status")
 
+  // Payment mode recorded at checkout: "cash" | "fonepay" | "card"
+  paymentMethod String @default("cash") @map("payment_method")
+
   completedAt DateTime? @map("completed_at")
 
   cancelledAt  DateTime? @map("cancelled_at")
