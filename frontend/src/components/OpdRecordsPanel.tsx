@@ -5,21 +5,25 @@ import React, {
   useState,
 } from 'react';
 import {
+  AlertTriangle,
+  Banknote,
   Calendar,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
   Eye,
   History,
   Loader2,
   Phone,
   Printer,
+  QrCode,
+  Receipt,
   RefreshCw,
   Search,
   Stethoscope,
   Trash2,
   UserRound,
+  Wallet,
   X,
 } from 'lucide-react';
 
@@ -27,6 +31,7 @@ import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { apiRequest } from '../services/api';
 import { printOpdSticker } from '../utils/opdSticker';
+import { OpdInvoiceModal } from './OpdInvoiceModal';
 import { displayAge } from './NewOpdPanel';
 
 
@@ -79,6 +84,7 @@ interface ClinicVisit {
   additionalChargeNote: string | null;
 
   totalCharge: number;
+  paymentMethod?: string | null;
 
   // Temporary compatibility alias from backend.
   chargeNote: string | null;
@@ -121,6 +127,7 @@ interface PatientHistoryVisit {
   additionalCharge: number;
   additionalChargeNote: string | null;
   totalCharge: number;
+  paymentMethod?: string | null;
 
   chargeNote: string | null;
 
@@ -229,6 +236,14 @@ export const OpdRecordsPanel: React.FC = () => {
   ] =
     useState<ClinicVisit[]>([]);
   const [cancelingVisitId, setCancelingVisitId] = useState<string | null>(null);
+  const [billVisit, setBillVisit] = useState<ClinicVisit | null>(null);
+  const [actionModal, setActionModal] = useState<{
+    type: 'cancel' | 'void';
+    visit: ClinicVisit;
+  } | null>(null);
+  const [actionReason, setActionReason] = useState('');
+  const [actionReasonError, setActionReasonError] = useState('');
+  const [actionSubmitting, setActionSubmitting] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -321,6 +336,12 @@ export const OpdRecordsPanel: React.FC = () => {
     setCompletionNote,
   ] =
     useState('');
+
+  const [
+    completionPaymentMode,
+    setCompletionPaymentMode,
+  ] =
+    useState<'cash' | 'fonepay'>('cash');
 
 
   const fetchVisits =
@@ -420,196 +441,83 @@ export const OpdRecordsPanel: React.FC = () => {
       []
     );
 
-  const handleCancelVisit = async (
-    visit: ClinicVisit
-  ) => {
-    if (
-      visit.status !==
-      'open'
-    ) {
-      return;
-    }
+  const handleOpenCancelModal = (visit: ClinicVisit) => {
+    setActionModal({ type: 'cancel', visit });
+    setActionReason('');
+    setActionReasonError('');
+  };
 
-    const reason =
-      window.prompt(
-        `Reason for cancelling ${visit.opdNumber}?\n\nThe OPD record will be preserved as CANCELLED.`,
-        ''
-      );
+  const handleOpenVoidModal = (visit: ClinicVisit) => {
+    setActionModal({ type: 'void', visit });
+    setActionReason('');
+    setActionReasonError('');
+  };
 
-    if (reason === null) {
-      return;
-    }
+  const handleConfirmActionModal = async () => {
+    if (!actionModal) return;
+    const { type, visit } = actionModal;
+    const trimmedReason = actionReason.trim();
 
-    const confirmCancel =
-      await confirmDialog({
-        title:
-          `Cancel OPD Ticket ${visit.opdNumber}`,
-
-        message:
-          `Cancel OPD registration for "${visit.patient.name}"?\n\nThe record will NOT be deleted. Its status will become CANCELLED and remain in patient history.`,
-
-        confirmLabel:
-          'Cancel Ticket',
-
-        cancelLabel:
-          'Keep Ticket',
-
-        type:
-          'danger',
-      });
-
-    if (!confirmCancel) {
+    if (type === 'void' && trimmedReason.length < 3) {
+      setActionReasonError('Please provide a reason (at least 3 characters) to void this completed OPD.');
       return;
     }
 
     try {
-      setCancelingVisitId(
-        visit.id
-      );
+      setActionSubmitting(true);
+      setCancelingVisitId(visit.id);
 
-      const res =
-        await apiRequest<{
+      if (type === 'void') {
+        const res = await apiRequest<{
           success: boolean;
           message: string;
-        }>(
-          `/clinic-visits/${encodeURIComponent(
-            visit.id
-          )}`,
-          {
-            method:
-              'DELETE',
+        }>(`/clinic-visits/${encodeURIComponent(visit.id)}/void`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            reason: trimmedReason,
+          }),
+        });
 
-            body:
-              JSON.stringify({
-                reason:
-                  reason.trim(),
-              }),
-          }
+        showToast(
+          res?.message || `OPD ${visit.opdNumber} voided successfully.`,
+          'success',
+          'OPD Voided'
         );
+      } else {
+        const res = await apiRequest<{
+          success: boolean;
+          message: string;
+        }>(`/clinic-visits/${encodeURIComponent(visit.id)}`, {
+          method: 'DELETE',
+          body: JSON.stringify({
+            reason: trimmedReason || 'Cancelled by staff/admin',
+          }),
+        });
 
-      showToast(
-        res?.message ||
-          'OPD cancelled successfully.',
-        'success',
-        'OPD Cancelled'
-      );
-
-      if (
-        selectedVisit?.id ===
-        visit.id
-      ) {
-        setSelectedVisit(
-          null
+        showToast(
+          res?.message || `OPD ${visit.opdNumber} cancelled successfully.`,
+          'success',
+          'OPD Cancelled'
         );
       }
+
+      if (selectedVisit?.id === visit.id) {
+        setSelectedVisit(null);
+      }
+
+      setActionModal(null);
       await fetchVisits(filters);
     } catch (err) {
       showToast(
         err instanceof Error
           ? err.message
-          : 'Failed to cancel OPD visit.',
+          : `Failed to ${type} OPD visit.`,
         'error',
         'Action Failed'
       );
     } finally {
-      setCancelingVisitId(
-        null
-      );
-    }
-  };
-
-
-  const handleVoidVisit = async (
-    visit: ClinicVisit
-  ) => {
-    if (
-      visit.status !==
-      'completed'
-    ) {
-      return;
-    }
-
-    const reason =
-      window.prompt(
-        `Reason for voiding completed OPD ${visit.opdNumber}?\n\nThe completed consultation will remain in history but will no longer count as finalized clinic revenue.`,
-        ''
-      );
-
-    if (reason === null) {
-      return;
-    }
-
-    if (
-      reason.trim().length < 3
-    ) {
-      alert(
-        'Please enter a reason for voiding this completed OPD.'
-      );
-
-      return;
-    }
-
-    const confirmVoid =
-      window.confirm(
-        `Void completed OPD ${visit.opdNumber}?\n\nThis does not delete the record. Charges and completion history will be preserved.`
-      );
-
-    if (!confirmVoid) {
-      return;
-    }
-
-    try {
-      setCancelingVisitId(
-        visit.id
-      );
-
-      const res =
-        await apiRequest<{
-          success: boolean;
-          message: string;
-        }>(
-          `/clinic-visits/${encodeURIComponent(
-            visit.id
-          )}/void`,
-          {
-            method:
-              'PUT',
-
-            body:
-              JSON.stringify({
-                reason:
-                  reason.trim(),
-              }),
-          }
-        );
-
-      alert(
-        res?.message ||
-          'OPD voided successfully.'
-      );
-
-      if (
-        selectedVisit?.id ===
-        visit.id
-      ) {
-        setSelectedVisit(
-          null
-        );
-      }
-
-      await fetchVisits(
-        filters
-      );
-    } catch (err) {
-      alert(
-        err instanceof Error
-          ? err.message
-          : 'Failed to void OPD visit.'
-      );
-    } finally {
-      setCancelingVisitId(
-        null
-      );
+      setActionSubmitting(false);
+      setCancelingVisitId(null);
     }
   };
 
@@ -845,6 +753,11 @@ export const OpdRecordsPanel: React.FC = () => {
       visit.additionalChargeNote ||
         ''
     );
+
+    const rawPayment = String(visit.paymentMethod || 'cash').toLowerCase();
+    setCompletionPaymentMode(
+      rawPayment.includes('fonepay') ? 'fonepay' : 'cash'
+    );
   };
 
 
@@ -963,12 +876,20 @@ export const OpdRecordsPanel: React.FC = () => {
 
                   additionalChargeNote:
                     completionNote.trim(),
+
+                  paymentMethod:
+                    completionPaymentMode,
                 }),
             }
           );
 
 
         setSelectedVisit(
+          response.data
+        );
+
+        // Automatically open print bill popup upon completion
+        setBillVisit(
           response.data
         );
 
@@ -1550,12 +1471,12 @@ export const OpdRecordsPanel: React.FC = () => {
           {/* OPEN VISIT COMPLETION */}
           {selectedVisit.status ===
           'open' ? (
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 sm:p-5">
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5 shadow-xs">
 
               <div className="flex items-start gap-3">
 
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-700">
-                  <CircleDollarSign className="h-5 w-5" />
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-teal-100 text-teal-800">
+                  <Wallet className="h-5 w-5" />
                 </div>
 
                 <div>
@@ -1650,10 +1571,49 @@ export const OpdRecordsPanel: React.FC = () => {
                   </p>
                 </div>
 
+                <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] sm:items-center">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Payment Mode *
+                    </label>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      Confirm payment method before completing visit.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPaymentMode('cash')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border py-2 px-3 text-xs font-bold transition-all cursor-pointer ${
+                        completionPaymentMode === 'cash'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800 shadow-xs ring-1 ring-emerald-500 font-extrabold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <Banknote className="h-4 w-4 text-emerald-600" />
+                      <span>Cash</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPaymentMode('fonepay')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border py-2 px-3 text-xs font-bold transition-all cursor-pointer ${
+                        completionPaymentMode === 'fonepay'
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-800 shadow-xs ring-1 ring-indigo-500 font-extrabold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <QrCode className="h-4 w-4 text-indigo-600" />
+                      <span>Fonepay / QR</span>
+                    </button>
+                  </div>
+                </div>
+
               </div>
 
 
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-amber-200 pt-4">
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-4">
 
                 <div>
                   <span className="block text-[10px] font-bold uppercase text-slate-500">
@@ -1708,7 +1668,7 @@ export const OpdRecordsPanel: React.FC = () => {
               </div>
 
 
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
 
                 <div>
                   <span className="block text-[10px] font-bold uppercase text-slate-500">
@@ -1741,6 +1701,27 @@ export const OpdRecordsPanel: React.FC = () => {
                       }
                     </span>
                   )}
+                </div>
+
+
+                <div>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">
+                    Payment Mode
+                  </span>
+
+                  <span className="mt-1 inline-flex items-center gap-1.5 font-mono text-xs font-bold text-slate-800 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                    {String(selectedVisit.paymentMethod || '').toLowerCase().includes('fonepay') ? (
+                      <>
+                        <QrCode className="h-3.5 w-3.5 text-indigo-600" />
+                        <span>Fonepay / QR</span>
+                      </>
+                    ) : (
+                      <>
+                        <Banknote className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>Cash</span>
+                      </>
+                    )}
+                  </span>
                 </div>
 
 
@@ -1783,6 +1764,17 @@ export const OpdRecordsPanel: React.FC = () => {
 
             <div className="flex flex-wrap gap-2">
 
+              {selectedVisit.status === 'completed' && (
+                <button
+                  type="button"
+                  onClick={() => setBillVisit(selectedVisit)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800 transition-colors shadow-2xs"
+                >
+                  <Receipt className="h-4 w-4" />
+                  Print OPD Bill
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() =>
@@ -1820,6 +1812,32 @@ export const OpdRecordsPanel: React.FC = () => {
                 Patient History
               </button>
 
+              {isAdmin &&
+                selectedVisit.status !== 'cancelled' &&
+                selectedVisit.status !== 'voided' && (
+                  <button
+                    type="button"
+                    disabled={cancelingVisitId === selectedVisit.id}
+                    onClick={() =>
+                      selectedVisit.status === 'completed'
+                        ? handleOpenVoidModal(selectedVisit)
+                        : handleOpenCancelModal(selectedVisit)
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:border-rose-300 hover:bg-rose-100 disabled:opacity-50 cursor-pointer"
+                    title={
+                      selectedVisit.status === 'completed'
+                        ? 'Void completed OPD'
+                        : 'Cancel open OPD'
+                    }
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>
+                      {selectedVisit.status === 'completed'
+                        ? 'Void OPD'
+                        : 'Cancel Ticket'}
+                    </span>
+                  </button>
+                )}
             </div>
 
           </div>
@@ -2191,19 +2209,34 @@ export const OpdRecordsPanel: React.FC = () => {
 
                       <td className="px-4 py-4">
 
-                        <span
-                          className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${
-                            visit.status ===
+                        <div className="flex flex-col gap-1 items-start">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${
+                              visit.status ===
+                              'open'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {visit.status ===
                             'open'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-100 text-emerald-800'
-                          }`}
-                        >
-                          {visit.status ===
-                          'open'
-                            ? 'Open'
-                            : 'Completed'}
-                        </span>
+                              ? 'Open'
+                              : 'Completed'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            {String(visit.paymentMethod || '').toLowerCase().includes('fonepay') ? (
+                              <>
+                                <QrCode className="h-3 w-3 text-indigo-600" />
+                                <span>Fonepay</span>
+                              </>
+                            ) : (
+                              <>
+                                <Banknote className="h-3 w-3 text-emerald-600" />
+                                <span>Cash</span>
+                              </>
+                            )}
+                          </span>
+                        </div>
 
                       </td>
 
@@ -2237,7 +2270,19 @@ export const OpdRecordsPanel: React.FC = () => {
 
                       <td className="px-5 py-4 text-right">
 
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-1.5">
+
+                          {visit.status === 'completed' && (
+                            <button
+                              type="button"
+                              onClick={() => setBillVisit(visit)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-[11px] font-bold text-teal-800 hover:bg-teal-100 transition-colors shadow-2xs"
+                              title="Print OPD Cash Bill (A5 or 80mm Thermal)"
+                            >
+                              <Receipt className="h-3.5 w-3.5" />
+                              Bill
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -2270,7 +2315,7 @@ export const OpdRecordsPanel: React.FC = () => {
                           >
                             {visit.status ===
                             'open' ? (
-                              <CircleDollarSign className="h-3.5 w-3.5" />
+                              <Wallet className="h-3.5 w-3.5" />
                             ) : (
                               <Eye className="h-3.5 w-3.5" />
                             )}
@@ -2291,8 +2336,8 @@ export const OpdRecordsPanel: React.FC = () => {
                               }
                               onClick={() =>
                                 visit.status === 'completed'
-                                  ? void handleVoidVisit(visit)
-                                  : void handleCancelVisit(visit)
+                                  ? handleOpenVoidModal(visit)
+                                  : handleOpenCancelModal(visit)
                               }
                               className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-700 hover:border-red-300 hover:bg-red-100 disabled:opacity-50"
                               title={
@@ -2390,6 +2435,144 @@ export const OpdRecordsPanel: React.FC = () => {
         )}
 
       </section>
+
+      {/* OPD Cash Bill / Invoice Modal */}
+      <OpdInvoiceModal
+        visit={billVisit}
+        onClose={() => setBillVisit(null)}
+      />
+
+      {/* Void / Cancel Confirmation Modal */}
+      {actionModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-150"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3.5">
+              <div
+                className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${
+                  actionModal.type === 'void'
+                    ? 'bg-rose-100 text-rose-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                      actionModal.type === 'void'
+                        ? 'bg-rose-100 text-rose-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {actionModal.type === 'void' ? 'Void Completed OPD' : 'Cancel Open OPD'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => !actionSubmitting && setActionModal(null)}
+                    className="text-slate-400 hover:text-slate-600 rounded-lg p-1 cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <h3 className="mt-1.5 text-base font-extrabold text-slate-900 leading-snug">
+                  {actionModal.type === 'void'
+                    ? `Void Completed OPD ${actionModal.visit.opdNumber}?`
+                    : `Cancel Open OPD ${actionModal.visit.opdNumber}?`}
+                </h3>
+
+                <p className="mt-1 text-xs text-slate-600 leading-relaxed">
+                  {actionModal.type === 'void'
+                    ? `Are you sure you want to void this completed visit for ${actionModal.visit.patient.name}? Historical consultation notes remain preserved for auditing, but will be removed from finalized clinic revenue.`
+                    : `Are you sure you want to cancel the ticket for ${actionModal.visit.patient.name}? The record will remain saved in patient history with status CANCELLED.`}
+                </p>
+              </div>
+            </div>
+
+            {/* Visit Details Pill */}
+            <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs flex justify-between items-center font-medium text-slate-700">
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Patient</span>
+                <span className="font-bold text-slate-900">{actionModal.visit.patient.name}</span>
+                <span className="text-slate-500 font-mono text-[11px] block">
+                  {actionModal.visit.patient.clinicNumber}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">Doctor / Fee</span>
+                <span className="font-bold text-slate-900">{actionModal.visit.doctor.name}</span>
+                <span className="font-mono text-slate-700 font-bold block">
+                  Rs. {Number(actionModal.visit.totalCharge || actionModal.visit.consultationFee).toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Reason Input */}
+            <div className="mt-4">
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                {actionModal.type === 'void' ? 'Reason for Voiding *' : 'Reason for Cancellation (optional)'}
+              </label>
+              <textarea
+                rows={3}
+                value={actionReason}
+                onChange={(e) => {
+                  setActionReason(e.target.value);
+                  if (actionReasonError) setActionReasonError('');
+                }}
+                placeholder={
+                  actionModal.type === 'void'
+                    ? 'e.g. Duplicate entry, incorrect doctor selected, patient refunded...'
+                    : 'e.g. Patient left before consultation, registered by mistake...'
+                }
+                className={`w-full rounded-xl border px-3 py-2 text-xs text-slate-900 outline-none transition-colors ${
+                  actionReasonError
+                    ? 'border-rose-400 bg-rose-50/40 focus:border-rose-500'
+                    : 'border-slate-200 bg-slate-50 focus:bg-white focus:border-teal-500'
+                }`}
+                autoFocus
+              />
+              {actionReasonError ? (
+                <p className="mt-1 text-[11px] font-semibold text-rose-600">{actionReasonError}</p>
+              ) : (
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {actionModal.type === 'void'
+                    ? 'Minimum 3 characters required for statutory audit trail.'
+                    : 'This reason will be preserved in clinic visit history.'}
+                </p>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={() => setActionModal(null)}
+                disabled={actionSubmitting}
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                {actionModal.type === 'void' ? 'Keep Completed Record' : 'Keep Ticket'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmActionModal}
+                disabled={actionSubmitting}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+              >
+                {actionSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                <span>{actionModal.type === 'void' ? 'Void OPD' : 'Cancel Ticket'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

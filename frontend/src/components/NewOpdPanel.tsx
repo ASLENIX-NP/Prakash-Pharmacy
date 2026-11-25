@@ -8,12 +8,14 @@ import React, {
 import {
   AlertCircle,
   ArrowRight,
+  Banknote,
   CheckCircle2,
   ClipboardPlus,
   Loader2,
   Phone,
   Plus,
   Printer,
+  QrCode,
   RefreshCw,
   Search,
   Stethoscope,
@@ -71,6 +73,7 @@ interface ClinicVisit {
   additionalCharge: number;
   additionalChargeNote: string | null;
   totalCharge: number;
+  paymentMethod?: string | null;
   chargeNote: string | null;
   status: 'open' | 'completed';
   completedAt: string | null;
@@ -275,6 +278,9 @@ export const NewOpdPanel: React.FC = () => {
 
   const [totalCharge, setTotalCharge] =
     useState('');
+
+  const [paymentMode, setPaymentMode] =
+    useState<'cash' | 'fonepay'>('cash');
 
   const [chargeNote, setChargeNote] =
     useState('');
@@ -846,6 +852,9 @@ export const NewOpdPanel: React.FC = () => {
 
                 totalCharge:
                   charge,
+
+                paymentMethod:
+                  paymentMode,
               }),
           }
         );
@@ -876,6 +885,7 @@ export const NewOpdPanel: React.FC = () => {
       setSavedVisit(null);
       setSelectedDoctorId('');
       setTotalCharge('');
+      setPaymentMode('cash');
       setChargeNote('');
 
       setError('');
@@ -897,6 +907,7 @@ export const NewOpdPanel: React.FC = () => {
 
       setSelectedDoctorId('');
       setTotalCharge('');
+      setPaymentMode('cash');
       setChargeNote('');
 
       setShowNewPatientForm(false);
@@ -952,13 +963,29 @@ export const NewOpdPanel: React.FC = () => {
                 {savedVisit.patient.name}
               </p>
 
-              <p className="mt-1 text-xs text-slate-600">
-                {savedVisit.doctor.name}
-                {' • '}
-                Rs.{' '}
-                {Number(
-                  savedVisit.consultationFee
-                ).toFixed(2)}
+              <p className="mt-1 text-xs text-slate-600 flex items-center gap-2 flex-wrap">
+                <span>{savedVisit.doctor.name}</span>
+                <span>•</span>
+                <span>
+                  Rs.{' '}
+                  {Number(
+                    savedVisit.consultationFee
+                  ).toFixed(2)}
+                </span>
+                <span>•</span>
+                <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                  {savedVisit.paymentMethod === 'fonepay' ? (
+                    <>
+                      <QrCode className="h-3.5 w-3.5 text-indigo-700" />
+                      <span>Fonepay / QR</span>
+                    </>
+                  ) : (
+                    <>
+                      <Banknote className="h-3.5 w-3.5 text-emerald-700" />
+                      <span>Cash</span>
+                    </>
+                  )}
+                </span>
               </p>
             </div>
 
@@ -1890,6 +1917,45 @@ export const NewOpdPanel: React.FC = () => {
                   <p className="text-[11px] text-slate-500 sm:col-span-2">
                     The doctor default consultation fee is filled automatically but can be adjusted for this OPD.
                   </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(240px,320px)] sm:items-center">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700">
+                      Payment Mode *
+                    </label>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Select payment method received for this OPD registration.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('cash')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 px-3 text-xs font-bold transition-all cursor-pointer ${
+                        paymentMode === 'cash'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800 shadow-xs ring-1 ring-emerald-500 font-extrabold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <Banknote className="h-4 w-4 text-emerald-600" />
+                      <span>Cash</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('fonepay')}
+                      className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 px-3 text-xs font-bold transition-all cursor-pointer ${
+                        paymentMode === 'fonepay'
+                          ? 'border-indigo-600 bg-indigo-50 text-indigo-800 shadow-xs ring-1 ring-indigo-500 font-extrabold'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      <QrCode className="h-4 w-4 text-indigo-600" />
+                      <span>Fonepay / QR</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
