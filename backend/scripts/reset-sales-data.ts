@@ -19,7 +19,7 @@ async function main() {
   console.log(`✓ Deleted ${deletedBills.count} sales bills / invoices`);
 
   // 3. Reset invoice and credit note counters back to 1
-  const updatedSettings = await prisma.pharmacySettings.updateMany({
+  const updatedSettings = await prisma.pharmacySetting.updateMany({
     data: {
       nextInvoiceNumber: 1,
       nextCreditNoteNumber: 1,

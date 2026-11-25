@@ -165,6 +165,14 @@ const FIELD_ALIASES = {
   discountPercent: [
     'discountpercent', 'discpercent', 'discount', 'disc', 'discp', 'dis', 'tradediscount', 'dispercent', 'disc%'
   ],
+  billDiscount: [
+    'billdiscount', 'cashdiscount', 'specialdiscount', 'schemediscount', 'overalldiscount',
+    'totaldiscount', 'invoicediscount', 'billdisc', 'cashdisc', 'specialdisc', 'overallbilldiscount'
+  ],
+  customCharge: [
+    'customcharge', 'customscharge', 'customduty', 'customsduty', 'bhansar', 'bhansarmahsul',
+    'extracharge', 'additionalcharge', 'handlingcharge', 'freightcharge', 'freight', 'othercharges'
+  ],
   creditLimit: [
     'creditlimit', 'distributorcreditlimit', 'distributorcredit', 'suppliercreditlimit',
     'suppliercredit', 'stockistcreditlimit', 'stockistcredit', 'credit', 'creditlimitnpr',
@@ -358,6 +366,8 @@ function parseCsv(text: string): string[][] {
 export async function parseMedicinesFromExcel(file: File): Promise<{
   success: Medicine[];
   errors: { row: number; reason: string }[];
+  billDiscount?: { type: 'amount' | 'percent'; value: number };
+  customCharge?: number;
 }> {
   try {
     let rawRows: any[][];
@@ -378,6 +388,8 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
 
     const validMedicines: Medicine[] = [];
     const errorList: { row: number; reason: string }[] = [];
+    let detectedBillDiscount: { type: 'amount' | 'percent'; value: number } | undefined = undefined;
+    let detectedCustomCharge: number | undefined = undefined;
 
     dataRows.forEach((row, idx) => {
       const rowNum = idx + 2; // Accounting for 1-based index + header
@@ -431,6 +443,73 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       if (!rawName) {
         errorList.push({ row: rowNum, reason: 'Medicine Name is required' });
         return;
+      }
+
+      const lowerName = rawName.toLowerCase();
+      const isDiscountRow = 
+        lowerName.includes('cash discount') ||
+        lowerName.includes('bill discount') ||
+        lowerName.includes('special discount') ||
+        lowerName.includes('scheme discount') ||
+        lowerName.includes('overall discount') ||
+        lowerName.includes('trade discount') ||
+        (lowerName === 'discount' && !batchResult.found);
+
+      if (isDiscountRow) {
+        const discAmt = Math.abs(
+          parseCleanNumber(amountResult.value).value ||
+          parseCleanNumber(costPriceResult.value).value ||
+          parseCleanNumber(discountPercentResult.value).value ||
+          0
+        );
+        if (discAmt > 0) {
+          const isPercent = String(discountPercentResult.value || amountResult.value || '').includes('%');
+          detectedBillDiscount = { type: isPercent ? 'percent' : 'amount', value: isPercent ? Math.min(100, discAmt) : discAmt };
+        }
+        return;
+      }
+
+      // Check if row has a specific bill discount column
+      const billDiscountCol = findRowValue(rowMap, FIELD_ALIASES.billDiscount);
+      if (billDiscountCol.found && !detectedBillDiscount) {
+        const val = parseCleanNumber(billDiscountCol.value).value;
+        if (val > 0) {
+          const isPercent = String(billDiscountCol.value).includes('%');
+          detectedBillDiscount = { type: isPercent ? 'percent' : 'amount', value: isPercent ? Math.min(100, val) : val };
+        }
+      }
+
+      // Check if row is a custom / customs charge summary row
+      const isCustomChargeRow =
+        lowerName.includes('custom charge') ||
+        lowerName.includes('customs charge') ||
+        lowerName.includes('custom duty') ||
+        lowerName.includes('customs duty') ||
+        lowerName.includes('bhansar') ||
+        lowerName.includes('extra charge') ||
+        lowerName.includes('additional charge') ||
+        lowerName.includes('handling charge') ||
+        lowerName.includes('freight');
+
+      if (isCustomChargeRow) {
+        const chargeAmt = Math.abs(
+          parseCleanNumber(amountResult.value).value ||
+          parseCleanNumber(costPriceResult.value).value ||
+          0
+        );
+        if (chargeAmt > 0) {
+          detectedCustomCharge = chargeAmt;
+        }
+        return;
+      }
+
+      // Check if row has a specific custom charge column
+      const customChargeCol = findRowValue(rowMap, FIELD_ALIASES.customCharge);
+      if (customChargeCol.found && !detectedCustomCharge) {
+        const val = parseCleanNumber(customChargeCol.value).value;
+        if (val > 0) {
+          detectedCustomCharge = val;
+        }
       }
 
       // Do NOT generate random BAT-xxxx when missing; keep empty so backend can preserve existing batch
@@ -524,7 +603,7 @@ export async function parseMedicinesFromExcel(file: File): Promise<{
       validMedicines.push(medicine);
     });
 
-    return { success: validMedicines, errors: errorList };
+    return { success: validMedicines, errors: errorList, billDiscount: detectedBillDiscount, customCharge: detectedCustomCharge };
   } catch (err: any) {
     throw err;
   }
@@ -632,7 +711,8 @@ export function exportAuditLogToExcel(logs: StockAdjustmentLog[], storeName: str
 export function exportStockistLedgerToExcel(
   stockistName: string,
   panNumber: string,
-  entries: StockistLedgerEntry[]
+  entries: StockistLedgerEntry[],
+  period?: string
 ): void {
   const data = entries.map(e => ({
     'Date': e.date,
@@ -645,7 +725,8 @@ export function exportStockistLedgerToExcel(
   }));
 
   const dateStr = localDateString();
-  const fileName = `Ledger_${stockistName.replace(/\s+/g, '_')}_PAN_${panNumber}_${dateStr}.xlsx`;
+  const periodPart = period ? `_${period.replace(/[\s/]+/g, '_')}` : '';
+  const fileName = `Ledger_${stockistName.replace(/\s+/g, '_')}_PAN_${panNumber}${periodPart}_${dateStr}.xlsx`;
   exportObjectsToExcel(fileName, 'Stockist_Ledger', data).catch(console.error);
 }
 

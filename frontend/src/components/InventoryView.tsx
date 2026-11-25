@@ -24,13 +24,14 @@ import {
   FileText,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Percent,
+  PlusCircle
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
 import { Medicine, MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
 import { 
-  downloadMedicineExcelTemplate, 
   parseMedicinesFromExcel, 
   exportInventoryToExcel 
 } from '../utils/excelUtils';
@@ -120,6 +121,9 @@ export const InventoryView: React.FC = () => {
   const [billDate, setBillDate] = useState(() => localDateString());
   const [billPaymentMode, setBillPaymentMode] = useState<'credit' | 'cash'>('credit');
   const [billDueDate, setBillDueDate] = useState('');
+  const [billDiscountType, setBillDiscountType] = useState<'amount' | 'percent'>('amount');
+  const [billDiscountValue, setBillDiscountValue] = useState<string>('');
+  const [customChargeValue, setCustomChargeValue] = useState<string>('');
 
   // Add / Edit Medicine Modal State
   const [showEditModal, setShowEditModal] = useState(false);
@@ -162,6 +166,7 @@ export const InventoryView: React.FC = () => {
   // Calculate imported purchase totals using complete packs only.
   const billCalculations = useMemo(() => {
     let subtotal = 0;
+    let itemDiscounts = 0;
     let taxableAmount = 0;
     let totalPacks = 0;
     let totalFreePacks = 0;
@@ -170,29 +175,59 @@ export const InventoryView: React.FC = () => {
       const packs = Number(item.stockPacks) || 0;
       const free = Number(item.freePacks) || 0;
       const cost = item.costPrice > 0 ? item.costPrice : (item.mrpPrice > 0 ? item.mrpPrice : 0);
+      const discPercent = Number(item.discountPercent) || 0;
 
-      const line = Math.round((packs * cost) * 100) / 100;
+      const lineGross = Math.round((packs * cost) * 100) / 100;
+      const disc = Math.round(((lineGross * discPercent) / 100) * 100) / 100;
 
-      subtotal += line;
+      subtotal += lineGross;
+      itemDiscounts += disc;
       totalPacks += packs;
       totalFreePacks += free;
       if (item.isVatApplicable) {
-        taxableAmount += line;
+        taxableAmount += (lineGross - disc);
       }
     });
 
-    const vatAmount = Math.round(taxableAmount * 0.13 * 100) / 100;
-    const grandTotal = Math.round((subtotal + vatAmount) * 100) / 100;
+    const netSubtotal = Math.max(0, subtotal - itemDiscounts);
+    const rawVal = parseFloat(billDiscountValue) || 0;
+    let billDiscountAmt = 0;
+    if (rawVal > 0) {
+      if (billDiscountType === 'percent') {
+        const clampedPercent = Math.min(100, Math.max(0, rawVal));
+        billDiscountAmt = Math.round(((netSubtotal * clampedPercent) / 100) * 100) / 100;
+      } else {
+        billDiscountAmt = Math.min(netSubtotal, Math.round(rawVal * 100) / 100);
+      }
+    }
+    billDiscountAmt = Math.min(billDiscountAmt, netSubtotal);
+
+    let finalTaxable = taxableAmount;
+    if (billDiscountAmt > 0 && netSubtotal > 0 && taxableAmount > 0) {
+      const taxableDiscShare = (taxableAmount / netSubtotal) * billDiscountAmt;
+      finalTaxable = Math.max(0, taxableAmount - taxableDiscShare);
+    }
+    finalTaxable = Math.round(finalTaxable * 100) / 100;
+
+    const parsedCustomCharge = Math.max(0, parseFloat(customChargeValue) || 0);
+    const vatAmount = Math.round(finalTaxable * 0.13 * 100) / 100;
+    const totalDiscount = Math.round((itemDiscounts + billDiscountAmt) * 100) / 100;
+    // Net Bill Amount = (Total Bill amount - Discount) + VAT + Custom Charge
+    const grandTotal = Math.max(0, Math.round(((subtotal - totalDiscount) + vatAmount + parsedCustomCharge) * 100) / 100);
 
     return {
       subtotal: Math.round(subtotal * 100) / 100,
-      taxableAmount: Math.round(taxableAmount * 100) / 100,
+      itemDiscounts: Math.round(itemDiscounts * 100) / 100,
+      billDiscountAmount: billDiscountAmt,
+      totalDiscount,
+      customCharge: parsedCustomCharge,
+      taxableAmount: finalTaxable,
       vatAmount,
       grandTotal,
       totalPacks,
       totalFreePacks
     };
-  }, [parsedImportItems]);
+  }, [parsedImportItems, billDiscountValue, billDiscountType, customChargeValue]);
 
   const detectedSuppliersInImport = useMemo(() => {
     return Array.from(new Set(parsedImportItems.map(item => item.supplierName?.trim()).filter(Boolean) as string[]));
@@ -308,8 +343,30 @@ export const InventoryView: React.FC = () => {
       String((s as any).distributorId) === String(m.supplierId) ||
       (m.supplierName && s.name.toLowerCase() === m.supplierName.toLowerCase())
     );
+    const initialName = m.name || (m as any).medicineBrand || '';
+    const initialUnits = Number(m.unitsPerPack || (m as any).unitPerPack || 10);
+    const initialCost = Number(m.costPrice ?? 0);
+    const initialMrp = Number(m.mrpPrice ?? (m as any).sellingPrice ?? 0);
+    const initialReorder = Number(m.reorderLevel ?? (m as any).packAlertLevel ?? 10);
+    const initialCategory = m.category || (m as any).categoryName || 'Tablet';
+    const initialRack = m.rackLocation || (m as any).rackName || 'Unassigned';
+
     setFormData({
       ...m,
+      name: initialName,
+      medicineBrand: initialName,
+      genericName: m.genericName || '',
+      category: initialCategory,
+      categoryName: initialCategory,
+      rackLocation: initialRack,
+      rackName: initialRack,
+      unitsPerPack: initialUnits,
+      unitPerPack: initialUnits,
+      costPrice: initialCost,
+      mrpPrice: initialMrp,
+      sellingPrice: initialMrp,
+      reorderLevel: initialReorder,
+      packAlertLevel: initialReorder,
       supplierId: matchedDist ? matchedDist.id : (m.supplierId || ''),
       supplierName: matchedDist ? matchedDist.name : (m.supplierName || ''),
       isVatApplicable: vatVal,
@@ -323,12 +380,15 @@ export const InventoryView: React.FC = () => {
     e.preventDefault();
 
     const medicineName =
-      formData.name?.trim() || '';
+      (formData.name || (formData as any).medicineBrand || '')?.trim();
 
     const genericName =
       formData.genericName?.trim() || '';
 
-    if (!medicineName) return;
+    if (!medicineName) {
+      showToast('Medicine Brand Name is required.', 'warning', 'Validation');
+      return;
+    }
 
     // Medicine/brand name and generic/salt name are allowed to be
     // identical (for example: Paracetamol / Paracetamol).
@@ -365,32 +425,57 @@ export const InventoryView: React.FC = () => {
       return;
     }
 
+    const unitsPerPackVal = Number(formData.unitsPerPack ?? (formData as any).unitPerPack);
+    if (!Number.isInteger(unitsPerPackVal) || unitsPerPackVal < 1) {
+      showToast('Units per pack must be a positive whole number (at least 1).', 'warning', 'Validation');
+      return;
+    }
+
+    const costPriceVal = Number(formData.costPrice);
+    if (!Number.isFinite(costPriceVal) || costPriceVal < 0) {
+      showToast('Purchase cost price must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    const mrpPriceVal = Number(formData.mrpPrice ?? (formData as any).sellingPrice);
+    if (!Number.isFinite(mrpPriceVal) || mrpPriceVal < 0) {
+      showToast('Selling price / MRP must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    const reorderLevelVal = Number(formData.reorderLevel ?? (formData as any).packAlertLevel ?? 10);
+    if (!Number.isInteger(reorderLevelVal) || reorderLevelVal < 0) {
+      showToast('Reorder alert level must be 0 or greater.', 'warning', 'Validation');
+      return;
+    }
+
+    if (!editingMedicine) {
+      const stockPacksVal = Number(formData.stockPacks ?? 0);
+      if (!Number.isFinite(stockPacksVal) || stockPacksVal < 0) {
+        showToast('Packs in stock must be 0 or greater.', 'warning', 'Validation');
+        return;
+      }
+    }
+
     const normalizedFormData = {
       ...formData,
       name: medicineName,
+      medicineBrand: medicineName,
       genericName,
       batchNumber: String(formData.batchNumber).trim(),
-      expiryDate: String(formData.expiryDate).trim()
+      expiryDate: String(formData.expiryDate).trim(),
+      unitsPerPack: unitsPerPackVal,
+      unitPerPack: unitsPerPackVal,
+      costPrice: costPriceVal,
+      mrpPrice: mrpPriceVal,
+      sellingPrice: mrpPriceVal,
+      reorderLevel: reorderLevelVal,
+      packAlertLevel: reorderLevelVal,
+      category: formData.category,
+      categoryName: formData.category,
+      rackLocation: formData.rackLocation,
+      rackName: formData.rackLocation,
     };
-
-
-    const requiredNumbers = [
-      formData.unitsPerPack,
-      formData.stockPacks,
-      formData.costPrice,
-      formData.mrpPrice,
-      formData.reorderLevel,
-    ];
-    if (
-      requiredNumbers.some(value => value === undefined || !Number.isFinite(value)) ||
-      formData.unitsPerPack! < 1 ||
-      formData.stockPacks! < 0 ||
-      formData.costPrice! < 0 ||
-      formData.mrpPrice! < 0 ||
-      formData.reorderLevel! < 1
-    ) {
-      return;
-    }
 
     const openingPacks =
       Number(formData.stockPacks) || 0;
@@ -578,12 +663,21 @@ export const InventoryView: React.FC = () => {
      * This change only affects creation of new opening stock.
      */
     if (editingMedicine) {
-      updateMedicine(
-        editingMedicine.id,
-        finalPayload
-      );
+      try {
+        await updateMedicine(
+          editingMedicine.id,
+          finalPayload
+        );
 
-      setShowEditModal(false);
+        setShowEditModal(false);
+        showToast(`Medicine "${medicineName}" updated successfully!`, 'success', 'Inventory');
+      } catch (err: any) {
+        showToast(
+          err.message || 'Failed to update medicine details. Please check the fields and try again.',
+          'error',
+          'Update Failed'
+        );
+      }
 
       return;
     }
@@ -864,6 +958,15 @@ export const InventoryView: React.FC = () => {
       setParsedImportItems(res.success);
       setImportErrors(res.errors);
 
+      if (res.billDiscount && res.billDiscount.value > 0) {
+        setBillDiscountType(res.billDiscount.type);
+        setBillDiscountValue(String(res.billDiscount.value));
+      }
+
+      if (res.customCharge && res.customCharge > 0) {
+        setCustomChargeValue(String(res.customCharge));
+      }
+
       if (res.success.length > 0) {
         const today = new Date();
         const nextMonth = new Date(today);
@@ -920,6 +1023,21 @@ export const InventoryView: React.FC = () => {
         if (invalidTraceabilityRow >= 0) {
           showToast(`Imported row ${invalidTraceabilityRow + 1} is missing a real batch number or expiry date. Correct the source file and import again.`, 'warning', 'Validation');
           return;
+        }
+
+        const rawDisc = parseFloat(billDiscountValue) || 0;
+        if (rawDisc > 0) {
+          if (billDiscountType === 'percent' && rawDisc > 100) {
+            showToast('Overall bill discount percent cannot exceed 100%.', 'warning', 'Validation');
+            setIsSubmittingImport(false);
+            return;
+          }
+          const netSub = Math.max(0, billCalculations.subtotal - billCalculations.itemDiscounts);
+          if (billDiscountType === 'amount' && rawDisc > netSub) {
+            showToast(`Overall bill discount cannot exceed net subtotal of Rs. ${netSub.toFixed(2)}.`, 'warning', 'Validation');
+            setIsSubmittingImport(false);
+            return;
+          }
         }
 
         let finalStockistId = selectedDistributorId;
@@ -998,7 +1116,10 @@ export const InventoryView: React.FC = () => {
           dueDate: billPaymentMode === 'credit' ? billDueDate : undefined,
           items: invoiceItems,
           subtotal: billCalculations.subtotal,
-          totalDiscount: 0,
+          totalDiscount: billCalculations.totalDiscount,
+          billDiscount: billCalculations.billDiscountAmount,
+          billDiscountType: billDiscountType,
+          customCharge: billCalculations.customCharge,
           taxableAmount: billCalculations.taxableAmount,
           vatAmount: billCalculations.vatAmount,
           grandTotal: billCalculations.grandTotal,
@@ -1065,25 +1186,8 @@ export const InventoryView: React.FC = () => {
         {/* Action Buttons */}
         <div className="premium-inventory-actions flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => downloadMedicineExcelTemplate()}
-            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition-colors"
-            title="Download pre-formatted Excel template for batch import"
-          >
-            <Download className="w-3.5 h-3.5 text-slate-500" />
-            <span>Excel Template</span>
-          </button>
-
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Import Excel (.xlsx)</span>
-          </button>
-
-          <button
             onClick={() => exportInventoryToExcel(medicines, settings.storeName)}
-            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors"
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>Export Stock (.xlsx)</span>
@@ -1099,14 +1203,6 @@ export const InventoryView: React.FC = () => {
               <span>Admin: Add / Deduce Racks</span>
             </button>
           )}
-
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Medicine</span>
-          </button>
         </div>
       </div>
 
@@ -1687,15 +1783,129 @@ export const InventoryView: React.FC = () => {
                             {billInvoiceNumber || 'Invoice number required'}
                           </span>
                         </div>
-                        <div className="grid grid-cols-4 gap-2 text-center pt-1 border-t border-teal-200">
+                        {/* Overall Bill Discount */}
+                        <div className="bg-white/90 p-2.5 rounded-lg border border-teal-200 flex items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                            <Percent className="w-3.5 h-3.5 text-teal-600" />
+                            <span>Overall Bill Discount:</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[10px] font-bold">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (billDiscountType !== 'amount') {
+                                    setBillDiscountType('amount');
+                                    setBillDiscountValue('');
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                  billDiscountType === 'amount' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+                                }`}
+                              >
+                                Rs. Flat
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (billDiscountType !== 'percent') {
+                                    setBillDiscountType('percent');
+                                    setBillDiscountValue('');
+                                  }
+                                }}
+                                className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                  billDiscountType === 'percent' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
+                                }`}
+                              >
+                                %
+                              </button>
+                            </div>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={billDiscountType === 'percent' ? 100 : Math.max(0, billCalculations.subtotal - billCalculations.itemDiscounts)}
+                              placeholder="0.00"
+                              value={billDiscountValue}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '') {
+                                  setBillDiscountValue('');
+                                  return;
+                                }
+                                const num = parseFloat(val);
+                                if (billDiscountType === 'percent') {
+                                  if (num > 100) {
+                                    setBillDiscountValue('100');
+                                    return;
+                                  }
+                                } else {
+                                  const maxAmt = Math.max(0, billCalculations.subtotal - billCalculations.itemDiscounts);
+                                  if (num > maxAmt) {
+                                    setBillDiscountValue(String(maxAmt));
+                                    return;
+                                  }
+                                }
+                                setBillDiscountValue(val);
+                              }}
+                              className="w-24 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs bg-white text-right"
+                            />
+                            {billDiscountValue && Number(billDiscountValue) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setBillDiscountValue('')}
+                                className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Custom Charge */}
+                        <div className="bg-white/90 p-2.5 rounded-lg border border-teal-200 flex items-center justify-between gap-3 text-xs">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                            <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Custom / Additional Charge (Optional):</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-slate-500 font-bold">Rs.</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              value={customChargeValue}
+                              onChange={(e) => setCustomChargeValue(e.target.value)}
+                              className="w-24 px-2 py-1 border border-slate-300 rounded font-mono font-bold text-xs bg-white text-right"
+                            />
+                            {customChargeValue && Number(customChargeValue) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setCustomChargeValue('')}
+                                className="text-[10px] text-rose-600 hover:underline cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className={`grid gap-2 text-center pt-1 border-t border-teal-200 ${billCalculations.customCharge > 0 ? 'grid-cols-5' : 'grid-cols-4'}`}>
                           <div className="bg-white/80 p-2 rounded-lg">
                             <div className="text-[10px] text-slate-500 font-semibold">Subtotal</div>
                             <div className="text-xs font-bold font-mono text-slate-800">Rs. {billCalculations.subtotal.toLocaleString()}</div>
                           </div>
                           <div className="bg-white/80 p-2 rounded-lg">
-                            <div className="text-[10px] text-slate-500 font-semibold">13% Taxable</div>
-                            <div className="text-xs font-bold font-mono text-slate-800">Rs. {billCalculations.taxableAmount.toLocaleString()}</div>
+                            <div className="text-[10px] text-rose-600 font-semibold">Discount</div>
+                            <div className="text-xs font-bold font-mono text-rose-700">- Rs. {billCalculations.totalDiscount.toLocaleString()}</div>
                           </div>
+                          {billCalculations.customCharge > 0 && (
+                            <div className="bg-white/80 p-2 rounded-lg">
+                              <div className="text-[10px] text-amber-700 font-semibold">Custom Chg</div>
+                              <div className="text-xs font-bold font-mono text-amber-800">+ Rs. {billCalculations.customCharge.toLocaleString()}</div>
+                            </div>
+                          )}
                           <div className="bg-white/80 p-2 rounded-lg">
                             <div className="text-[10px] text-slate-500 font-semibold">13% VAT</div>
                             <div className="text-xs font-bold font-mono text-blue-700">Rs. {billCalculations.vatAmount.toLocaleString()}</div>

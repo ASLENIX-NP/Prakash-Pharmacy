@@ -2734,13 +2734,6 @@ export const returnBillItems = async (req: Request, res: Response): Promise<void
           Number(lineItem.inventory?.unitPerPack ?? 1)
         );
 
-        if (currentUnitsPerPack !== unitsPerPack) {
-          throw new BillValidationError(
-            `Cannot restock ${lineItem.medicineNameSnapshot || lineItem.inventory?.medicineBrand || `inventory row ${lineItem.inventoryId}`} because its units-per-pack changed after the sale. Resolve the inventory history before returning this item.`,
-            409
-          );
-        }
-
         const returnedTotalUnits =
           returnPacks * unitsPerPack + returnUnits;
 

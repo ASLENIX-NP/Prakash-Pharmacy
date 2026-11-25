@@ -373,6 +373,7 @@ model PurchaseInvoice {
   // Financial amounts
   subtotal       Decimal  @map("subtotal") @db.Decimal(12, 2)
   discountAmount Decimal  @default(0.00) @map("discount_amount") @db.Decimal(12, 2)
+  customCharge   Decimal  @default(0.00) @map("custom_charge") @db.Decimal(12, 2)
   taxableAmount  Decimal  @default(0.00) @map("taxable_amount") @db.Decimal(12, 2)
   vatAmount      Decimal  @default(0.00) @map("vat_amount") @db.Decimal(12, 2)
   grandTotal     Decimal  @map("grand_total") @db.Decimal(12, 2)

@@ -9,7 +9,6 @@ import {
   Search, 
   Download, 
   Upload,
-  FileSpreadsheet,
   Check, 
   AlertTriangle, 
   Building, 
@@ -26,6 +25,8 @@ import {
   Edit3,
   Gift,
   TrendingUp,
+  Percent,
+  PlusCircle,
   X
 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
@@ -44,8 +45,10 @@ import {
   exportStockistLedgerToExcel, 
   exportWholesalerAnalyticsToExcel,
   exportPurchaseBillToExcel,
-  parseMedicinesFromExcel
+  downloadMedicineExcelTemplate
 } from '../utils/excelUtils';
+import { BulkMedicineImportModal } from './BulkMedicineImportModal';
+import { AddMedicineModal } from './AddMedicineModal';
 import { decimalInputValue, digitsOnlyUpTo, isValidEmail, normalizePhoneNumber, parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 import { localDateString } from '../utils/date';
 
@@ -77,6 +80,22 @@ const createEmptyInvoiceItem = (id?: string): StockistInvoiceItem => ({
   lineTotal: 0
 });
 
+const MONTH_OPTIONS = [
+  { value: 'all', label: 'All Months' },
+  { value: '01', label: '01 - January' },
+  { value: '02', label: '02 - February' },
+  { value: '03', label: '03 - March' },
+  { value: '04', label: '04 - April' },
+  { value: '05', label: '05 - May' },
+  { value: '06', label: '06 - June' },
+  { value: '07', label: '07 - July' },
+  { value: '08', label: '08 - August' },
+  { value: '09', label: '09 - September' },
+  { value: '10', label: '10 - October' },
+  { value: '11', label: '11 - November' },
+  { value: '12', label: '12 - December' }
+];
+
 export const StockistManagementView: React.FC = () => {
   const { showToast, confirmDialog, alertDialog } = useDialog();
   const { 
@@ -91,6 +110,7 @@ export const StockistManagementView: React.FC = () => {
     deletePurchaseInvoice,
     stockistLedgers, 
     addStockistPayment, 
+    addStockistOpeningBalance,
     stockistReturns, 
     recordStockistReturn, 
     salesInvoices,
@@ -105,6 +125,8 @@ export const StockistManagementView: React.FC = () => {
   const [selectedStockistId, setSelectedStockistId] = useState<string>(stockists[0]?.id || '');
   const [searchQuery, setSearchQuery] = useState('');
   const [ledgerFilter, setLedgerFilter] = useState<'all' | 'bills' | 'payments'>('all');
+  const [ledgerYearFilter, setLedgerYearFilter] = useState<string>('all');
+  const [ledgerMonthFilter, setLedgerMonthFilter] = useState<string>('all');
 
   // Add Stockist Modal
   const [showAddStockistModal, setShowAddStockistModal] = useState(false);
@@ -124,6 +146,10 @@ export const StockistManagementView: React.FC = () => {
   const [showEditStockistModal, setShowEditStockistModal] = useState(false);
   const [editStockistFormError, setEditStockistFormError] = useState('');
   const [isSavingEditStockist, setIsSavingEditStockist] = useState(false);
+
+  // Shifted Excel Import & Add Medicine Modals
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
   const [editStockistData, setEditStockistData] = useState({
     id: '',
     name: '',
@@ -205,6 +231,13 @@ export const StockistManagementView: React.FC = () => {
   const [paymentRefNumber, setPaymentRefNumber] = useState<string>('');
   const [paymentNotes, setPaymentNotes] = useState<string>('');
 
+  // Record Opening Balance Modal
+  const [showOpeningBalanceModal, setShowOpeningBalanceModal] = useState(false);
+  const [openingBalanceAmount, setOpeningBalanceAmount] = useState<number>(0);
+  const [openingBalanceNotes, setOpeningBalanceNotes] = useState<string>('');
+  const [isSubmittingOpeningBalance, setIsSubmittingOpeningBalance] = useState<boolean>(false);
+  const [openingBalanceError, setOpeningBalanceError] = useState<string | null>(null);
+
   // Purchase Invoice Form State
   const [invoiceHeader, setInvoiceHeader] = useState({
     invoiceNumber: '',
@@ -218,8 +251,11 @@ export const StockistManagementView: React.FC = () => {
   const [invoiceItems, setInvoiceItems] = useState<StockistInvoiceItem[]>([
     createEmptyInvoiceItem('row-1')
   ]);
-  const excelBillInputRef = useRef<HTMLInputElement>(null);
-  const [isImportingExcelBill, setIsImportingExcelBill] = useState(false);
+  const [activeSuggestionRow, setActiveSuggestionRow] = useState<number | null>(null);
+  const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState<number>(0);
+  const [billDiscountType, setBillDiscountType] = useState<'amount' | 'percent'>('amount');
+  const [billDiscountValue, setBillDiscountValue] = useState<string>('');
+  const [customChargeValue, setCustomChargeValue] = useState<string>('');
   const [isSubmittingPurchaseInvoice, setIsSubmittingPurchaseInvoice] = useState(false);
 
   // Return to Stockist (Debit Note) Form State
@@ -626,8 +662,8 @@ export const StockistManagementView: React.FC = () => {
     stockistReturns
   ]);
 
-  // Ledger entries for active stockist with purchase bill cross-referencing
-  const filteredLedgerEntries = useMemo(() => {
+  // Full ledger records for active stockist with purchase bill cross-referencing
+  const allStockistLedgerEntries = useMemo(() => {
     if (!currentSelectedStockist) return [];
 
     // 1. Get ledger records directly linked to this stockist
@@ -661,19 +697,110 @@ export const StockistManagementView: React.FC = () => {
 
     const combined = [...entries, ...missingPurchaseEntries];
 
-    return combined
-      .filter(entry => {
-        if (ledgerFilter === 'bills') return entry.refType === 'purchase_invoice';
-        if (ledgerFilter === 'payments') return entry.refType === 'payment_made';
-        return true;
-      })
-      .sort((a, b) => {
-        const timeA = new Date(a.createdAt || a.date).getTime();
-        const timeB = new Date(b.createdAt || b.date).getTime();
-        if (timeB !== timeA) return timeB - timeA;
-        return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
-      });
-  }, [stockistLedgers, purchaseInvoices, currentSelectedStockist, ledgerFilter]);
+    // Sort chronologically ascending to calculate running balance accurately
+    const sortedAsc = [...combined].sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.date).getTime();
+      const timeB = new Date(b.createdAt || b.date).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return (Number(a.ledgerId || a.id) || 0) - (Number(b.ledgerId || b.id) || 0);
+    });
+
+    let running = 0;
+    const withRunningBalance = sortedAsc.map(entry => {
+      const netChange = (Number(entry.credit) || 0) - (Number(entry.debit) || 0);
+      running += netChange;
+      return {
+        ...entry,
+        balance: running
+      };
+    });
+
+    // Return sorted newest first (descending) for standard display
+    return withRunningBalance.sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.date).getTime();
+      const timeB = new Date(b.createdAt || b.date).getTime();
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.ledgerId || b.id) || 0) - (Number(a.ledgerId || a.id) || 0);
+    });
+  }, [stockistLedgers, purchaseInvoices, currentSelectedStockist]);
+
+  // Available ledger years extracted from the current stockist's entries
+  const availableLedgerYears = useMemo(() => {
+    const years = new Set<string>();
+    const currentYear = new Date().getFullYear().toString();
+    years.add(currentYear);
+    allStockistLedgerEntries.forEach(entry => {
+      const match = (entry.date || '').match(/^(\d{4})/);
+      if (match) {
+        years.add(match[1]);
+      }
+    });
+    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+  }, [allStockistLedgerEntries]);
+
+  // Active period start date when filtering by year and/or month
+  const periodStartDate = useMemo(() => {
+    if (ledgerYearFilter === 'all') return null;
+    const month = ledgerMonthFilter !== 'all' ? ledgerMonthFilter : '01';
+    return `${ledgerYearFilter}-${month}-01`;
+  }, [ledgerYearFilter, ledgerMonthFilter]);
+
+  // Opening balance brought forward from prior periods before the filtered period
+  const openingBalanceBroughtForward = useMemo(() => {
+    if (!periodStartDate) return 0;
+
+    const priorEntries = allStockistLedgerEntries.filter(
+      entry => (entry.date || '') < periodStartDate
+    );
+
+    return priorEntries.reduce(
+      (sum, entry) => sum + (Number(entry.credit) || 0) - (Number(entry.debit) || 0),
+      0
+    );
+  }, [allStockistLedgerEntries, periodStartDate]);
+
+  // Ledger entries filtered by transaction type, year, and month, with Opening Balance (B/F) if period selected
+  const filteredLedgerEntries = useMemo(() => {
+    const periodEntries = allStockistLedgerEntries.filter(entry => {
+      // 1. Transaction Type filter
+      if (ledgerFilter === 'bills' && entry.refType !== 'purchase_invoice') return false;
+      if (ledgerFilter === 'payments' && entry.refType !== 'payment_made') return false;
+
+      // 2. Year filter
+      if (ledgerYearFilter !== 'all') {
+        const yearMatch = (entry.date || '').match(/^(\d{4})/);
+        if (!yearMatch || yearMatch[1] !== ledgerYearFilter) return false;
+      }
+
+      // 3. Month filter
+      if (ledgerMonthFilter !== 'all') {
+        const monthMatch = (entry.date || '').match(/^\d{4}-(\d{2})/);
+        if (!monthMatch || monthMatch[1] !== ledgerMonthFilter) return false;
+      }
+
+      return true;
+    });
+
+    if (periodStartDate && ledgerFilter === 'all' && currentSelectedStockist) {
+      const bfEntry: StockistLedgerEntry = {
+        id: `bf-opening-${currentSelectedStockist.id}-${periodStartDate}`,
+        stockistId: currentSelectedStockist.id,
+        date: periodStartDate,
+        refType: 'opening_balance',
+        refId: `bf-${periodStartDate}`,
+        refNumber: 'B/F',
+        description: `Balance Brought Forward from prior period (Opening balance as of ${periodStartDate})`,
+        debit: openingBalanceBroughtForward < 0 ? Math.abs(openingBalanceBroughtForward) : 0,
+        credit: openingBalanceBroughtForward >= 0 ? openingBalanceBroughtForward : 0,
+        balance: openingBalanceBroughtForward,
+        createdAt: `${periodStartDate}T00:00:00.000Z`
+      };
+
+      return [...periodEntries, bfEntry];
+    }
+
+    return periodEntries;
+  }, [allStockistLedgerEntries, ledgerFilter, ledgerYearFilter, ledgerMonthFilter, periodStartDate, openingBalanceBroughtForward, currentSelectedStockist]);
 
   const visibleStockists = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -692,7 +819,7 @@ export const StockistManagementView: React.FC = () => {
 
   const ledgerSummary = useMemo(() => {
     const entries = currentSelectedStockist
-      ? filteredLedgerEntries
+      ? filteredLedgerEntries.filter(e => !e.id.startsWith('bf-opening-'))
       : [];
     return {
       totalPurchases: entries
@@ -784,6 +911,7 @@ export const StockistManagementView: React.FC = () => {
 
   // Add Item Row in Purchase Invoice
   const handleAddInvoiceItemRow = () => {
+    setActiveSuggestionRow(null);
     setInvoiceItems(prev => [
       ...prev,
       createEmptyInvoiceItem(`row-${Date.now()}-${prev.length + 1}`)
@@ -792,120 +920,81 @@ export const StockistManagementView: React.FC = () => {
 
   // Update Item in Purchase Invoice
   const handleUpdateInvoiceItem = (index: number, updates: Partial<StockistInvoiceItem>) => {
-    const updated = [...invoiceItems];
-    const current = { ...updated[index], ...updates };
+    setInvoiceItems(prev => {
+      const updated = [...prev];
+      if (!updated[index]) return prev;
+      const current = { ...updated[index], ...updates };
 
-    // Purchases from distributors are in packs (can be decimal e.g. 4.5 packs)
-    const packQty = Number(current.packQty) || 0;
-    const costPrice = Number(current.costPrice) || 0;
-    const discountPercent = Number(current.discountPercent) || 0;
-    const baseAmount = packQty * costPrice;
-    const discountAmt = (baseAmount * discountPercent) / 100;
-    current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
+      // Purchases from distributors are in packs (can be decimal e.g. 4.5 packs)
+      const packQty = Number(current.packQty) || 0;
+      const costPrice = Number(current.costPrice) || 0;
+      const discountPercent = Number(current.discountPercent) || 0;
+      const baseAmount = packQty * costPrice;
+      const discountAmt = (baseAmount * discountPercent) / 100;
+      current.lineTotal = Math.max(0, Math.round((baseAmount - discountAmt) * 100) / 100);
 
-    updated[index] = current;
-    setInvoiceItems(updated);
+      updated[index] = current;
+      return updated;
+    });
   };
 
   // Remove Item from Purchase Invoice
   const handleRemoveInvoiceItem = (index: number) => {
+    setActiveSuggestionRow(null);
     setInvoiceItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Auto-fill from existing medicine in stock
+  // Auto-fill from existing medicine in stock (only links medicine & master metadata, keeping batch, expiry, and prices empty for new bill entry)
   const handleSelectExistingMedicineForInvoice = (index: number, medId: string) => {
     const med = medicines.find(m => m.id === medId);
     if (!med) return;
 
-    const costPrice = med.costPrice > 0 ? med.costPrice : (med.mrpPrice > 0 ? med.mrpPrice : 0);
-
     handleUpdateInvoiceItem(index, {
       medicineId: med.id,
       medicineName: med.name,
-      genericName: med.genericName,
-      category: med.category,
-      batchNumber: med.batchNumber,
-      expiryDate: med.expiryDate,
-      unitsPerPack: med.unitsPerPack,
-      costPrice,
-      mrpPrice: med.mrpPrice,
-      isVatApplicable: med.isVatApplicable,
+      genericName: med.genericName || '',
+      category: med.category || 'Tablet',
+      batchNumber: '',
+      expiryDate: '',
+      unitsPerPack: med.unitsPerPack || 10,
+      costPrice: 0,
+      mrpPrice: 0,
+      isVatApplicable: Boolean(med.isVatApplicable),
       prescriptionRequired: Boolean(med.prescriptionRequired),
-      rackLocation: med.rackLocation
+      rackLocation: med.rackLocation || 'Unassigned'
     });
   };
 
-  // Import Invoice Items from Excel / CSV
-  const handleImportExcelBill = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      setIsImportingExcelBill(true);
-      const res = await parseMedicinesFromExcel(file);
-      if (res.success.length === 0) {
-        showToast('No medicine items could be recognized from this file.', 'warning', 'Import Notice');
-        return;
-      }
-
-      const importedRows: StockistInvoiceItem[] = res.success.map((m, idx) => {
-        const packQty = m.stockPacks || 0;
-        const freePacks = m.freePacks || 0;
-        const discountPercent = m.discountPercent || 0;
-        const costPrice = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
-        const unitsPerPack = m.unitsPerPack || 10;
-        const baseAmount = packQty * costPrice;
-        const discountAmt = (baseAmount * discountPercent) / 100;
-        const lineTotal = Math.round((baseAmount - discountAmt) * 100) / 100;
-
-        return {
-          id: `imp-${Date.now()}-${idx}`,
-          medicineName: m.name,
-          genericName: m.genericName || '',
-          category: m.category || 'Tablet',
-          batchNumber: m.batchNumber || '',
-          expiryDate: m.expiryDate || '',
-          packQty: packQty > 0 ? packQty : (freePacks > 0 ? 0 : 1),
-          looseUnits: 0,
-          freePacks,
-          unitsPerPack,
-          costPrice,
-          discountPercent,
-          isVatApplicable: Boolean(m.isVatApplicable),
-          prescriptionRequired: Boolean(m.prescriptionRequired),
-          mrpPrice: m.mrpPrice || (costPrice > 0 ? Math.round(costPrice * 1.25 * 100) / 100 : 0),
-          rackLocation: m.rackLocation || 'Unassigned',
-          lineTotal
-        };
-      });
-
-      setInvoiceItems(importedRows);
-
-      // Auto-match stockist if specified in sheet
-      const detectedSupplier = res.success.find(item => item.supplierName?.trim())?.supplierName?.trim();
-      if (detectedSupplier) {
-        const match = stockists.find(s => s.name.toLowerCase() === detectedSupplier.toLowerCase());
-        if (match) {
-          setInvoiceHeader(prev => ({ ...prev, stockistId: match.id }));
-        }
-      }
-
-
-      showToast(`Successfully loaded ${importedRows.length} invoice items from Excel file!`, 'success', 'Excel Imported');
-    } catch (err: any) {
-      showToast(err.message || 'Failed to read Excel bill', 'error', 'Import Error');
-    } finally {
-      setIsImportingExcelBill(false);
-      if (e.target) e.target.value = '';
+  // Case-insensitive medicine suggestions for purchase invoice entry
+  const getMedicineSuggestions = (query: string) => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) {
+      return medicines.slice(0, 8);
     }
+
+    const matches = medicines.filter(m => {
+      const name = (m.name || '').toLowerCase();
+      const generic = (m.genericName || '').toLowerCase();
+      return name.includes(q) || generic.includes(q);
+    });
+
+    matches.sort((a, b) => {
+      const aName = (a.name || '').toLowerCase();
+      const bName = (b.name || '').toLowerCase();
+      const aStarts = aName.startsWith(q);
+      const bStarts = bName.startsWith(q);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+      return aName.localeCompare(bName);
+    });
+
+    return matches.slice(0, 10);
   };
 
   // Totals of Purchase Invoice
   const purchaseInvoiceTotals = useMemo(() => {
     let subtotal = 0;
-    let totalDiscount = 0;
-    let taxableAmount = 0;
-    let vatAmount = 0;
+    let itemDiscountsTotal = 0;
     let totalFreePacks = 0;
     let freeBonusProfitCost = 0;
     let freeBonusValueMrp = 0;
@@ -918,15 +1007,9 @@ export const StockistManagementView: React.FC = () => {
       const discountPercent = Number(it.discountPercent) || 0;
       const gross = packQty * costPrice;
       const disc = (gross * discountPercent) / 100;
-      const net = gross - disc;
 
       subtotal += gross;
-      totalDiscount += disc;
-
-      if (it.isVatApplicable) {
-        taxableAmount += net;
-        vatAmount += net * 0.13;
-      }
+      itemDiscountsTotal += disc;
 
       if (freeQty > 0) {
         totalFreePacks += freeQty;
@@ -935,11 +1018,50 @@ export const StockistManagementView: React.FC = () => {
       }
     });
 
-    const grandTotal = (subtotal - totalDiscount) + vatAmount;
+    const netItemSubtotal = Math.max(0, subtotal - itemDiscountsTotal);
+    const rawVal = parseFloat(billDiscountValue) || 0;
+    let billDiscountAmount = 0;
+
+    if (rawVal > 0) {
+      if (billDiscountType === 'percent') {
+        const clampedPercent = Math.min(100, Math.max(0, rawVal));
+        billDiscountAmount = Math.round(((netItemSubtotal * clampedPercent) / 100) * 100) / 100;
+      } else {
+        billDiscountAmount = Math.min(netItemSubtotal, Math.round(rawVal * 100) / 100);
+      }
+    }
+    billDiscountAmount = Math.min(billDiscountAmount, netItemSubtotal);
+
+    const totalDiscount = Math.round((itemDiscountsTotal + billDiscountAmount) * 100) / 100;
+
+    // Allocate bill discount proportionally across taxable items
+    const taxableGross = invoiceItems.reduce((acc, it) => {
+      if (!it.isVatApplicable) return acc;
+      const pq = Number(it.packQty) || 0;
+      const cp = Number(it.costPrice) || 0;
+      const dp = Number(it.discountPercent) || 0;
+      const gross = pq * cp;
+      return acc + (gross - (gross * dp) / 100);
+    }, 0);
+
+    let taxableAmount = taxableGross;
+    if (billDiscountAmount > 0 && netItemSubtotal > 0 && taxableGross > 0) {
+      const taxableDiscountShare = (taxableGross / netItemSubtotal) * billDiscountAmount;
+      taxableAmount = Math.max(0, taxableGross - taxableDiscountShare);
+    }
+    taxableAmount = Math.round(taxableAmount * 100) / 100;
+
+    const parsedCustomCharge = Math.max(0, parseFloat(customChargeValue) || 0);
+    const vatAmount = Math.round((taxableAmount * 0.13) * 100) / 100;
+    // Net Bill Amount = (Total Bill amount - Discount) + VAT + Custom Charge
+    const grandTotal = Math.max(0, Math.round(((subtotal - totalDiscount) + vatAmount + parsedCustomCharge) * 100) / 100);
 
     return {
-      subtotal,
+      subtotal: Math.round(subtotal * 100) / 100,
+      itemDiscountsTotal: Math.round(itemDiscountsTotal * 100) / 100,
+      billDiscountAmount,
       totalDiscount,
+      customCharge: parsedCustomCharge,
       taxableAmount,
       vatAmount,
       grandTotal,
@@ -947,7 +1069,7 @@ export const StockistManagementView: React.FC = () => {
       freeBonusProfitCost: Math.round(freeBonusProfitCost * 100) / 100,
       freeBonusValueMrp: Math.round(freeBonusValueMrp * 100) / 100,
     };
-  }, [invoiceItems]);
+  }, [invoiceItems, billDiscountType, billDiscountValue, customChargeValue]);
 
   // Submit Purchase Invoice
   const handleSubmitPurchaseInvoice = async (e: React.FormEvent) => {
@@ -991,6 +1113,19 @@ export const StockistManagementView: React.FC = () => {
       return;
     }
 
+    const rawDisc = parseFloat(billDiscountValue) || 0;
+    if (rawDisc > 0) {
+      if (billDiscountType === 'percent' && rawDisc > 100) {
+        showToast('Overall bill discount percent cannot exceed 100%.', 'warning', 'Discount Validation');
+        return;
+      }
+      const netSubtotal = Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal);
+      if (billDiscountType === 'amount' && rawDisc > netSubtotal) {
+        showToast(`Overall bill discount cannot exceed the net subtotal of Rs. ${netSubtotal.toFixed(2)}.`, 'warning', 'Discount Validation');
+        return;
+      }
+    }
+
     const stockist =
       stockists.find(s => s.id === invoiceHeader.stockistId) ||
       stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s)) ||
@@ -1025,6 +1160,9 @@ export const StockistManagementView: React.FC = () => {
         })),
         subtotal: purchaseInvoiceTotals.subtotal,
         totalDiscount: purchaseInvoiceTotals.totalDiscount,
+        billDiscount: purchaseInvoiceTotals.billDiscountAmount,
+        billDiscountType,
+        customCharge: purchaseInvoiceTotals.customCharge,
         taxableAmount: purchaseInvoiceTotals.taxableAmount,
         vatAmount: purchaseInvoiceTotals.vatAmount,
         grandTotal: purchaseInvoiceTotals.grandTotal,
@@ -1042,6 +1180,8 @@ export const StockistManagementView: React.FC = () => {
         dueDate: '',
         notes: ''
       });
+      setBillDiscountValue('');
+      setCustomChargeValue('');
       setInvoiceItems([createEmptyInvoiceItem('row-1')]);
       setSelectedStockistId(stockist.id);
       setActiveTab('ledger');
@@ -1075,6 +1215,45 @@ export const StockistManagementView: React.FC = () => {
     setPaymentRefNumber('');
     setPaymentNotes('');
     showToast(`Payment of Rs. ${paymentAmount.toFixed(2)} recorded in ledger!`, 'success', 'Payment Recorded');
+  };
+
+  // Submit Stockist Opening Balance
+  const handleRecordOpeningBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentSelectedStockist || openingBalanceAmount < 0) return;
+
+    try {
+      setIsSubmittingOpeningBalance(true);
+      setOpeningBalanceError(null);
+      const autoDate = localDateString();
+      const autoRef = `OB-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
+      await addStockistOpeningBalance(
+        currentSelectedStockist.id,
+        openingBalanceAmount,
+        autoDate,
+        autoRef,
+        openingBalanceNotes.trim() || undefined
+      );
+
+      setShowOpeningBalanceModal(false);
+      setOpeningBalanceAmount(0);
+      setOpeningBalanceNotes('');
+      showToast(
+        `Opening balance of Rs. ${openingBalanceAmount.toFixed(2)} recorded in ledger!`,
+        'success',
+        'Opening Balance Recorded'
+      );
+    } catch (err: any) {
+      console.error('Failed to record opening balance:', err);
+      setOpeningBalanceError(err.message || 'Failed to record opening balance.');
+      showToast(
+        err.message || 'Failed to record opening balance.',
+        'error',
+        'Opening Balance Failed'
+      );
+    } finally {
+      setIsSubmittingOpeningBalance(false);
+    }
   };
 
   // Add Item to Return Voucher
@@ -1564,68 +1743,99 @@ export const StockistManagementView: React.FC = () => {
 
       {/* View Header */}
       <div className="premium-stockist-hero bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-indigo-100 text-indigo-800 rounded-xl">
-              <Truck className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                Stockist Management, Purchase Invoices &amp; Wholesaler Ledger
-              </h2>
-              <p className="text-xs text-slate-500">
-                Manage credit &amp; cash purchase bills, supplier accounts, damaged/expired returns (debit notes), and item-wise sales analysis
-              </p>
-            </div>
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-100 text-indigo-800 rounded-xl">
+            <Truck className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Stockist Management, Purchase Invoices &amp; Wholesaler Ledger
+            </h2>
+            <p className="text-xs text-slate-500">
+              Manage credit &amp; cash purchase bills, supplier accounts, damaged/expired returns (debit notes), and item-wise sales analysis
+            </p>
           </div>
         </div>
 
+        {/* Action Buttons: Excel Template, Import Excel, Add Medicine */}
+        <div className="premium-inventory-actions flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => downloadMedicineExcelTemplate()}
+            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            title="Download pre-formatted Excel template for batch import"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-500" />
+            <span>Excel Template</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Import Excel (.xlsx)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAddMedicineModal(true)}
+            className="premium-btn-primary flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Medicine</span>
+          </button>
+        </div>
+
         {/* Tab Controls */}
-        <div className="premium-stockist-tabs bg-slate-100 p-1 rounded-xl flex text-xs font-semibold flex-wrap gap-1">
-          <button
-            onClick={() => setActiveTab('directory')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
-              activeTab === 'directory' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Stockists Directory
-          </button>
-          <button
-            onClick={() => setActiveTab('new_invoice')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
-              activeTab === 'new_invoice' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5 text-teal-600" />
-            <span>New Purchase Bill</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('ledger')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
-              activeTab === 'ledger' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-            <span>Stockist Ledger</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('return')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
-              activeTab === 'return' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
-            <span>Damage / Expiry Return</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
-              activeTab === 'analytics' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <BarChart2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Wholesaler Item Sales</span>
-          </button>
+        <div className="w-full pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div className="premium-stockist-tabs bg-slate-100 p-1 rounded-xl flex text-xs font-semibold flex-wrap gap-1">
+            <button
+              onClick={() => setActiveTab('directory')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                activeTab === 'directory' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Stockists Directory
+            </button>
+            <button
+              onClick={() => setActiveTab('new_invoice')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTab === 'new_invoice' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5 text-teal-600" />
+              <span>New Purchase Bill</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('ledger')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTab === 'ledger' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Stockist Ledger</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('return')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTab === 'return' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+              <span>Damage / Expiry Return</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('analytics')}
+              className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTab === 'analytics' ? 'bg-white text-slate-900 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <BarChart2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Wholesaler Item Sales</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1799,9 +2009,12 @@ export const StockistManagementView: React.FC = () => {
                   <button
                     onClick={() => {
                       setSelectedStockistId(stk.id);
+                      setLedgerYearFilter('all');
+                      setLedgerMonthFilter('all');
+                      setLedgerFilter('all');
                       setActiveTab('ledger');
                     }}
-                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-800 transition hover:border-teal-600 hover:bg-teal-50 text-center"
+                    className="flex-1 rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-800 transition hover:border-teal-600 hover:bg-teal-50 text-center cursor-pointer"
                   >
                     View Ledger
                   </button>
@@ -1936,23 +2149,6 @@ export const StockistManagementView: React.FC = () => {
                 Item-Wise Medicine Invoice Details ({invoiceItems.length} items)
               </span>
               <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  ref={excelBillInputRef}
-                  accept=".xlsx, .xls, .csv"
-                  onChange={handleImportExcelBill}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => excelBillInputRef.current?.click()}
-                  disabled={isImportingExcelBill}
-                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Upload Excel or CSV bill to auto-populate invoice line items"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-700" />
-                  <span>{isImportingExcelBill ? 'Importing Bill...' : 'Import Bill from Excel'}</span>
-                </button>
                 <button
                   type="button"
                   onClick={handleAddInvoiceItemRow}
@@ -1964,11 +2160,11 @@ export const StockistManagementView: React.FC = () => {
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-x-auto">
+            <div className="border border-slate-200 rounded-xl overflow-x-auto min-h-[380px]">
               <table className="w-full text-left text-xs min-w-[950px]">
                 <thead className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-semibold">
                   <tr>
-                    <th className="py-2.5 px-3">Medicine Name</th>
+                    <th className="py-2.5 px-3 min-w-[260px]">Medicine Name</th>
                     <th className="py-2.5 px-2">Batch #</th>
                     <th className="py-2.5 px-2">Expiry</th>
                     <th className="py-2.5 px-2 text-center">Packs</th>
@@ -1999,30 +2195,176 @@ export const StockistManagementView: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    invoiceItems.map((item, idx) => (
+                    invoiceItems.map((item, idx) => {
+                      const currentSuggestions = activeSuggestionRow === idx ? getMedicineSuggestions(item.medicineName) : [];
+                      return (
                       <tr key={item.id} className="hover:bg-slate-50/50">
-                        <td className="py-2 px-3">
-                          <input
-                            type="text"
-                            required
-                            placeholder="Medicine name"
-                            value={item.medicineName}
-                            onChange={(e) => handleUpdateInvoiceItem(idx, { medicineName: e.target.value })}
-                            className="w-full border border-slate-300 rounded px-2 py-1 text-xs font-semibold text-slate-900"
-                          />
-                          <div className="mt-1 flex items-center gap-1">
-                            <select
-                              onChange={(e) => handleSelectExistingMedicineForInvoice(idx, e.target.value)}
-                              className="text-[10px] bg-slate-100 text-slate-700 rounded p-0.5 border border-slate-200 max-w-[280px]"
-                            >
-                              <option value="">Or Pick Existing...</option>
-                              {medicines.map(m => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name} {m.batchNumber ? `[${m.batchNumber}]` : ''} {m.supplierName ? `• ${m.supplierName}` : ''} (Rs. {m.costPrice > 0 ? m.costPrice : m.mrpPrice})
-                                </option>
-                              ))}
-                            </select>
+                        <td className="py-2 px-3 relative min-w-[260px]">
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              placeholder="Type medicine name (e.g. Paracetamol)..."
+                              value={item.medicineName}
+                              autoComplete="off"
+                              onChange={(e) => {
+                                handleUpdateInvoiceItem(idx, {
+                                  medicineName: e.target.value,
+                                  medicineId: undefined
+                                });
+                                setActiveSuggestionRow(idx);
+                                setHighlightedSuggestionIndex(0);
+                              }}
+                              onFocus={() => {
+                                setActiveSuggestionRow(idx);
+                                setHighlightedSuggestionIndex(0);
+                              }}
+                              onBlur={() => {
+                                setTimeout(() => {
+                                  setActiveSuggestionRow(prev => (prev === idx ? null : prev));
+                                }, 200);
+                              }}
+                              onKeyDown={(e) => {
+                                if (activeSuggestionRow === idx && currentSuggestions.length > 0) {
+                                  if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    setHighlightedSuggestionIndex(prev => (prev + 1) % currentSuggestions.length);
+                                  } else if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    setHighlightedSuggestionIndex(prev => (prev - 1 + currentSuggestions.length) % currentSuggestions.length);
+                                  } else if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const selected = currentSuggestions[highlightedSuggestionIndex];
+                                    if (selected) {
+                                      handleSelectExistingMedicineForInvoice(idx, selected.id);
+                                      setActiveSuggestionRow(null);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setActiveSuggestionRow(null);
+                                  }
+                                }
+                              }}
+                              className={`w-full border rounded px-2.5 py-1 text-xs font-semibold text-slate-900 transition-colors focus:outline-none ${
+                                item.medicineId
+                                  ? 'border-teal-500 bg-teal-50/20'
+                                  : 'border-slate-300 focus:border-teal-500'
+                              }`}
+                            />
+
+                            {item.medicineId ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-teal-700 font-medium">
+                                <CheckCircle2 className="w-3 h-3 text-teal-600 shrink-0" />
+                                <span className="truncate">Linked to inventory</span>
+                                {item.genericName && (
+                                  <span className="text-slate-400 font-normal truncate">• {item.genericName}</span>
+                                )}
+                              </div>
+                            ) : item.medicineName.trim() ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-amber-600">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                                <span className="truncate">New medicine (not linked)</span>
+                              </div>
+                            ) : (
+                              <div className="mt-0.5 text-[9.5px] text-slate-400">
+                                Suggests as you type (case-insensitive)
+                              </div>
+                            )}
                           </div>
+
+                          {/* Autocomplete Suggestion Dropdown */}
+                          {activeSuggestionRow === idx && (
+                            <div
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className={`absolute left-3 w-80 sm:w-96 bg-white border border-slate-300 rounded-xl shadow-2xl z-50 divide-y divide-slate-100 overflow-hidden ${
+                                invoiceItems.length > 2 && idx >= invoiceItems.length - 2
+                                  ? 'bottom-[calc(100%+4px)]'
+                                  : 'top-[calc(100%+2px)]'
+                              }`}
+                            >
+                              <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                                <span>
+                                  {item.medicineName.trim()
+                                    ? `Matching Medicines (${currentSuggestions.length})`
+                                    : `Inventory Catalog (${currentSuggestions.length})`}
+                                </span>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setActiveSuggestionRow(null);
+                                  }}
+                                  className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              <div className="max-h-60 overflow-y-auto divide-y divide-slate-100">
+                                {currentSuggestions.length === 0 ? (
+                                  <div className="p-3 text-center text-xs text-slate-500">
+                                    <p className="font-medium text-slate-700">No existing medicine found matching "{item.medicineName}".</p>
+                                    <p className="text-[10.5px] text-slate-400 mt-0.5">
+                                      You can continue typing to save this as a new medicine.
+                                    </p>
+                                  </div>
+                                ) : (
+                                  currentSuggestions.map((m, sIdx) => {
+                                    const isHighlighted = highlightedSuggestionIndex === sIdx;
+                                    const rate = m.costPrice > 0 ? m.costPrice : (m.mrpPrice > 0 ? m.mrpPrice : 0);
+                                    return (
+                                      <div
+                                        key={m.id}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          handleSelectExistingMedicineForInvoice(idx, m.id);
+                                          setActiveSuggestionRow(null);
+                                        }}
+                                        onMouseEnter={() => setHighlightedSuggestionIndex(sIdx)}
+                                        className={`px-3 py-2 cursor-pointer transition-colors flex items-center justify-between gap-2 text-left ${
+                                          isHighlighted ? 'bg-teal-50 border-l-4 border-teal-600' : 'hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold text-slate-900 text-xs truncate">{m.name}</span>
+                                            {m.category && (
+                                              <span className="text-[9.5px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                                                {m.category}
+                                              </span>
+                                            )}
+                                            {m.isVatApplicable && (
+                                              <span className="text-[9.5px] bg-blue-50 text-blue-700 px-1 rounded border border-blue-200 shrink-0 font-medium">
+                                                VAT
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="text-[10.5px] text-slate-500 truncate mt-0.5">
+                                            {m.genericName ? <span className="font-medium text-slate-600">{m.genericName} • </span> : null}
+                                            <span>{m.unitsPerPack || 10}/pack</span>
+                                            {m.batchNumber ? <span className="text-slate-400"> • Batch: {m.batchNumber}</span> : null}
+                                            {m.supplierName ? <span className="text-slate-400"> • {m.supplierName}</span> : null}
+                                          </div>
+                                        </div>
+
+                                        <div className="text-right shrink-0 font-mono text-[11px] pl-2">
+                                          <div className="font-bold text-teal-700 whitespace-nowrap">Rs. {Number(rate).toFixed(2)}</div>
+                                          <div className="text-[9.5px] text-slate-400 whitespace-nowrap">MRP Rs. {Number(m.mrpPrice || 0).toFixed(2)}</div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              {currentSuggestions.length > 0 && (
+                                <div className="bg-slate-50 px-3 py-1 border-t border-slate-200 text-[10px] text-slate-400 flex items-center justify-between">
+                                  <span>Use ↑ ↓ then Enter to select</span>
+                                  <span>Click to choose</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-2 px-2">
@@ -2037,8 +2379,9 @@ export const StockistManagementView: React.FC = () => {
 
                         <td className="py-2 px-2">
                           <input
+                            key={`expiry-${item.id}-${item.medicineId || 'empty'}`}
                             type="date"
-                            value={item.expiryDate}
+                            value={item.expiryDate || ''}
                             onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
                             className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
                           />
@@ -2165,35 +2508,202 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                           </button>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
           </div>
 
           {/* Invoice Summary Box */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-4 text-xs">
-            <div className="max-w-md">
-              <label className="block font-semibold text-slate-700 mb-1">Invoice Remarks &amp; Terms:</label>
-              <input
-                type="text"
-                value={invoiceHeader.notes}
-                onChange={(e) => setInvoiceHeader({ ...invoiceHeader, notes: e.target.value })}
-                placeholder="e.g. Delivery checked, 15 days credit due date"
-                className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs"
-              />
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-start justify-between gap-4 text-xs">
+            <div className="max-w-xs flex-1 min-w-[220px] space-y-2">
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Invoice Remarks &amp; Terms:</label>
+                <input
+                  type="text"
+                  value={invoiceHeader.notes}
+                  onChange={(e) => setInvoiceHeader({ ...invoiceHeader, notes: e.target.value })}
+                  placeholder="e.g. Delivery checked, 15 days credit due date"
+                  className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs"
+                />
+              </div>
             </div>
 
-            <div className="w-72 space-y-1.5 text-right font-mono">
+            {/* Overall Bill Discount & Custom Charge */}
+            <div className="space-y-2.5 max-w-sm flex-1 min-w-[260px]">
+              {/* Overall Bill Discount (Entire Invoice) */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Percent className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Overall Bill Discount</span>
+                  </label>
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (billDiscountType !== 'amount') {
+                          setBillDiscountType('amount');
+                          setBillDiscountValue('');
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        billDiscountType === 'amount'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      Rs. Flat
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (billDiscountType !== 'percent') {
+                          setBillDiscountType('percent');
+                          setBillDiscountValue('');
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                        billDiscountType === 'percent'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-900'
+                      }`}
+                    >
+                      % Percent
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      {billDiscountType === 'amount' ? 'Rs.' : '%'}
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={billDiscountType === 'percent' ? 100 : Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal)}
+                      placeholder="0.00"
+                      value={billDiscountValue}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setBillDiscountValue('');
+                          return;
+                        }
+                        const num = parseFloat(val);
+                        if (billDiscountType === 'percent') {
+                          if (num > 100) {
+                            setBillDiscountValue('100');
+                            return;
+                          }
+                        } else {
+                          const maxAmt = Math.max(0, purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal);
+                          if (num > maxAmt) {
+                            setBillDiscountValue(String(maxAmt));
+                            return;
+                          }
+                        }
+                        setBillDiscountValue(val);
+                      }}
+                      className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-teal-500"
+                    />
+                  </div>
+                  {billDiscountValue && Number(billDiscountValue) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setBillDiscountValue('')}
+                      className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  {billDiscountValue && Number(billDiscountValue) > 0
+                    ? billDiscountType === 'percent'
+                      ? `Applied: ${billDiscountValue}% discount on the net bill subtotal (Max 100%).`
+                      : `Applied: Flat Rs. ${billDiscountValue} discount on the bill (Max: Rs. ${(purchaseInvoiceTotals.subtotal - purchaseInvoiceTotals.itemDiscountsTotal).toFixed(2)}).`
+                    : 'Choose either Flat (Rs.) OR Percent (%), then enter the discount value.'}
+                </p>
+              </div>
+
+              {/* Custom Charge Field */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Custom / Additional Charge</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-medium">Optional</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                      Rs.
+                    </span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={customChargeValue}
+                      onChange={(e) => setCustomChargeValue(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  {customChargeValue && Number(customChargeValue) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomChargeValue('')}
+                      className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  Applied to total bill depending on medicine type (e.g. customs duty / freight).
+                </p>
+              </div>
+            </div>
+
+            {/* Calculations Breakdown */}
+            <div className="w-80 space-y-1.5 text-right font-mono">
               <div className="flex justify-between text-slate-600">
-                <span>Subtotal:</span>
+                <span>Gross Subtotal:</span>
                 <span>Rs. {purchaseInvoiceTotals.subtotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-rose-600">
-                <span>Total Discount:</span>
-                <span>- Rs. {purchaseInvoiceTotals.totalDiscount.toFixed(2)}</span>
-              </div>
+              {purchaseInvoiceTotals.itemDiscountsTotal > 0 && (
+                <div className="flex justify-between text-rose-600 text-[11px]">
+                  <span>Item Discounts:</span>
+                  <span>- Rs. {purchaseInvoiceTotals.itemDiscountsTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.billDiscountAmount > 0 && (
+                <div className="flex justify-between text-rose-600 font-semibold text-[11px]">
+                  <span>Bill Discount ({billDiscountType === 'percent' ? `${billDiscountValue}%` : 'Flat'}):</span>
+                  <span>- Rs. {purchaseInvoiceTotals.billDiscountAmount.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.itemDiscountsTotal > 0 && purchaseInvoiceTotals.billDiscountAmount > 0 && (
+                <div className="flex justify-between text-rose-700 font-bold border-t border-dashed border-slate-200 pt-0.5">
+                  <span>Total Discount:</span>
+                  <span>- Rs. {purchaseInvoiceTotals.totalDiscount.toFixed(2)}</span>
+                </div>
+              )}
+              {purchaseInvoiceTotals.customCharge > 0 && (
+                <div className="flex justify-between text-amber-700 font-semibold text-[11px]">
+                  <span>Custom Charge:</span>
+                  <span>+ Rs. {purchaseInvoiceTotals.customCharge.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-blue-700">
                 <span>13% VAT Portion:</span>
                 <span>+ Rs. {purchaseInvoiceTotals.vatAmount.toFixed(2)}</span>
@@ -2213,7 +2723,7 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
               </div>
               {purchaseInvoiceTotals.freeBonusProfitCost > 0 && (
                 <p className="text-[10px] text-emerald-700 text-right font-sans font-medium">
-                  Includes {purchaseInvoiceTotals.totalFreePacks} free pack(s) received @ Rs. 0 cost (100% profit when sold)
+                  Includes {purchaseInvoiceTotals.totalFreePacks} free pack(s) received @ Rs. 0 cost
                 </p>
               )}
             </div>
@@ -2265,6 +2775,22 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {isAdmin && currentSelectedStockist && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpeningBalanceAmount(0);
+                    setOpeningBalanceNotes('');
+                    setOpeningBalanceError(null);
+                    setShowOpeningBalanceModal(true);
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-teal-600/30 bg-teal-50 px-3.5 py-2 text-xs font-bold text-teal-800 shadow-xs transition hover:bg-teal-100 hover:border-teal-600/50 cursor-pointer"
+                  title="Add or record initial opening balance for this stockist"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Opening Balance</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowPaymentModal(true)}
                 disabled={!currentSelectedStockist || currentSelectedStockist.currentBalance <= 0}
@@ -2286,12 +2812,19 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
               )}
               {currentSelectedStockist && (
                 <button
-                  onClick={() => exportStockistLedgerToExcel(
-                    currentSelectedStockist.name,
-                    currentSelectedStockist.panNumber,
-                    filteredLedgerEntries
-                  )}
-                  className="flex items-center gap-1.5 rounded-xl border border-teal-700 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-100"
+                  onClick={() => {
+                    const periodLabel = [
+                      ledgerYearFilter !== 'all' ? ledgerYearFilter : '',
+                      ledgerMonthFilter !== 'all' ? (MONTH_OPTIONS.find(m => m.value === ledgerMonthFilter)?.label || '') : ''
+                    ].filter(Boolean).join('_');
+                    exportStockistLedgerToExcel(
+                      currentSelectedStockist.name,
+                      currentSelectedStockist.panNumber,
+                      filteredLedgerEntries,
+                      periodLabel || undefined
+                    );
+                  }}
+                  className="flex items-center gap-1.5 rounded-xl border border-teal-700 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-800 transition hover:bg-teal-100 cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Export ledger (.xlsx)</span>
@@ -2301,11 +2834,38 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
           </div>
 
           {currentSelectedStockist && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${periodStartDate ? 'xl:grid-cols-5' : 'xl:grid-cols-4'}`}>
               {[
-                { label: 'Total purchases', value: currency(ledgerSummary.totalPurchases), color: 'text-slate-900' },
-                { label: 'Total paid / returned', value: currency(ledgerSummary.totalPaidOrReturned), color: 'text-emerald-700' },
-                { label: 'Outstanding', value: currency(currentSelectedStockist.currentBalance), color: currentSelectedStockist.currentBalance > 0 ? 'text-rose-700' : 'text-slate-900' },
+                ...(periodStartDate ? [{
+                  label: 'Opening Balance (B/F)',
+                  value: currency(openingBalanceBroughtForward),
+                  subtext: `Balance at start of ${ledgerMonthFilter !== 'all' ? (MONTH_OPTIONS.find(m => m.value === ledgerMonthFilter)?.label || '') + ' ' : ''}${ledgerYearFilter}`,
+                  color: openingBalanceBroughtForward > 0 ? 'text-teal-800' : 'text-slate-900'
+                }] : []),
+                { 
+                  label: periodStartDate ? 'Purchases (selected period)' : 'Total purchases', 
+                  value: currency(ledgerSummary.totalPurchases), 
+                  color: 'text-slate-900' 
+                },
+                { 
+                  label: periodStartDate ? 'Paid / returned (selected period)' : 'Total paid / returned', 
+                  value: currency(ledgerSummary.totalPaidOrReturned), 
+                  color: 'text-emerald-700' 
+                },
+                { 
+                  label: periodStartDate ? 'Period closing balance' : 'Outstanding balance', 
+                  value: currency(
+                    periodStartDate 
+                      ? (openingBalanceBroughtForward + ledgerSummary.totalPurchases - ledgerSummary.totalPaidOrReturned)
+                      : currentSelectedStockist.currentBalance
+                  ), 
+                  subtext: periodStartDate ? `Current total dues: ${currency(currentSelectedStockist.currentBalance)}` : undefined,
+                  color: (
+                    periodStartDate 
+                      ? (openingBalanceBroughtForward + ledgerSummary.totalPurchases - ledgerSummary.totalPaidOrReturned)
+                      : currentSelectedStockist.currentBalance
+                  ) > 0 ? 'text-rose-700' : 'text-slate-900' 
+                },
                 { 
                   label: 'Credit available', 
                   value: currency(Math.max(0, currentSelectedStockist.creditLimit - currentSelectedStockist.currentBalance)), 
@@ -2357,27 +2917,107 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 border-b border-slate-200 px-4 py-3">
-                {([
-                  ['all', 'All entries'],
-                  ['bills', 'Purchase bills'],
-                  ['payments', 'Payments'],
-                ] as const).map(([filter, label]) => (
-                  <button
-                    key={filter}
-                    type="button"
-                    onClick={() => setLedgerFilter(filter)}
-                    aria-pressed={ledgerFilter === filter}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      ledgerFilter === filter
-                        ? 'border-teal-700 bg-teal-700 text-white'
-                        : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-teal-600 hover:text-teal-800'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+              {/* Filters toolbar: Type, Year, and Month */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 bg-slate-50/50">
+                {/* Transaction Type Filters */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {([
+                    ['all', 'All entries'],
+                    ['bills', 'Purchase bills'],
+                    ['payments', 'Payments'],
+                  ] as const).map(([filter, label]) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setLedgerFilter(filter)}
+                      aria-pressed={ledgerFilter === filter}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                        ledgerFilter === filter
+                          ? 'border-teal-700 bg-teal-700 text-white shadow-2xs'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-teal-600 hover:text-teal-800'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Year-wise and Month-wise Dropdown Options */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Year Dropdown */}
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
+                    <Calendar className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                    <label htmlFor="ledger-year-select" className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Year:
+                    </label>
+                    <select
+                      id="ledger-year-select"
+                      value={ledgerYearFilter}
+                      onChange={(e) => setLedgerYearFilter(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+                    >
+                      <option value="all">All Years</option>
+                      {availableLedgerYears.map(yr => (
+                        <option key={yr} value={yr}>{yr}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Month Dropdown */}
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs shadow-2xs">
+                    <Calendar className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                    <label htmlFor="ledger-month-select" className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      Month:
+                    </label>
+                    <select
+                      id="ledger-month-select"
+                      value={ledgerMonthFilter}
+                      onChange={(e) => setLedgerMonthFilter(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer pr-1"
+                    >
+                      {MONTH_OPTIONS.map(m => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Reset Filters Button */}
+                  {(ledgerYearFilter !== 'all' || ledgerMonthFilter !== 'all' || ledgerFilter !== 'all') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLedgerFilter('all');
+                        setLedgerYearFilter('all');
+                        setLedgerMonthFilter('all');
+                      }}
+                      className="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-200 transition-colors cursor-pointer flex items-center gap-1"
+                      title="Reset all filters to view all ledger transactions"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {periodStartDate && (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-gradient-to-r from-teal-50/90 via-emerald-50/60 to-teal-50/90 border-b border-teal-100 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-900 border border-teal-200 uppercase tracking-wider">
+                      Opening Balance (B/F)
+                    </span>
+                    <span className="text-slate-700 font-medium">
+                      Balance brought forward from prior periods as of <strong className="font-mono text-slate-900">{periodStartDate}</strong>:
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 text-[11px]">Brought Forward:</span>
+                    <strong className="font-mono font-extrabold text-teal-900 text-sm">
+                      {currency(openingBalanceBroughtForward)}
+                    </strong>
+                  </div>
+                </div>
+              )}
 
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] border-collapse text-left text-xs">
@@ -2400,7 +3040,13 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                         <tr
                           key={entry.id}
                           onClick={() => isPurchase && handleOpenBillModal(entry)}
-                          className={`transition ${isPurchase ? 'hover:bg-teal-50/60 cursor-pointer' : 'hover:bg-slate-50'}`}
+                          className={`transition ${
+                            entry.refType === 'opening_balance'
+                              ? 'bg-teal-50/20 hover:bg-teal-50/40'
+                              : isPurchase
+                              ? 'hover:bg-teal-50/60 cursor-pointer'
+                              : 'hover:bg-slate-50'
+                          }`}
                           title={isPurchase ? 'Click to view complete bill details & medicines' : undefined}
                         >
                           <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">{entry.date}</td>
@@ -2410,13 +3056,19 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                                 ? 'bg-emerald-50 text-emerald-800'
                                 : entry.refType === 'return_debit_note'
                                 ? 'bg-violet-50 text-violet-800'
+                                : entry.refType === 'opening_balance'
+                                ? 'bg-teal-50 text-teal-800 border border-teal-200'
                                 : 'bg-blue-50 text-blue-800'
                             }`}>
                               {entry.refType === 'purchase_invoice'
                                 ? 'Purchase invoice'
                                 : entry.refType === 'payment_made'
-                                  ? 'Payment made'
-                                  : 'Return debit note'}
+                                ? 'Payment made'
+                                : entry.refType === 'return_debit_note'
+                                ? 'Return debit note'
+                                : entry.refType === 'opening_balance'
+                                ? 'Opening balance'
+                                : entry.refType}
                             </span>
                           </td>
                           <td className="whitespace-nowrap px-3 py-3 font-mono font-bold text-slate-900">
@@ -2447,7 +3099,12 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                     {filteredLedgerEntries.length === 0 && (
                       <tr>
                         <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
-                          {ledgerFilter === 'all'
+                          {ledgerYearFilter !== 'all' || ledgerMonthFilter !== 'all'
+                            ? `No transactions found for ${[
+                                ledgerMonthFilter !== 'all' ? (MONTH_OPTIONS.find(m => m.value === ledgerMonthFilter)?.label || '') : '',
+                                ledgerYearFilter !== 'all' ? ledgerYearFilter : ''
+                              ].filter(Boolean).join(' ')}.`
+                            : ledgerFilter === 'all'
                             ? 'No ledger transactions recorded for this stockist yet.'
                             : `No ${ledgerFilter === 'bills' ? 'purchase bills' : 'payments'} recorded for this stockist.`}
                         </td>
@@ -2457,7 +3114,14 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                   {filteredLedgerEntries.length > 0 && (
                     <tfoot className="border-t border-slate-200 bg-slate-50 font-bold">
                       <tr>
-                        <td colSpan={4} className="px-4 py-3 text-slate-700">Account totals</td>
+                        <td colSpan={4} className="px-4 py-3 text-slate-700">
+                          {ledgerYearFilter !== 'all' || ledgerMonthFilter !== 'all'
+                            ? `Period totals (${[
+                                ledgerMonthFilter !== 'all' ? (MONTH_OPTIONS.find(m => m.value === ledgerMonthFilter)?.label || '') : '',
+                                ledgerYearFilter !== 'all' ? ledgerYearFilter : 'All Years'
+                              ].filter(Boolean).join(' ')})`
+                            : 'Account totals'}
+                        </td>
                         <td className="whitespace-nowrap px-3 py-3 text-right font-mono text-emerald-700">
                           {currency(ledgerSummary.totalPaidOrReturned)}
                         </td>
@@ -2465,7 +3129,11 @@ onChange={(e) => handleUpdateInvoiceItem(idx, { mrpPrice: parseDecimalInput(e.ta
                           {currency(ledgerSummary.totalPurchases)}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-slate-900">
-                          {currency(currentSelectedStockist.currentBalance)}
+                          {currency(
+                            periodStartDate
+                              ? (openingBalanceBroughtForward + ledgerSummary.totalPurchases - ledgerSummary.totalPaidOrReturned)
+                              : currentSelectedStockist.currentBalance
+                          )}
                         </td>
                       </tr>
                     </tfoot>
@@ -3397,6 +4065,103 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
         </div>
       )}
 
+      {/* Record Opening Balance Modal */}
+      {showOpeningBalanceModal && currentSelectedStockist && (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
+          <form onSubmit={handleRecordOpeningBalance} className="bg-white w-full max-w-md max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-y-auto my-auto">
+            <div className="bg-gradient-to-r from-slate-950 via-teal-950 to-slate-950 text-white px-5 py-3.5 flex justify-between items-center rounded-t-2xl border-b border-teal-900/40">
+              <div>
+                <h4 className="font-bold text-sm flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-teal-400" />
+                  <span>Record Opening Balance</span>
+                </h4>
+                <p className="text-[11px] text-teal-200 mt-0.5">{currentSelectedStockist.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOpeningBalanceModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+                title="Close"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center">
+                <span className="text-slate-600 font-medium">Current Stockist Balance:</span>
+                <strong className="font-mono text-rose-700 text-sm">{currency(currentSelectedStockist.currentBalance)}</strong>
+              </div>
+
+              {openingBalanceError && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-medium text-red-700 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                  <span>{openingBalanceError}</span>
+                </p>
+              )}
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Opening Balance Amount (NPR): <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  min="0"
+                  value={openingBalanceAmount || ''}
+                  onKeyDown={(event) => preventInvalidNumberKeys(event, true)}
+                  onChange={(e) => setOpeningBalanceAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
+                  placeholder="e.g. 200000.00"
+                  className="w-full border border-slate-300 rounded-lg p-2 font-mono font-bold text-slate-900 text-sm focus:border-teal-600 focus:outline-none"
+                />
+                <span className="text-[11px] text-slate-500 mt-0.5 block">
+                  Amount owed to this supplier at the start of records. Increases stockist payable balance.
+                </span>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Particulars / Remarks:
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Opening balance brought forward from previous software"
+                  value={openingBalanceNotes}
+                  onChange={(e) => setOpeningBalanceNotes(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-xs focus:border-teal-600 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex justify-end gap-2 rounded-b-2xl">
+              <button
+                type="button"
+                onClick={() => setShowOpeningBalanceModal(false)}
+                className="px-3.5 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmittingOpeningBalance}
+                className="px-4 py-1.5 bg-teal-700 hover:bg-teal-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-sm shadow-teal-700/20"
+              >
+                {isSubmittingOpeningBalance ? (
+                  <span>Recording...</span>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save Opening Balance</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Upgraded Itemized Purchase Invoice / Bill Details Modal */}
       {viewingPurchaseBill && (
         <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-6 overflow-y-auto">
@@ -3737,6 +4502,14 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
                         </td>
                       </tr>
                     )}
+                    {Number(viewingPurchaseBill.customCharge) > 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-2.5 px-3 text-amber-700">Custom / Additional Charge</td>
+                        <td colSpan={4} className="py-2.5 px-3 text-right font-mono text-amber-700">
+                          + Rs. {Number(viewingPurchaseBill.customCharge).toFixed(2)}
+                        </td>
+                      </tr>
+                    )}
                     {Number(viewingPurchaseBill.vatAmount) > 0 && (
                       <tr>
                         <td colSpan={6} className="py-2.5 px-3 text-blue-700">13% VAT Amount</td>
@@ -3775,6 +4548,18 @@ onChange={(e) => setPaymentAmount(parseDecimalInput(e.target.value, 2) ?? 0)}
           </div>
         </div>
       )}
+
+      {/* Bulk Medicine Excel Import Modal */}
+      <BulkMedicineImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+      />
+
+      {/* Add Medicine to Inventory Modal */}
+      <AddMedicineModal
+        isOpen={showAddMedicineModal}
+        onClose={() => setShowAddMedicineModal(false)}
+      />
     </div>
   );
 };

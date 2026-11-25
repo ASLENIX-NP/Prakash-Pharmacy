@@ -561,6 +561,99 @@ export const recordDistributorPayment = async (req: Request, res: Response): Pro
   }
 };
 
+export const recordDistributorOpeningBalance = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = parseIdParam(req.params.id);
+    if (!id) {
+      res.status(400).json({ success: false, message: "Invalid distributor ID." });
+      return;
+    }
+
+    const { amount, date, refNumber, notes } = req.body;
+
+    const parsedAmount = parseFloat(String(amount));
+    if (isNaN(parsedAmount) || parsedAmount < 0) {
+      res.status(400).json({ success: false, message: "Opening balance amount must be zero or positive." });
+      return;
+    }
+
+    const distributor = await prisma.distributor.findUnique({ where: { id } });
+    if (!distributor) {
+      res.status(404).json({ success: false, message: "Distributor not found." });
+      return;
+    }
+
+    const cleanRef = String(refNumber || `OB-${Date.now().toString().slice(-6)}`).trim();
+    const description = `Opening Balance${notes ? `: ${notes}` : ""}`;
+    const authUser = (req as any).user ?? {};
+    const recordedBy = String(authUser.username ?? authUser.fullName ?? "Admin");
+
+    let entryDate = new Date();
+    if (date && typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      entryDate = new Date(`${date}T00:00:00.000Z`);
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const accountLockKey = `supplier-account:${id}`;
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${accountLockKey}))
+      `;
+
+      // An opening balance is a payable liability (credit to supplier)
+      const updatedDistributor = await tx.distributor.update({
+        where: { id },
+        data: {
+          currentBalance: { increment: parsedAmount },
+        },
+      });
+      const newBal = Number(updatedDistributor.currentBalance || 0);
+
+      // Create Ledger entry (Credit increases liability)
+      const ledgerEntry = await tx.ledger.create({
+        data: {
+          distributorId: id,
+          ledgerType: "opening_balance",
+          referenceNo: cleanRef,
+          description,
+          recordedBy,
+          dateOfCreation: entryDate,
+          debitAmount: 0,
+          creditAmount: parsedAmount,
+          balance: newBal,
+        },
+      });
+
+      return { updatedDistributor, ledgerEntry };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Opening balance of Rs. ${parsedAmount.toFixed(2)} recorded successfully.`,
+      data: {
+        distributor: formatDistributorResponse(result.updatedDistributor),
+        ledgerEntry: {
+          id: String(result.ledgerEntry.id),
+          stockistId: formatDistributorCode(id),
+          date: formatNepalDateOnly(result.ledgerEntry.dateOfCreation),
+          refType: "opening_balance",
+          refNumber: cleanRef,
+          description,
+          debit: 0,
+          credit: parsedAmount,
+          balance: Number(result.ledgerEntry.balance),
+          createdAt: result.ledgerEntry.dateOfCreation.toISOString(),
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error("Error recording opening balance:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to record opening balance.",
+    });
+  }
+};
+
 export const getDistributorReturns = async (_req: Request, res: Response): Promise<void> => {
   try {
     const returns = await prisma.distributorReturn.findMany({

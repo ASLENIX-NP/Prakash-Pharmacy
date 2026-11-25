@@ -10,6 +10,12 @@ export type MedicineCategory =
   | 'Inhaler'
   | 'Antiseptic Solution'
   | 'Medicated Gel'
+  | 'Gel'
+  | 'Powder'
+  | 'Lotion'
+  | 'Solution'
+  | 'Suppository'
+  | 'Patch'
   | 'Device / Surgical'
   | 'OTC Cosmetic'
   | 'Other';
@@ -35,6 +41,12 @@ export interface Medicine {
   isVatApplicable: boolean; // false = VAT Free / 0% Exempt, true = 13% VAT Applicable
   prescriptionRequired?: boolean;
   hasvat?: boolean; // backend compatibility alias
+  medicineBrand?: string; // backend compatibility alias
+  categoryName?: string; // backend compatibility alias
+  rackName?: string; // backend compatibility alias
+  unitPerPack?: number; // backend compatibility alias
+  sellingPrice?: number; // backend compatibility alias
+  packAlertLevel?: number; // backend compatibility alias
   notes?: string;
   saleStatus?: MedicineSaleStatus;
   safetyStatus?: MedicineSaleStatus;
@@ -143,6 +155,9 @@ export interface StockistPurchaseInvoice {
   items: StockistInvoiceItem[];
   subtotal: number;
   totalDiscount: number;
+  billDiscount?: number;
+  billDiscountType?: 'amount' | 'percent';
+  customCharge?: number;
   taxableAmount: number;
   vatAmount: number; // 13% on taxable items
   grandTotal: number;
@@ -152,7 +167,7 @@ export interface StockistPurchaseInvoice {
   createdAt: string;
 }
 
-export type StockistLedgerType = 'purchase_invoice' | 'payment_made' | 'return_debit_note';
+export type StockistLedgerType = 'purchase_invoice' | 'payment_made' | 'return_debit_note' | 'opening_balance';
 
 export interface StockistLedgerEntry {
   id: string;

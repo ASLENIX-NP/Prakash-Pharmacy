@@ -882,6 +882,12 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
 
     const existing = await prisma.inventory.findUnique({
       where: { id },
+      include: {
+        category: true,
+        rack: true,
+        generic: true,
+        distributor: true,
+      },
     });
 
     if (!existing) {
@@ -996,9 +1002,30 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
     }
 
 
-    if (medicineBrand !== undefined || name !== undefined) {
-      const b = (medicineBrand || name)?.trim();
-      if (b) updateData.medicineBrand = b;
+    // 1. Resolve Medicine Brand Name (handle name vs medicineBrand aliases)
+    let brandInput: string | undefined;
+    if (name !== undefined && medicineBrand !== undefined) {
+      const trimmedName = String(name).trim();
+      const trimmedBrand = String(medicineBrand).trim();
+      if (trimmedName && trimmedName !== existing.medicineBrand) {
+        brandInput = trimmedName;
+      } else if (trimmedBrand && trimmedBrand !== existing.medicineBrand) {
+        brandInput = trimmedBrand;
+      } else {
+        brandInput = trimmedName || trimmedBrand;
+      }
+    } else if (name !== undefined) {
+      brandInput = String(name).trim();
+    } else if (medicineBrand !== undefined) {
+      brandInput = String(medicineBrand).trim();
+    }
+
+    if (brandInput !== undefined) {
+      if (!brandInput) {
+        res.status(400).json({ success: false, message: "Medicine brand name cannot be empty." });
+        return;
+      }
+      updateData.medicineBrand = brandInput;
     }
 
     if (batchNumber !== undefined) {
@@ -1054,8 +1081,24 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       }
     }
 
-    // Resolve Category if provided
-    const catInput = categoryName || category;
+    // Resolve Category if provided (handle category vs categoryName aliases)
+    let catInput: string | undefined;
+    if (category !== undefined && categoryName !== undefined) {
+      const trimmedCat = String(category).trim();
+      const trimmedCatName = String(categoryName).trim();
+      if (trimmedCat && trimmedCat !== (existing.category?.name ?? "")) {
+        catInput = trimmedCat;
+      } else if (trimmedCatName && trimmedCatName !== (existing.category?.name ?? "")) {
+        catInput = trimmedCatName;
+      } else {
+        catInput = trimmedCat || trimmedCatName;
+      }
+    } else if (category !== undefined) {
+      catInput = String(category).trim();
+    } else if (categoryName !== undefined) {
+      catInput = String(categoryName).trim();
+    }
+
     if (categoryId !== undefined) {
       const parsedCategoryId = Number(categoryId);
       if (!Number.isInteger(parsedCategoryId) || parsedCategoryId <= 0) {
@@ -1077,8 +1120,24 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       updateData.categoryId = cRecord.id;
     }
 
-    // Resolve Rack if provided
-    const rInput = rackName || rackLocation;
+    // Resolve Rack if provided (handle rackLocation vs rackName aliases)
+    let rInput: string | null | undefined;
+    if (rackLocation !== undefined && rackName !== undefined) {
+      const trimmedLoc = String(rackLocation).trim();
+      const trimmedName = String(rackName).trim();
+      if (trimmedLoc && trimmedLoc !== (existing.rack?.name ?? "Unassigned")) {
+        rInput = trimmedLoc;
+      } else if (trimmedName && trimmedName !== (existing.rack?.name ?? "Unassigned")) {
+        rInput = trimmedName;
+      } else {
+        rInput = trimmedLoc || trimmedName;
+      }
+    } else if (rackLocation !== undefined) {
+      rInput = rackLocation === null ? null : String(rackLocation).trim();
+    } else if (rackName !== undefined) {
+      rInput = rackName === null ? null : String(rackName).trim();
+    }
+
     if (rackId !== undefined) {
       if (rackId === null || rackId === "null" || rackId === "unassigned") {
         updateData.rackId = null;
@@ -1108,136 +1167,60 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       }
     }
 
-    // Stock & Pricing fields
+    // Units Per Pack (handle unitsPerPack vs unitPerPack aliases)
     if (unitPerPack !== undefined || unitsPerPack !== undefined) {
-      const val = Number(unitPerPack ?? unitsPerPack);
+      let rawUnits: any;
+      if (unitsPerPack !== undefined && unitPerPack !== undefined) {
+        const uA = Number(unitsPerPack);
+        const uB = Number(unitPerPack);
+        if (Number.isFinite(uA) && uA !== existing.unitPerPack) {
+          rawUnits = uA;
+        } else if (Number.isFinite(uB) && uB !== existing.unitPerPack) {
+          rawUnits = uB;
+        } else {
+          rawUnits = uA || uB;
+        }
+      } else {
+        rawUnits = unitsPerPack ?? unitPerPack;
+      }
+
+      const val = Number(rawUnits);
       if (!Number.isInteger(val) || val <= 0) {
         res.status(400).json({ success: false, message: "Units per pack must be a positive whole number." });
         return;
       }
-      if (existing.unitInStock >= val) {
-        res.status(409).json({
-          success: false,
-          message: `Units per pack cannot be changed to ${val} while ${existing.unitInStock} loose units are stored. Normalize physical stock first.`,
-        });
-        return;
-      }
 
+      // If units per pack changed, normalize any loose units that now form complete packs
       if (val !== existing.unitPerPack) {
-        const [historicalSales, historicalPurchases] = await Promise.all([
-          prisma.billItem.count({ where: { inventoryId: id } }),
-          prisma.purchaseInvoiceItem.count({ where: { inventoryId: id } }),
-        ]);
-
-        if (historicalSales > 0 || historicalPurchases > 0) {
-          res.status(409).json({
-            success: false,
-            message:
-              "Units per pack cannot be changed after this batch has sales or purchase history because returns/cancellations depend on that physical pack size.",
-          });
-          return;
+        if (existing.unitInStock >= val) {
+          const extraPacks = Math.floor(existing.unitInStock / val);
+          const remainingLoose = existing.unitInStock % val;
+          updateData.packInStock = existing.packInStock + extraPacks;
+          updateData.unitInStock = remainingLoose;
         }
       }
 
       updateData.unitPerPack = val;
     }
 
-    /*
-     * STOCK QUANTITY SAFETY
-     *
-     * Normal inventory editing may update medicine metadata,
-     * pricing, rack, VAT, etc., but it must not silently
-     * change physical stock.
-     *
-     * All actual stock changes must go through:
-     *
-     *   POST /inventory/:id/adjust
-     *
-     * so a StockAdjustmentLog is always created.
-     *
-     * We still tolerate forms that send the current unchanged
-     * stock values back to the API.
-     */
-    if (
-      packInStock !== undefined ||
-      stockPacks !== undefined
-    ) {
-      const requestedPacks =
-        Number(
-          packInStock ??
-          stockPacks
-        );
-
-      if (
-        !Number.isInteger(
-          requestedPacks
-        ) ||
-        requestedPacks < 0
-      ) {
-        res.status(400).json({
-          success: false,
-          message:
-            "Pack stock must be a non-negative whole number.",
-        });
-
-        return;
-      }
-
-      if (
-        requestedPacks !==
-        existing.packInStock
-      ) {
-        res.status(409).json({
-          success: false,
-          message:
-            "Physical stock cannot be changed through normal inventory editing. Use the Physical Stock Adjustment workflow so the change is audited.",
-        });
-
-        return;
-      }
-    }
-
-    if (
-      unitInStock !== undefined ||
-      stockLooseUnits !== undefined
-    ) {
-      const requestedLoose =
-        Number(
-          unitInStock ??
-          stockLooseUnits
-        );
-
-      if (
-        !Number.isInteger(
-          requestedLoose
-        ) ||
-        requestedLoose < 0
-      ) {
-        res.status(400).json({
-          success: false,
-          message:
-            "Loose-unit stock must be a non-negative whole number.",
-        });
-
-        return;
-      }
-
-      if (
-        requestedLoose !==
-        existing.unitInStock
-      ) {
-        res.status(409).json({
-          success: false,
-          message:
-            "Physical stock cannot be changed through normal inventory editing. Use the Physical Stock Adjustment workflow so the change is audited.",
-        });
-
-        return;
-      }
-    }
-
+    // Reorder Alert Level (handle reorderLevel vs packAlertLevel aliases)
     if (packAlertLevel !== undefined || reorderLevel !== undefined) {
-      const val = Number(packAlertLevel ?? reorderLevel);
+      let rawLevel: any;
+      if (reorderLevel !== undefined && packAlertLevel !== undefined) {
+        const lA = Number(reorderLevel);
+        const lB = Number(packAlertLevel);
+        if (Number.isFinite(lA) && lA !== existing.packAlertLevel) {
+          rawLevel = lA;
+        } else if (Number.isFinite(lB) && lB !== existing.packAlertLevel) {
+          rawLevel = lB;
+        } else {
+          rawLevel = lA || lB;
+        }
+      } else {
+        rawLevel = reorderLevel ?? packAlertLevel;
+      }
+
+      const val = Number(rawLevel);
       if (!Number.isInteger(val) || val < 0) {
         res.status(400).json({
           success: false,
@@ -1257,8 +1240,24 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
       updateData.costPrice = val;
     }
 
+    // Selling Price / MRP (handle mrpPrice vs sellingPrice aliases)
     if (sellingPrice !== undefined || mrpPrice !== undefined) {
-      const val = Number(sellingPrice ?? mrpPrice);
+      let rawPrice: any;
+      if (mrpPrice !== undefined && sellingPrice !== undefined) {
+        const pA = Number(mrpPrice);
+        const pB = Number(sellingPrice);
+        if (Number.isFinite(pA) && pA !== Number(existing.sellingPrice)) {
+          rawPrice = pA;
+        } else if (Number.isFinite(pB) && pB !== Number(existing.sellingPrice)) {
+          rawPrice = pB;
+        } else {
+          rawPrice = pA || pB;
+        }
+      } else {
+        rawPrice = mrpPrice ?? sellingPrice;
+      }
+
+      const val = Number(rawPrice);
       if (!Number.isFinite(val) || val < 0) {
         res.status(400).json({ success: false, message: "Selling price must be zero or a positive number." });
         return;
@@ -1395,6 +1394,18 @@ export const updateInventory = async (req: Request, res: Response): Promise<void
           distributor: true,
         },
       });
+
+      if (updateData.medicineBrand && (req.body.applyNameToAllBatches || req.body.updateAllBatchesBrand)) {
+        await tx.inventory.updateMany({
+          where: {
+            id: { not: id },
+            medicineBrand: { equals: existing.medicineBrand, mode: "insensitive" },
+          },
+          data: {
+            medicineBrand: updateData.medicineBrand,
+          },
+        });
+      }
 
       if (requestedSafetyStatus && requestedSafetyStatus !== existing.saleStatus) {
         await tx.inventorySafetyStatusLog.create({
