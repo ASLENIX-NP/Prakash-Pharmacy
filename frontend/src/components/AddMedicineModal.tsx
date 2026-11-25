@@ -1,8 +1,8 @@
-import React, { useState, useRef } from 'react';
-import { X, Building, Plus } from 'lucide-react';
+import React, { useState, useRef, useMemo } from 'react';
+import { X, Building, Plus, Receipt, PlusCircle, Gift, CheckCircle2 } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { useDialog } from '../context/DialogContext';
-import { MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
+import { Medicine, MedicineCategory, StockistInvoiceItem } from '../types/pharmacy';
 import { localDateString } from '../utils/date';
 import { parseDecimalInput, parseIntegerInput, preventInvalidNumberKeys } from '../utils/inputValidation';
 
@@ -33,7 +33,7 @@ interface AddMedicineModalProps {
 
 export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { showToast, confirmDialog } = useDialog();
-  const { stockists, addStockist, addPurchaseInvoice, addMedicine, racks, isAdmin } = usePharmacy();
+  const { stockists, addStockist, addPurchaseInvoice, addMedicine, racks, isAdmin, medicines } = usePharmacy();
 
   const [manualDistributorMode, setManualDistributorMode] = useState<'select' | 'new'>('select');
   const [manualNewDistributorName, setManualNewDistributorName] = useState('');
@@ -46,6 +46,11 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
   const [manualPurchaseDate, setManualPurchaseDate] = useState(() => localDateString());
   const [manualPurchasePaymentMode, setManualPurchasePaymentMode] = useState<'credit' | 'cash'>('credit');
   const [manualPurchaseDueDate, setManualPurchaseDueDate] = useState('');
+  const [billDiscountValue, setBillDiscountValue] = useState<string>('');
+  const [customChargeValue, setCustomChargeValue] = useState<string>('');
+
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [highlightedNameIndex, setHighlightedNameIndex] = useState(-1);
 
   const [isSaving, setIsSaving] = useState(false);
   const saveLockRef = useRef(false);
@@ -69,8 +74,6 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
     prescriptionRequired: false,
     notes: '',
   });
-
-  if (!isOpen) return null;
 
   const handleResetForm = () => {
     setFormData({
@@ -100,7 +103,94 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
     setManualPurchaseDate(localDateString());
     setManualPurchasePaymentMode('credit');
     setManualPurchaseDueDate('');
+    setBillDiscountValue('');
+    setCustomChargeValue('');
+    setShowNameSuggestions(false);
+    setHighlightedNameIndex(-1);
   };
+
+  // Case-insensitive medicine suggestions (only when user has typed at least 1 character)
+  const getNameSuggestions = (query: string): Medicine[] => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q || q.length < 1) {
+      return [];
+    }
+    return (medicines || []).filter(m => {
+      const name = (m.name || '').toLowerCase();
+      const generic = (m.genericName || '').toLowerCase();
+      return name.includes(q) || generic.includes(q);
+    }).slice(0, 8);
+  };
+
+  // Pre-fill form when user explicitly selects an existing medicine (catalog identity only)
+  const handleSelectSuggestedMedicine = (med: Medicine) => {
+    setFormData(prev => ({
+      ...prev,
+      name: med.name,
+      genericName: med.genericName || '',
+      category: med.category || prev.category,
+      unitsPerPack: med.unitsPerPack || prev.unitsPerPack || 10,
+      costPrice: 0,
+      mrpPrice: 0,
+      stockPacks: 0,
+      freePacks: 0,
+      batchNumber: '',
+      expiryDate: '',
+      rackLocation: med.rackLocation || prev.rackLocation,
+      reorderLevel: med.reorderLevel !== undefined ? med.reorderLevel : prev.reorderLevel,
+      isVatApplicable: med.isVatApplicable !== undefined ? Boolean(med.isVatApplicable) : prev.isVatApplicable,
+      prescriptionRequired: med.prescriptionRequired !== undefined ? Boolean(med.prescriptionRequired) : prev.prescriptionRequired,
+    }));
+    setShowNameSuggestions(false);
+    setHighlightedNameIndex(-1);
+  };
+
+  // Check if current name matches an existing inventory medicine (case-insensitive)
+  const matchedInventoryMed = useMemo(() => {
+    const q = formData.name.trim().toLowerCase();
+    if (!q) return null;
+    return (medicines || []).find(m => (m.name || '').trim().toLowerCase() === q) || null;
+  }, [formData.name, medicines]);
+
+  // Financial computations for opening stock purchase
+  const openingStockCalculations = useMemo(() => {
+    const openingPacks = Math.max(0, Number(formData.stockPacks) || 0);
+    const freePacks = Math.max(0, Number(formData.freePacks) || 0);
+    const costPerPack = Math.max(0, Number(formData.costPrice) || 0);
+
+    const baseAmount = Math.round(openingPacks * costPerPack * 100) / 100;
+
+    // Flat Discount in Rs. (No percentage)
+    const rawDisc = parseFloat(billDiscountValue) || 0;
+    const discountAmt = Math.min(baseAmount, Math.max(0, rawDisc));
+    const discountedBase = Math.max(0, baseAmount - discountAmt);
+
+    // Custom / Additional Charge in Rs.
+    const customChargeAmt = Math.max(0, parseFloat(customChargeValue) || 0);
+
+    // 13% VAT (Nepal IRD)
+    const isVatApplicable = Boolean(formData.isVatApplicable);
+    const taxableAmount = isVatApplicable ? discountedBase : 0;
+    const vatAmount = isVatApplicable ? Math.round(taxableAmount * 0.13 * 100) / 100 : 0;
+
+    // Final Amount (Grand Total)
+    const grandTotal = Math.round((discountedBase + customChargeAmt + vatAmount) * 100) / 100;
+
+    const freeBonusProfitCost = Math.round(freePacks * costPerPack * 100) / 100;
+
+    return {
+      openingPacks,
+      freePacks,
+      costPerPack,
+      baseAmount,
+      discountAmt,
+      customChargeAmt,
+      taxableAmount,
+      vatAmount,
+      grandTotal,
+      freeBonusProfitCost
+    };
+  }, [formData.stockPacks, formData.freePacks, formData.costPrice, formData.isVatApplicable, billDiscountValue, customChargeValue]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -226,11 +316,7 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
 
         const costPerPack = costPriceVal;
         const mrpPerPack = mrpPriceVal;
-        const lineTotal = Math.round((openingPacks * costPerPack) * 100) / 100;
-        const isVatApplicable = Boolean(formData.isVatApplicable);
-        const taxableAmount = isVatApplicable ? lineTotal : 0;
-        const vatAmount = isVatApplicable ? Math.round(taxableAmount * 0.13 * 100) / 100 : 0;
-        const grandTotal = Math.round((lineTotal + vatAmount) * 100) / 100;
+        const lineTotal = openingStockCalculations.baseAmount;
 
         const invoiceItem: StockistInvoiceItem = {
           id: `manual-${Date.now()}`,
@@ -245,7 +331,7 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
           unitsPerPack: unitsPerPackVal,
           costPrice: costPerPack,
           discountPercent: 0,
-          isVatApplicable,
+          isVatApplicable: Boolean(formData.isVatApplicable),
           prescriptionRequired: Boolean(formData.prescriptionRequired),
           mrpPrice: mrpPerPack,
           rackLocation: String(formData.rackLocation || 'Unassigned'),
@@ -263,12 +349,15 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
           paymentMode: manualPurchasePaymentMode,
           dueDate: manualPurchasePaymentMode === 'credit' && manualPurchaseDueDate ? manualPurchaseDueDate : undefined,
           items: [invoiceItem],
-          subtotal: lineTotal,
-          totalDiscount: 0,
-          taxableAmount,
-          vatAmount,
-          grandTotal,
-          paidAmount: manualPurchasePaymentMode === 'cash' ? grandTotal : 0,
+          subtotal: openingStockCalculations.baseAmount,
+          totalDiscount: openingStockCalculations.discountAmt,
+          billDiscount: openingStockCalculations.discountAmt > 0 ? openingStockCalculations.discountAmt : undefined,
+          billDiscountType: openingStockCalculations.discountAmt > 0 ? 'amount' : undefined,
+          customCharge: openingStockCalculations.customChargeAmt > 0 ? openingStockCalculations.customChargeAmt : undefined,
+          taxableAmount: openingStockCalculations.taxableAmount,
+          vatAmount: openingStockCalculations.vatAmount,
+          grandTotal: openingStockCalculations.grandTotal,
+          paidAmount: manualPurchasePaymentMode === 'cash' ? openingStockCalculations.grandTotal : 0,
           paymentStatus: manualPurchasePaymentMode === 'cash' ? 'paid' : 'pending',
           notes: `${supplierInvoiceProvided ? '' : 'NO SUPPLIER BILL PROVIDED; internal reference only. '}Single medicine inventory entry.${formData.notes?.trim() ? ` ${formData.notes.trim()}` : ''}`
         });
@@ -326,6 +415,8 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-xl max-h-[calc(100dvh-1rem)] rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto flex flex-col">
@@ -347,18 +438,159 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
 
         <form onSubmit={handleSave} className="p-4 sm:p-6 space-y-4 overflow-y-auto min-h-0">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="col-span-full">
+            <div className="col-span-full relative">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Medicine Brand Name: *
               </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Augmentin 625 Duo, Cetip 500mg, Pan 40"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  placeholder="e.g. Augmentin 625 Duo, Cetip 500mg, Pan 40"
+                  value={formData.name}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormData({ ...formData, name: val });
+                    setShowNameSuggestions(val.trim().length > 0);
+                    setHighlightedNameIndex(-1);
+                  }}
+                  onFocus={() => {
+                    if (formData.name.trim().length > 0) {
+                      setShowNameSuggestions(true);
+                    }
+                    setHighlightedNameIndex(-1);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setShowNameSuggestions(false), 200);
+                  }}
+                  onKeyDown={(e) => {
+                    const currentSuggestions = getNameSuggestions(formData.name);
+                    if (showNameSuggestions && currentSuggestions.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedNameIndex(prev => (prev < currentSuggestions.length - 1 ? prev + 1 : 0));
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedNameIndex(prev => (prev > 0 ? prev - 1 : -1));
+                      } else if (e.key === 'Enter') {
+                        if (highlightedNameIndex >= 0 && currentSuggestions[highlightedNameIndex]) {
+                          e.preventDefault();
+                          handleSelectSuggestedMedicine(currentSuggestions[highlightedNameIndex]);
+                        } else {
+                          setShowNameSuggestions(false);
+                        }
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setShowNameSuggestions(false);
+                        setHighlightedNameIndex(-1);
+                      }
+                    }
+                  }}
+                  className={`w-full border rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 transition-colors focus:outline-hidden ${
+                    matchedInventoryMed
+                      ? 'border-teal-500 bg-teal-50/20 focus:bg-white focus:ring-2 focus:ring-teal-500'
+                      : 'border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500'
+                  }`}
+                />
+
+                {matchedInventoryMed ? (
+                  <div className="mt-1 flex items-center gap-1 text-[10px] text-teal-700 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                    <span>Auto-linked to existing catalog: <strong>{matchedInventoryMed.name}</strong></span>
+                    {matchedInventoryMed.genericName && (
+                      <span className="text-slate-400 font-normal truncate">• {matchedInventoryMed.genericName}</span>
+                    )}
+                  </div>
+                ) : formData.name.trim() ? (
+                  <div className="mt-1 text-[10px] text-slate-400">
+                    Suggests existing medicines as you type (case-insensitive)
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Autocomplete Suggestion Dropdown */}
+              {showNameSuggestions && formData.name.trim().length > 0 && (
+                <div
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="absolute left-0 right-0 top-[calc(100%+2px)] bg-white border border-slate-300 rounded-xl shadow-2xl z-50 divide-y divide-slate-100 overflow-hidden"
+                >
+                  <div className="bg-slate-50 px-3 py-1.5 border-b border-slate-200 flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                    <span>
+                      {formData.name.trim()
+                        ? `Matching Medicines (${getNameSuggestions(formData.name).length})`
+                        : `Existing Inventory Catalog (${getNameSuggestions(formData.name).length})`}
+                    </span>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setShowNameSuggestions(false);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                    {getNameSuggestions(formData.name).length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-500">
+                        <p className="font-medium text-slate-700">No existing medicine matching "{formData.name}".</p>
+                        <p className="text-[10.5px] text-slate-400 mt-0.5">
+                          Continue typing to register this as a brand new medicine.
+                        </p>
+                      </div>
+                    ) : (
+                      getNameSuggestions(formData.name).map((m, sIdx) => {
+                        const isHighlighted = highlightedNameIndex === sIdx;
+                        return (
+                          <div
+                            key={m.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleSelectSuggestedMedicine(m);
+                            }}
+                            onMouseEnter={() => setHighlightedNameIndex(sIdx)}
+                            className={`px-3 py-2 cursor-pointer transition-colors flex items-center justify-between gap-2 text-left ${
+                              isHighlighted ? 'bg-teal-50 border-l-4 border-teal-600' : 'hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-bold text-slate-900 text-xs truncate">{m.name}</span>
+                                {m.category && (
+                                  <span className="text-[9.5px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded border border-slate-200 shrink-0">
+                                    {m.category}
+                                  </span>
+                                )}
+                              </div>
+                              {m.genericName && (
+                                <p className="text-[11px] text-slate-500 italic truncate">{m.genericName}</p>
+                              )}
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                <span>Strip: {m.unitsPerPack || 10} units</span>
+                                {m.rackLocation && m.rackLocation !== 'Unassigned' && (
+                                  <span>• Rack: {m.rackLocation}</span>
+                                )}
+                                <span>• Stock: {m.stockPacks || 0} pk</span>
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0 text-xs font-mono">
+                              {m.mrpPrice > 0 && (
+                                <div className="font-bold text-slate-800">MRP: Rs. {m.mrpPrice}</div>
+                              )}
+                              {m.costPrice > 0 && (
+                                <div className="text-[10px] text-slate-500">Cost: Rs. {m.costPrice}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="col-span-full">
@@ -538,10 +770,14 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
                     Due Date (optional):
                   </label>
                   <input
-                    type="date"
+                    type={manualPurchaseDueDate ? "date" : "text"}
+                    placeholder="YYYY-MM-DD"
                     value={manualPurchaseDueDate}
+                    onFocus={(e) => { e.target.type = 'date'; try { e.target.showPicker?.(); } catch {} }}
+                    onClick={(e) => { e.currentTarget.type = 'date'; try { e.currentTarget.showPicker?.(); } catch {} }}
+                    onBlur={(e) => { if (!e.target.value) e.target.type = 'text'; }}
                     onChange={(e) => setManualPurchaseDueDate(e.target.value)}
-                    className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-hidden"
+                    className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-hidden placeholder:text-slate-400"
                   />
                 </div>
               )}
@@ -589,11 +825,15 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Expiry Date: *</label>
               <input
-                type="date"
+                type={formData.expiryDate ? "date" : "text"}
+                placeholder="YYYY-MM-DD"
                 required
                 value={formData.expiryDate}
+                onFocus={(e) => { e.target.type = 'date'; try { e.target.showPicker?.(); } catch {} }}
+                onClick={(e) => { e.currentTarget.type = 'date'; try { e.currentTarget.showPicker?.(); } catch {} }}
+                onBlur={(e) => { if (!e.target.value) e.target.type = 'text'; }}
                 onChange={(e) => setFormData({ ...formData, expiryDate: e.target.value })}
-                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden"
+                className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:bg-white focus:outline-hidden placeholder:text-slate-400"
               />
             </div>
 
@@ -729,6 +969,143 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({ isOpen, onCl
                 >
                   13% VAT
                 </button>
+              </div>
+            </div>
+
+            {/* Purchase Bill Discount & Custom Charge (Always Visible) */}
+            <div className="col-span-full border border-amber-200 bg-amber-50/60 rounded-xl p-3.5 space-y-3">
+              <div className="flex items-center justify-between border-b border-amber-200 pb-2">
+                <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Purchase Discount &amp; Custom Charge</span>
+                </span>
+                <span className="text-[11px] text-amber-700 font-medium">Opening Stock Payable</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Flat Bill Discount (Rs.) */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span>Discount (Rs.)</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Flat amount</span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rs.
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={billDiscountValue}
+                        onChange={(e) => setBillDiscountValue(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                    {billDiscountValue && Number(billDiscountValue) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setBillDiscountValue('')}
+                        className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    {billDiscountValue && Number(billDiscountValue) > 0
+                      ? `Applied: Flat Rs. ${billDiscountValue} discount on the purchase bill.`
+                      : 'Enter flat discount in Rs. (if any).'}
+                  </p>
+                </div>
+
+                {/* Custom / Additional Charge */}
+                <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2">
+                  <label className="text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <PlusCircle className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Custom Charge (Rs.)</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal">Freight / duty</span>
+                  </label>
+
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                        Rs.
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={customChargeValue}
+                        onChange={(e) => setCustomChargeValue(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    {customChargeValue && Number(customChargeValue) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setCustomChargeValue('')}
+                        className="text-[11px] text-rose-600 hover:underline px-1 py-1 font-semibold cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-slate-500">
+                    Applied to total bill (e.g. transport, delivery, handling).
+                  </p>
+                </div>
+              </div>
+
+              {/* Final Amount Financial Calculation */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 font-mono text-xs space-y-1.5 text-right">
+                <div className="flex justify-between text-slate-600">
+                  <span>Gross Subtotal ({openingStockCalculations.openingPacks} pk × Rs. {openingStockCalculations.costPerPack.toFixed(2)}):</span>
+                  <span>Rs. {openingStockCalculations.baseAmount.toFixed(2)}</span>
+                </div>
+                {openingStockCalculations.discountAmt > 0 && (
+                  <div className="flex justify-between text-rose-600 font-semibold text-[11px]">
+                    <span>Discount:</span>
+                    <span>- Rs. {openingStockCalculations.discountAmt.toFixed(2)}</span>
+                  </div>
+                )}
+                {openingStockCalculations.customChargeAmt > 0 && (
+                  <div className="flex justify-between text-amber-700 font-semibold text-[11px]">
+                    <span>Custom Charge:</span>
+                    <span>+ Rs. {openingStockCalculations.customChargeAmt.toFixed(2)}</span>
+                  </div>
+                )}
+                {openingStockCalculations.vatAmount > 0 && (
+                  <div className="flex justify-between text-blue-700">
+                    <span>13% VAT Portion:</span>
+                    <span>+ Rs. {openingStockCalculations.vatAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                {openingStockCalculations.freeBonusProfitCost > 0 && (
+                  <div className="flex justify-between text-emerald-800 font-bold bg-emerald-50 px-2 py-1 rounded border border-emerald-200 text-xs">
+                    <span className="flex items-center gap-1 font-semibold text-emerald-900 font-sans">
+                      <Gift className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Free Scheme Profit:</span>
+                    </span>
+                    <span>+ Rs. {openingStockCalculations.freeBonusProfitCost.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-1.5 border-t border-slate-300">
+                  <span>Final Amount:</span>
+                  <span className="text-teal-900 text-base font-black">Rs. {openingStockCalculations.grandTotal.toFixed(2)}</span>
+                </div>
+                {openingStockCalculations.freePacks > 0 && (
+                  <p className="text-[10px] text-emerald-700 text-right font-sans font-medium">
+                    Includes {openingStockCalculations.freePacks} free pack(s) received @ Rs. 0 cost
+                  </p>
+                )}
               </div>
             </div>
           </div>

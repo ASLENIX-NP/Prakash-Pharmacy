@@ -241,7 +241,7 @@ export const StockistManagementView: React.FC = () => {
   // Purchase Invoice Form State
   const [invoiceHeader, setInvoiceHeader] = useState({
     invoiceNumber: '',
-    stockistId: stockists[0]?.id || '',
+    stockistId: '',
     date: localDateString(),
     paymentMode: 'credit' as 'credit' | 'cash',
     dueDate: '',
@@ -299,7 +299,7 @@ export const StockistManagementView: React.FC = () => {
     return false;
   };
 
-  // Synchronize selectedStockistId, returnStockistId & invoiceHeader.stockistId when stockists load
+  // Synchronize selectedStockistId & returnStockistId when stockists load
   React.useEffect(() => {
     if (!selectedStockistId && stockists.length > 0) {
       setSelectedStockistId(stockists[0].id);
@@ -307,10 +307,7 @@ export const StockistManagementView: React.FC = () => {
     if (!returnStockistId && stockists.length > 0) {
       setReturnStockistId(stockists[0].id);
     }
-    if (!invoiceHeader.stockistId && stockists.length > 0) {
-      setInvoiceHeader(prev => ({ ...prev, stockistId: stockists[0].id }));
-    }
-  }, [stockists, selectedStockistId, returnStockistId, invoiceHeader.stockistId]);
+  }, [stockists, selectedStockistId, returnStockistId]);
 
   // Active Stockist for Ledger
   const currentSelectedStockist = useMemo(() => {
@@ -1126,13 +1123,17 @@ export const StockistManagementView: React.FC = () => {
       }
     }
 
+    if (!invoiceHeader.stockistId) {
+      showToast('Please select a Wholesaler / Stockist for this purchase bill.', 'warning', 'Validation');
+      return;
+    }
+
     const stockist =
       stockists.find(s => s.id === invoiceHeader.stockistId) ||
-      stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s)) ||
-      stockists[0];
+      stockists.find(s => isMatchingStockist({ stockistId: invoiceHeader.stockistId }, s));
 
     if (!stockist) {
-      showToast('No stockist selected. Please register a stockist in the directory first.', 'warning', 'Validation');
+      showToast('Selected stockist not found. Please select a valid stockist.', 'warning', 'Validation');
       return;
     }
 
@@ -1174,7 +1175,7 @@ export const StockistManagementView: React.FC = () => {
       showToast(`Purchase Invoice #${created?.invoiceNumber || invoiceHeader.invoiceNumber} recorded successfully! Stockist ledger & inventory stock updated.`, 'success', 'Invoice Saved');
       setInvoiceHeader({
         invoiceNumber: '',
-        stockistId: stockist.id,
+        stockistId: '',
         date: localDateString(),
         paymentMode: 'credit',
         dueDate: '',
@@ -2072,17 +2073,15 @@ export const StockistManagementView: React.FC = () => {
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Select Wholesaler / Stockist: *</label>
               <select
-                value={invoiceHeader.stockistId || stockists.find(s => !s.status || s.status.toLowerCase() === 'active')?.id || stockists[0]?.id || ''}
+                value={invoiceHeader.stockistId || ''}
                 onChange={(e) => setInvoiceHeader({ ...invoiceHeader, stockistId: e.target.value })}
                 className="w-full bg-white border border-slate-300 rounded-lg p-2 font-medium text-slate-900 focus:outline-hidden"
               >
-                {stockists.length === 0 && (
-                  <option value="">No stockists registered yet</option>
-                )}
+                <option value="">Unassigned (Select Wholesaler / Stockist)</option>
                 {stockists.map(s => {
                   const isInactive = Boolean(s.status && s.status.toLowerCase() !== 'active');
                   return (
-                    <option key={s.id} value={s.id}>
+                    <option key={s.id} value={s.id} disabled={isInactive}>
                       {s.name} (PAN: {s.panNumber || '—'}) {isInactive ? ' • [Inactive]' : ' • [Active]'}
                     </option>
                   );
@@ -2380,10 +2379,14 @@ export const StockistManagementView: React.FC = () => {
                         <td className="py-2 px-2">
                           <input
                             key={`expiry-${item.id}-${item.medicineId || 'empty'}`}
-                            type="date"
+                            type={item.expiryDate ? "date" : "text"}
+                            placeholder="YYYY-MM-DD"
                             value={item.expiryDate || ''}
+                            onFocus={(e) => { e.target.type = 'date'; try { e.target.showPicker?.(); } catch {} }}
+                            onClick={(e) => { e.currentTarget.type = 'date'; try { e.currentTarget.showPicker?.(); } catch {} }}
+                            onBlur={(e) => { if (!e.target.value) e.target.type = 'text'; }}
                             onChange={(e) => handleUpdateInvoiceItem(idx, { expiryDate: e.target.value })}
-                            className="w-28 border border-slate-300 rounded px-1 py-1 text-xs font-mono"
+                            className="w-28 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono placeholder:text-slate-400 placeholder:font-normal"
                           />
                         </td>
 
