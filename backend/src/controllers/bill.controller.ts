@@ -1044,6 +1044,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
             phone: true,
             membershipNumber: true,
             memberSince: true,
+            voidedAt: true,
           },
         });
 
@@ -1054,6 +1055,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
         if (
           !member?.membershipNumber ||
           !member.memberSince ||
+          member.voidedAt ||
           member.phone !== customerPhoneKey ||
           !sameName(member.name, customerDisplayName)
         ) {
@@ -1075,6 +1077,7 @@ export const createBill = async (req: AuthenticatedRequest, res: Response): Prom
             phone: customerPhoneKey,
             membershipNumber: { not: null },
             memberSince: { not: null },
+            voidedAt: null,
           },
           select: { id: true, name: true },
         });

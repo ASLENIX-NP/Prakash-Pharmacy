@@ -547,6 +547,7 @@ export const createClinicPatient = async (
             phone: customerPhoneKey,
             membershipNumber: { not: null },
             memberSince: { not: null },
+            voidedAt: null,
           },
           select: { id: true, name: true },
         });
@@ -779,6 +780,7 @@ export const updateClinicPatient = async (
             phone: normalizedPhone,
             membershipNumber: { not: null },
             memberSince: { not: null },
+            voidedAt: null,
           },
           select: { id: true, name: true },
         });
@@ -842,7 +844,7 @@ export const linkExistingClinicPatientToMember = async (
         tx.customer.findUnique({ where: { id: memberId } }),
       ]);
       if (!patient) throw new Error('PATIENT_NOT_FOUND');
-      if (!member?.membershipNumber || !member.memberSince) throw new Error('MEMBER_NOT_FOUND');
+      if (!member?.membershipNumber || !member.memberSince || member.voidedAt) throw new Error('MEMBER_NOT_FOUND');
       const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
       const phone = String(patient.phone ?? '').replace(/\D/g, '');
       if (phone !== member.phone || norm(patient.name) !== norm(member.name)) {

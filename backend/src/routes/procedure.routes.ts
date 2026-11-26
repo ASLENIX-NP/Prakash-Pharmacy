@@ -238,12 +238,12 @@ router.post("/", requireAuth, async (req: AuthenticatedRequest, res) => {
       if (customerId) {
         const member = await tx.customer.findUnique({
           where: { id: customerId },
-          select: { id: true, name: true, phone: true, membershipNumber: true, memberSince: true },
+          select: { id: true, name: true, phone: true, membershipNumber: true, memberSince: true, voidedAt: true },
         });
         const sameName = (a: string, b: string) =>
           a.trim().replace(/\s+/g, " ").toLocaleLowerCase() ===
           b.trim().replace(/\s+/g, " ").toLocaleLowerCase();
-        if (!member?.membershipNumber || !member.memberSince ||
+        if (!member?.membershipNumber || !member.memberSince || member.voidedAt ||
             !sameName(member.name, resolvedName) || member.phone !== resolvedPhone) {
           throw new Error("MEMBER_MISMATCH");
         }

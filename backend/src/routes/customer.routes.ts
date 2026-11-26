@@ -81,9 +81,16 @@ router.post(
           where: { phone },
           select: {
             id: true, name: true, phone: true, address: true,
-            membershipNumber: true, memberSince: true,
+            membershipNumber: true, memberSince: true, voidedAt: true,
           },
         });
+
+        if (existing?.voidedAt) {
+          throw new MembershipRegistrationConflict(
+            "VOIDED_MEMBER_EXISTS",
+            "This phone number belongs to a voided member. Restore them from Voided Members instead of registering again."
+          );
+        }
 
         if (existing?.membershipNumber || existing?.memberSince) {
           throw new MembershipRegistrationConflict(
@@ -251,12 +258,13 @@ router.get(
     }
 
     try {
-      // Only explicitly registered members may be retrieved by phone.
+      // Only explicitly registered, non-voided members may be retrieved by phone.
       const customer = await prisma.customer.findFirst({
         where: {
           phone,
           membershipNumber: { not: null },
           memberSince: { not: null },
+          voidedAt: null,
         },
         select: {
           id: true,
@@ -303,11 +311,27 @@ router.get(
     const take = 50;
     const skip = (page - 1) * take;
 
+    const status = req.query.status === "voided" ? "voided" : "active";
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
     try {
+      // Safely purge voided members older than 30 days who have no linked financial/clinical records.
+      await prisma.customer.deleteMany({
+        where: {
+          voidedAt: { lt: thirtyDaysAgo },
+          bills: { none: {} },
+          patients: { none: {} },
+          procedureInvoices: { none: {} },
+        },
+      });
+
       // Membership directory excludes legacy non-member profiles.
       const where = {
         membershipNumber: { not: null },
         memberSince: { not: null },
+        ...(status === "voided"
+          ? { voidedAt: { gte: thirtyDaysAgo } }
+          : { voidedAt: null }),
         ...(search ? {
           OR: [
             { name: { contains: search, mode: "insensitive" as const } },
@@ -320,7 +344,7 @@ router.get(
       const [customers, total] = await Promise.all([
         prisma.customer.findMany({
           where,
-          orderBy: { id: "desc" },
+          orderBy: status === "voided" ? { voidedAt: "desc" } : { id: "desc" },
           skip,
           take,
           select: {
@@ -332,6 +356,8 @@ router.get(
             updatedAt: true,
             membershipNumber: true,
             memberSince: true,
+            voidedAt: true,
+            voidReason: true,
             _count: {
               select: {
                 bills: true,
@@ -681,4 +707,128 @@ router.get(
     }
   }
 );
+
+// Admin-only soft-delete (void) of a registered member, retained for 30 days.
+router.post(
+  "/:id/void",
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      res.status(400).json({ success: false, message: "Invalid customer ID." });
+      return;
+    }
+
+    const rawReason =
+      typeof req.body?.reason === "string"
+        ? req.body.reason.trim().replace(/\s+/g, " ").slice(0, 200)
+        : "";
+    const reason = rawReason || "Voided by admin";
+
+    try {
+      const existing = await prisma.customer.findFirst({
+        where: {
+          id,
+          membershipNumber: { not: null },
+          memberSince: { not: null },
+        },
+        select: { id: true, name: true, membershipNumber: true, voidedAt: true },
+      });
+
+      if (!existing) {
+        res.status(404).json({ success: false, message: "Registered member not found." });
+        return;
+      }
+
+      if (existing.voidedAt) {
+        res.status(409).json({ success: false, message: "This member is already voided." });
+        return;
+      }
+
+      const updated = await prisma.customer.update({
+        where: { id },
+        data: {
+          voidedAt: new Date(),
+          voidReason: reason,
+        },
+        select: {
+          id: true,
+          name: true,
+          membershipNumber: true,
+          voidedAt: true,
+          voidReason: true,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `${updated.name} (${updated.membershipNumber}) voided and retained for 30 days.`,
+        data: updated,
+      });
+    } catch (error) {
+      console.error("Void member failed:", error);
+      res.status(500).json({ success: false, message: "Unable to void member." });
+    }
+  }
+);
+
+// Admin-only restore of a voided member within the 30-day retention window.
+router.post(
+  "/:id/restore",
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      res.status(400).json({ success: false, message: "Invalid customer ID." });
+      return;
+    }
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    try {
+      const existing = await prisma.customer.findUnique({
+        where: { id },
+        select: { id: true, name: true, membershipNumber: true, voidedAt: true },
+      });
+
+      if (!existing || !existing.voidedAt) {
+        res.status(404).json({ success: false, message: "Voided member not found." });
+        return;
+      }
+
+      if (existing.voidedAt < thirtyDaysAgo) {
+        res.status(410).json({
+          success: false,
+          message: "The 30-day restore window has expired for this voided member.",
+        });
+        return;
+      }
+
+      const restored = await prisma.customer.update({
+        where: { id },
+        data: {
+          voidedAt: null,
+          voidReason: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          membershipNumber: true,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `${restored.name} (${restored.membershipNumber}) restored.`,
+        data: restored,
+      });
+    } catch (error) {
+      console.error("Restore member failed:", error);
+      res.status(500).json({ success: false, message: "Unable to restore member." });
+    }
+  }
+);
+
 export default router;

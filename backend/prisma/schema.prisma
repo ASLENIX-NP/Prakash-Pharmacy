@@ -658,6 +658,8 @@ model Customer {
   // Previously imported POS / OPD customers remain non-members (null).
   membershipNumber String?   @unique @map("membership_number")
   memberSince       DateTime? @map("member_since")
+  voidedAt          DateTime? @map("voided_at")
+  voidReason        String?   @map("void_reason")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -666,6 +668,7 @@ model Customer {
   procedureInvoices ProcedureInvoice[]
 
   @@index([name])
+  @@index([voidedAt])
   @@map("customers_tbl")
 }
 

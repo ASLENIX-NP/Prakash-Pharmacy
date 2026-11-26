@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Search, UsersRound } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, RotateCcw, Search, Trash2, UsersRound } from 'lucide-react';
 import { usePharmacy } from '../context/PharmacyContext';
 import { apiRequest } from '../services/api';
 import { MembershipRegistration } from './MembershipRegistration';
@@ -12,6 +12,8 @@ type Customer = {
   address: string | null;
   membershipNumber?: string | null;
   memberSince?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string | null;
   createdAt: string;
   _count?: { bills: number; patients: number };
 };
@@ -101,11 +103,21 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
 
   // MEMBERSHIP_TABS_129E_R
   const [activeTab, setActiveTab] =
-    useState<'register' | 'details'>('register');
+    useState<'register' | 'details' | 'voided'>('register');
   const [directoryRefresh, setDirectoryRefresh] = useState(0);
   const [directory, setDirectory] = useState<DirectoryResponse | null>(null);
   const [directoryLoading, setDirectoryLoading] = useState(false);
   const [directoryError, setDirectoryError] = useState('');
+  const [voidedDirectory, setVoidedDirectory] = useState<DirectoryResponse | null>(null);
+  const [voidedLoading, setVoidedLoading] = useState(false);
+  const [voidedError, setVoidedError] = useState('');
+  const [voidedPage, setVoidedPage] = useState(1);
+  const [voidingOpen, setVoidingOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [voidSubmitting, setVoidSubmitting] = useState(false);
+  const [voidNotice, setVoidNotice] = useState('');
+  const [voidError, setVoidError] = useState('');
+  const [restoringId, setRestoringId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Customer | null>(null);
   const [period, setPeriod] = useState<Period>('all');
   const [from, setFrom] = useState('');
@@ -216,7 +228,73 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
     setHistoryPanel('both');
     setSelected(customer);
     setHistory(null);
+    setVoidingOpen(false);
+    setVoidReason('');
+    setVoidError('');
     setPosPage(1); setOpdPage(1); setProcPage(1);
+  };
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== 'voided') return;
+    const controller = new AbortController();
+    setVoidedLoading(true);
+    setVoidedError('');
+    apiRequest<DirectoryResponse>(`/customers?status=voided&page=${voidedPage}`, {
+      signal: controller.signal,
+    })
+      .then((res) => setVoidedDirectory(res))
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setVoidedError(err instanceof Error ? err.message : 'Unable to load voided members.');
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setVoidedLoading(false);
+      });
+    return () => controller.abort();
+  }, [isAdmin, activeTab, voidedPage, directoryRefresh]);
+
+  const handleVoidMember = async () => {
+    if (!selected || voidSubmitting) return;
+    setVoidSubmitting(true);
+    setVoidError('');
+    try {
+      const res = await apiRequest<{ success: boolean; message: string }>(
+        `/customers/${selected.id}/void`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason: voidReason.trim() || 'Voided by admin' }),
+        }
+      );
+      setVoidNotice(res.message || 'Member voided and stored for 30 days.');
+      setSelected(null);
+      setHistory(null);
+      setVoidingOpen(false);
+      setVoidReason('');
+      setDirectoryRefresh((v) => v + 1);
+    } catch (err) {
+      setVoidError(err instanceof Error ? err.message : 'Unable to void member.');
+    } finally {
+      setVoidSubmitting(false);
+    }
+  };
+
+  const handleRestoreMember = async (customer: Customer) => {
+    if (restoringId !== null) return;
+    setRestoringId(customer.id);
+    setVoidedError('');
+    try {
+      const res = await apiRequest<{ success: boolean; message: string }>(
+        `/customers/${customer.id}/restore`,
+        { method: 'POST' }
+      );
+      setVoidNotice(res.message || `${customer.name} restored.`);
+      setDirectoryRefresh((v) => v + 1);
+    } catch (err) {
+      setVoidedError(err instanceof Error ? err.message : 'Unable to restore member.');
+    } finally {
+      setRestoringId(null);
+    }
   };
   const pageDue = (history?.pos || []).reduce((sum, bill) => sum + bill.outstanding, 0);
   // Display both types of care in one timeline. Each source retains independent
@@ -282,6 +360,8 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
             setActiveTab('details');
             setSelected(null);
             setHistory(null);
+            setVoidingOpen(false);
+            setVoidNotice('');
             setPosPage(1); setOpdPage(1);
           }}
           className={`min-w-[150px] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition ${
@@ -292,7 +372,33 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
         >
           Member Details
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'voided'}
+          onClick={() => {
+            setActiveTab('voided');
+            setSelected(null);
+            setHistory(null);
+            setVoidingOpen(false);
+            setVoidNotice('');
+            setVoidedPage(1);
+          }}
+          className={`min-w-[150px] flex-1 rounded-xl px-5 py-3 text-sm font-bold transition ${
+            activeTab === 'voided'
+              ? 'bg-rose-700 text-white shadow-sm'
+              : 'bg-slate-50 text-slate-700 hover:bg-rose-50'
+          }`}
+        >
+          Voided Members (30 Days)
+        </button>
       </div>
+      {voidNotice && (
+        <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+          {voidNotice}
+        </div>
+      )}
 
       {activeTab === 'register' && (
       <MembershipRegistration
@@ -473,10 +579,70 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
           ) : (
             <>
               <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <h2 className="text-lg font-extrabold text-slate-900">{selected.name}</h2>
-                <p className="text-sm text-slate-600">Member ID: {selected.membershipNumber || 'Not assigned'}</p>
-                <p className="text-sm text-slate-600">Phone: {selected.phone}</p>
-                <p className="text-sm text-slate-600">Address: {selected.address || 'Not recorded'}</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-extrabold text-slate-900">{selected.name}</h2>
+                    <p className="text-sm text-slate-600">Member ID: {selected.membershipNumber || 'Not assigned'}</p>
+                    <p className="text-sm text-slate-600">Phone: {selected.phone}</p>
+                    <p className="text-sm text-slate-600">Address: {selected.address || 'Not recorded'}</p>
+                  </div>
+                  {selected.membershipNumber && !voidingOpen && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVoidingOpen(true);
+                        setVoidError('');
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Void Member
+                    </button>
+                  )}
+                </div>
+
+                {voidingOpen && (
+                  <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 space-y-3">
+                    <p className="text-sm font-bold text-rose-900">
+                      Void {selected.name} ({selected.membershipNumber})?
+                    </p>
+                    <p className="text-xs text-rose-800">
+                      The member will be hidden from active lookup and retained in <strong>Voided Members</strong> for <strong>30 days</strong> (with all historical bills/records preserved). You can restore them within 30 days.
+                    </p>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      placeholder="Reason for voiding (optional, e.g. Duplicate or registered by mistake)"
+                      value={voidReason}
+                      onChange={(e) => setVoidReason(e.target.value)}
+                      className="w-full rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-rose-500"
+                    />
+                    {voidError && (
+                      <p role="alert" className="text-xs font-semibold text-rose-700">{voidError}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={voidSubmitting}
+                        onClick={() => { void handleVoidMember(); }}
+                        className="rounded-lg bg-rose-700 px-4 py-2 text-xs font-bold text-white hover:bg-rose-800 disabled:opacity-50"
+                      >
+                        {voidSubmitting ? 'Voiding...' : 'Confirm Void (30-Day Retention)'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={voidSubmitting}
+                        onClick={() => {
+                          setVoidingOpen(false);
+                          setVoidError('');
+                        }}
+                        className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {selected.membershipNumber && selected.memberSince && onUseMember && (
                   <div className="mt-4 border-t border-slate-200 pt-4">
                     <p className="mb-2 text-sm font-bold text-slate-800">Use this member in</p>
@@ -708,6 +874,84 @@ export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
           )}
         </section>
       </div>
+      )}
+
+      {activeTab === 'voided' && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900">Voided Members (30-Day Retention)</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Voided members are stored for up to 30 days and can be restored anytime within that window.
+            </p>
+          </div>
+          {voidedLoading && <p className="text-xs text-slate-500">Loading voided members...</p>}
+          {voidedError && <p role="alert" className="text-xs font-semibold text-rose-700">{voidedError}</p>}
+          {!voidedLoading && !voidedError && (voidedDirectory?.data.length ?? 0) === 0 && (
+            <p className="text-sm text-slate-500">No voided members in the last 30 days.</p>
+          )}
+          <div className="flex flex-col gap-2">
+            {(voidedDirectory?.data || []).map((customer) => {
+              const voidedMs = customer.voidedAt ? new Date(customer.voidedAt).getTime() : Date.now();
+              const daysLeft = Math.max(
+                0,
+                30 - Math.floor((Date.now() - voidedMs) / (24 * 60 * 60 * 1000))
+              );
+              return (
+                <div
+                  key={customer.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/40 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900">{customer.name}</p>
+                    <p className="text-xs text-slate-600">
+                      {customer.phone} {customer.membershipNumber && `| ${customer.membershipNumber}`}
+                    </p>
+                    {customer.voidReason && (
+                      <p className="mt-0.5 text-xs text-slate-600">Reason: {customer.voidReason}</p>
+                    )}
+                    <p className="mt-1 text-[11px] text-rose-700 font-medium">
+                      Voided {customer.voidedAt ? showDate(customer.voidedAt) : ''} · {daysLeft} day{daysLeft === 1 ? '' : 's'} left to restore
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={restoringId === customer.id}
+                    onClick={() => { void handleRestoreMember(customer); }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-teal-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-50"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    {restoringId === customer.id ? 'Restoring...' : 'Restore Member'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {voidedDirectory && voidedDirectory.pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <button
+                type="button"
+                aria-label="Previous voided page"
+                disabled={voidedPage <= 1}
+                onClick={() => setVoidedPage((p) => p - 1)}
+                className="rounded border px-2 py-1 disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span>
+                Page {voidedPage} of {voidedDirectory.pagination.totalPages} · {voidedDirectory.pagination.total} voided
+              </span>
+              <button
+                type="button"
+                aria-label="Next voided page"
+                disabled={voidedPage >= voidedDirectory.pagination.totalPages}
+                onClick={() => setVoidedPage((p) => p + 1)}
+                className="rounded border px-2 py-1 disabled:opacity-40"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
