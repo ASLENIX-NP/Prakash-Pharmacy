@@ -52,14 +52,25 @@ export const MembershipRegistration: React.FC<Props> = ({ onRegistered }) => {
     if (confirmExistingProfile && (!existingProfile || !verified)) return;
     const cleanedName = name.trim().replace(/\s+/g, ' ');
     const cleanedAddress = address.trim().replace(/\s+/g, ' ');
-    const cleanedPhone = phone.replace(/\D/g, '');
+    const cleanedPhone = phone.replace(/\D/g, '').slice(0, 10);
 
     if (
       cleanedName.length < 2 || cleanedName.length > 150 ||
       cleanedAddress.length < 3 || cleanedAddress.length > 300 ||
-      !/^[+\d\s()\-]+$/.test(phone.trim()) ||
       !/^\d{7,10}$/.test(cleanedPhone)
     ) {
+      if (!/^\d{7,10}$/.test(cleanedPhone)) {
+        setError('Phone number must be between 7 and 10 digits (numbers only).');
+        return;
+      }
+      if (cleanedName.length < 2 || cleanedName.length > 150) {
+        setError('Please enter a valid full name (2-150 characters).');
+        return;
+      }
+      if (cleanedAddress.length < 3 || cleanedAddress.length > 300) {
+        setError('Please enter a valid address (3-300 characters).');
+        return;
+      }
       setError('Enter a name (2-150 characters), phone (7-10 digits), and address (3-300 characters).');
       return;
     }
@@ -142,17 +153,42 @@ export const MembershipRegistration: React.FC<Props> = ({ onRegistered }) => {
           />
         </label>
         <label className="block text-xs font-semibold text-slate-700">
-          Phone number <span className="text-rose-600">*</span>
+          <span className="flex items-center justify-between">
+            <span>Phone number <span className="text-rose-600">*</span></span>
+            {phone.length > 0 && (
+              <span className={`text-[11px] font-normal ${
+                phone.length < 7 ? 'text-amber-600 font-medium' : 'text-emerald-600 font-bold'
+              }`}>
+                {phone.length}/10 digits {phone.length < 7 ? '(min 7)' : '✓'}
+              </span>
+            )}
+          </span>
           <input
             required
             type="tel"
-            inputMode="tel"
-            maxLength={20}
+            inputMode="numeric"
+            pattern="[0-9]{7,10}"
+            maxLength={10}
             autoComplete="tel"
             value={phone}
-            onChange={(event) => { setPhone(event.target.value); resetReview(); }}
-            placeholder="7-10 digits"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-600"
+            onKeyDown={(e) => {
+              if (
+                ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) ||
+                (e.ctrlKey || e.metaKey)
+              ) {
+                return;
+              }
+              if (!/^\d$/.test(e.key)) {
+                e.preventDefault();
+              }
+            }}
+            onChange={(event) => {
+              const numericOnly = event.target.value.replace(/\D/g, '').slice(0, 10);
+              setPhone(numericOnly);
+              resetReview();
+            }}
+            placeholder="7-10 digits (e.g. 98XXXXXXXX)"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-600 font-mono"
           />
         </label>
         <label className="block text-xs font-semibold text-slate-700">

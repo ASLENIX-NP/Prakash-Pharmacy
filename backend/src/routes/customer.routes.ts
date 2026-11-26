@@ -59,9 +59,15 @@ router.post(
       name.length < 2 || name.length > 150 ||
       /^(counter customer|counter patient)$/i.test(name) ||
       address.length < 3 || address.length > 300 ||
-      !/^[+\d\s()\-]+$/.test(rawPhone) ||
       !/^\d{7,10}$/.test(phone)
     ) {
+      if (!/^\d{7,10}$/.test(phone)) {
+        res.status(400).json({
+          success: false,
+          message: "Phone number must be between 7 and 10 digits (numbers only).",
+        });
+        return;
+      }
       res.status(400).json({
         success: false,
         message: "Enter a valid name (2-150 characters), phone (7-10 digits), and address (3-300 characters).",

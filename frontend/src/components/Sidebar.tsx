@@ -82,6 +82,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       toneActive: 'bg-gradient-to-br from-sky-500 to-cyan-600 text-white border-transparent',
     },
     {
+      id: 'customers',
+      label: 'Memberships',
+      shortCode: 'MB',
+      adminOnly: true,
+      tone: 'bg-indigo-50 text-indigo-700 border-indigo-100',
+      toneActive: 'bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-transparent',
+    },
+    {
       id: 'inventory',
       label: 'Inventory & Generics',
       shortCode: 'IN',
@@ -120,14 +128,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: unpaidCreditCount > 0 ? unpaidCreditCount : undefined,
       tone: 'bg-amber-50 text-amber-700 border-amber-200',
       toneActive: 'bg-gradient-to-br from-amber-500 to-amber-600 text-white border-transparent',
-    },
-    {
-      id: 'customers',
-      label: 'Memberships',
-      shortCode: 'MB',
-      adminOnly: true,
-      tone: 'bg-indigo-50 text-indigo-700 border-indigo-100',
-      toneActive: 'bg-gradient-to-br from-indigo-500 to-indigo-700 text-white border-transparent',
     },
     {
       id: 'clinic',

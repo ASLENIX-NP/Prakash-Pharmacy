@@ -125,7 +125,7 @@ export const CustomersView: React.FC = () => {
     if (
       activeDirectorySearch === 'phone' &&
       phoneSearch.length > 0 &&
-      phoneSearch.length !== 10
+      phoneSearch.length < 7
     ) {
       setDirectory(null);
       setDirectoryError('');
@@ -319,9 +319,16 @@ export const CustomersView: React.FC = () => {
             <div className="min-w-0">
               <label
                 htmlFor="member-phone-search"
-                className="mb-1 block text-xs font-semibold text-slate-700"
+                className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-700"
               >
-                Search by Phone Number
+                <span>Search by Phone Number</span>
+                {phoneSearch.length > 0 && (
+                  <span className={`text-[11px] font-normal ${
+                    phoneSearch.length < 7 ? 'text-amber-600' : 'text-emerald-600 font-bold'
+                  }`}>
+                    {phoneSearch.length}/10 digits {phoneSearch.length < 7 ? '(min 7)' : '✓'}
+                  </span>
+                )}
               </label>
               <input
                 id="member-phone-search"
@@ -329,8 +336,19 @@ export const CustomersView: React.FC = () => {
                 inputMode="numeric"
                 autoComplete="off"
                 maxLength={10}
-                placeholder="10-digit phone number"
+                placeholder="7-10 digit phone number"
                 value={phoneSearch}
+                onKeyDown={(e) => {
+                  if (
+                    ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) ||
+                    (e.ctrlKey || e.metaKey)
+                  ) {
+                    return;
+                  }
+                  if (!/^\d$/.test(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
                 onFocus={() => {
                   setActiveDirectorySearch('phone');
                   setDirectoryPage(1);
@@ -344,18 +362,18 @@ export const CustomersView: React.FC = () => {
                   setSelected(null);
                   setHistory(null);
                 }}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-500"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-500 font-mono"
               />
               <p className={`mt-1 text-xs ${
                 activeDirectorySearch === 'phone' &&
                 phoneSearch.length > 0 &&
-                phoneSearch.length < 10
+                phoneSearch.length < 7
                   ? 'text-amber-700'
                   : 'text-slate-500'
               }`}>
                 {phoneSearch.length}/10 digits
-                {phoneSearch.length > 0 && phoneSearch.length < 10
-                  ? ' - complete the number before searching'
+                {phoneSearch.length > 0 && phoneSearch.length < 7
+                  ? ' - at least 7 digits required to search'
                   : ''}
               </p>
             </div>
