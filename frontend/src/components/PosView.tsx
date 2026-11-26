@@ -80,7 +80,12 @@ const CartQtyInput: React.FC<CartQtyInputProps> = ({ value, onUpdate }) => {
   );
 };
 
-export const PosView: React.FC = () => {
+type MemberHandoffProps = {
+  memberHandoff?: import('../types/memberHandoff').MemberHandoff | null;
+  onMemberHandoffConsumed?: () => void;
+};
+
+export const PosView: React.FC<MemberHandoffProps> = ({ memberHandoff, onMemberHandoffConsumed }) => {
   const { showToast, confirmDialog } = useDialog();
   const {
     medicines,
@@ -178,6 +183,22 @@ export const PosView: React.FC = () => {
 
   const [sharedLookupStatus, setSharedLookupStatus] =
     useState<'idle' | 'loading' | 'found' | 'missing' | 'error'>('idle');
+  const [memberTransfer, setMemberTransfer] = useState<import('../types/memberHandoff').RegisteredMemberHandoff | null>(null);
+  const [memberTransferError, setMemberTransferError] = useState('');
+  const [lookupResolvedPhone, setLookupResolvedPhone] = useState('');
+
+  useEffect(() => {
+    if (!memberHandoff || memberHandoff.destination !== 'pos') return;
+    const member = memberHandoff.member;
+    // Clear any previous credit verification. Validate this customer again from the API.
+    setSelectedCustomerPhone('');
+    setSharedCustomer(null);
+    setCustomerName('Counter Customer');
+    setCustomerAddress('');
+    setCustomerPhone(member.phone);
+    setMemberTransfer(member);
+    setMemberTransferError('');
+  }, [memberHandoff?.nonce]);
 
   const lookupPhone = customerPhone.replace(/\D/g, '');
 
@@ -185,6 +206,7 @@ export const PosView: React.FC = () => {
   // Cancel outdated requests when the phone number changes.
   useEffect(() => {
     setSharedCustomer(null);
+    setLookupResolvedPhone('');
 
     if (!/^\d{7,10}$/.test(lookupPhone)) {
       setSharedLookupStatus('idle');
@@ -217,11 +239,13 @@ export const PosView: React.FC = () => {
           setSharedCustomer(null);
           setSharedLookupStatus('missing');
         }
+        setLookupResolvedPhone(lookupPhone);
       } catch {
         if (controller.signal.aborted) return;
 
         setSharedCustomer(null);
         setSharedLookupStatus('error');
+        setLookupResolvedPhone(lookupPhone);
       }
     }, 350);
 
@@ -230,6 +254,36 @@ export const PosView: React.FC = () => {
       controller.abort();
     };
   }, [lookupPhone]);
+
+  useEffect(() => {
+    if (!memberTransfer) return;
+    if (lookupPhone !== memberTransfer.phone) {
+      setMemberTransferError('The phone number changed. Verify and select the member again.');
+      setMemberTransfer(null);
+      onMemberHandoffConsumed?.();
+      return;
+    }
+    // Ignore stale lookup results from the previous phone while a new one is loading.
+    if (lookupResolvedPhone !== memberTransfer.phone) return;
+    if (sharedLookupStatus === 'found' && sharedCustomer?.phone === memberTransfer.phone) {
+      if (sharedCustomer.id === memberTransfer.id &&
+          sharedCustomer.membershipNumber === memberTransfer.membershipNumber &&
+          sharedCustomer.memberSince) {
+        setCustomerName(sharedCustomer.name);
+        setCustomerAddress(sharedCustomer.address || '');
+        setSelectedCustomerPhone(sharedCustomer.phone);
+        setMemberTransferError('');
+      } else {
+        setMemberTransferError('The selected membership did not match the verified customer. Nothing was auto-linked.');
+      }
+      setMemberTransfer(null);
+      onMemberHandoffConsumed?.();
+    } else if (sharedLookupStatus === 'missing' || sharedLookupStatus === 'error') {
+      setMemberTransferError('Could not verify this membership. Search and select the member manually before any credit sale.');
+      setMemberTransfer(null);
+      onMemberHandoffConsumed?.();
+    }
+  }, [memberTransfer, lookupPhone, lookupResolvedPhone, sharedLookupStatus, sharedCustomer, onMemberHandoffConsumed]);
 
   // No fallback to POS invoices: a previous purchase is not membership.
   const matchingCustomer = sharedLookupStatus === 'found' &&
@@ -1448,6 +1502,11 @@ export const PosView: React.FC = () => {
             </div>
 
 
+            {(memberTransfer || memberTransferError) && (
+              <p role="status" className={`sm:col-span-2 rounded-lg p-2 text-xs font-semibold ${memberTransferError ? 'bg-amber-50 text-amber-800' : 'bg-teal-50 text-teal-800'}`}>
+                {memberTransferError || `Verifying membership ${memberTransfer?.membershipNumber} for POS...`}
+              </p>
+            )}
             {sharedLookupStatus === 'loading' && (
               <p className="sm:col-span-2 text-xs text-slate-500">
                 Searching registered memberships...

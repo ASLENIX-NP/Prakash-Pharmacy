@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   useCallback,
   useEffect,
   useState,
@@ -19,6 +19,7 @@ import {
 
 import { usePharmacy } from '../context/PharmacyContext';
 import { apiRequest } from '../services/api';
+import { ProcedureReportSummary } from './ProcedureReportSummary';
 
 
 interface Doctor {
@@ -1101,6 +1102,7 @@ export const ClinicReportsPanel: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      <ProcedureReportSummary />
 
       {error && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-800">

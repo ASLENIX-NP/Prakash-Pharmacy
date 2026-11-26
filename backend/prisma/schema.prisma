@@ -153,6 +153,7 @@ model User {
   bills        Bill[]
   creditSettlements CreditSettlement[]
   clinicVisits ClinicVisit[]
+  procedureInvoices ProcedureInvoice[]
 
   passwordResetChallenge PasswordResetChallenge?
 
@@ -511,6 +512,7 @@ model ClinicPatient {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   visits ClinicVisit[]
+  procedureInvoices ProcedureInvoice[]
 
   customerId Int?      @map("customer_id")
   customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
@@ -661,6 +663,7 @@ model Customer {
 
   bills    Bill[]
   patients ClinicPatient[]
+  procedureInvoices ProcedureInvoice[]
 
   @@index([name])
   @@map("customers_tbl")
@@ -681,4 +684,62 @@ model CreditSettlement {
   @@index([collectedById])
   @@index([settledAt])
   @@map("credit_settlements_tbl")
+}
+
+
+// Pharmacist-performed clinic procedures: separately billed from OPD and POS.
+// No sticker or mandatory doctor is associated with these records.
+model ProcedureService {
+  id Int @id @default(autoincrement())
+  name String @unique
+  defaultFee Decimal @map("default_fee") @db.Decimal(12,2)
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  items ProcedureInvoiceItem[]
+
+  @@map("clinic_procedure_services_tbl")
+}
+
+model ProcedureInvoice {
+  id Int @id @default(autoincrement())
+  clientRequestId String @unique @map("client_request_id")
+  patientId Int? @map("patient_id")
+  patient ClinicPatient? @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  // Explicit confirmed member only; same phone never implies identical patient.
+  customerId Int? @map("customer_id")
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  patientName String @map("patient_name")
+  patientPhone String? @map("patient_phone")
+  paymentMethod String @map("payment_method")
+  totalAmount Decimal @map("total_amount") @db.Decimal(12,2)
+  notes String?
+  createdById String @map("created_by_id")
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @map("created_at")
+  items ProcedureInvoiceItem[]
+
+  @@index([patientId])
+  @@index([customerId])
+  @@index([createdAt])
+  @@index([patientPhone])
+  @@map("clinic_procedure_invoices_tbl")
+}
+
+model ProcedureInvoiceItem {
+  id Int @id @default(autoincrement())
+  invoiceId Int @map("invoice_id")
+  invoice ProcedureInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  // Existing catalog references are retained for historical receipts only.
+  // New bills use free-text serviceName and unitFee, without a catalog entry.
+  serviceId Int? @map("service_id")
+  service ProcedureService? @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  serviceName String @map("service_name")
+  quantity Int
+  unitFee Decimal @map("unit_fee") @db.Decimal(12,2)
+  lineTotal Decimal @map("line_total") @db.Decimal(12,2)
+
+  @@index([invoiceId])
+  @@index([serviceId])
+  @@map("clinic_procedure_invoice_items_tbl")
 }

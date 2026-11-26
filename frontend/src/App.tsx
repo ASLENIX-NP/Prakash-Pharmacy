@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
+import type { MemberDestination, MemberHandoff, RegisteredMemberHandoff } from './types/memberHandoff';
 
 import {
   PharmacyProvider,
@@ -116,6 +117,15 @@ const PharmacyAppContent: React.FC = () => {
 
   const [mobileSidebarOpen, setMobileSidebarOpen] =
     useState(false);
+
+  // In-memory, one-time handoff. Never put patient/customer data in URLs or browser storage.
+  const [memberHandoff, setMemberHandoff] = useState<MemberHandoff | null>(null);
+  const useMemberIn = (member: RegisteredMemberHandoff, destination: MemberDestination) => {
+    if (!isAdmin || !member.membershipNumber || !member.memberSince) return;
+    setMemberHandoff({ nonce: crypto.randomUUID(), destination, member });
+    setActiveTab(destination === 'pos' ? 'pos' : 'clinic');
+  };
+  const consumeMemberHandoff = React.useCallback(() => setMemberHandoff(null), []);
 
   useEffect(() => {
     (window as any).__setActiveTab = (tab: ActiveTab) => {
@@ -241,7 +251,10 @@ const PharmacyAppContent: React.FC = () => {
                 {/* POS */}
 
                 {activeTab === 'pos' && (
-                  <PosView />
+                  <PosView
+                    memberHandoff={memberHandoff?.destination === 'pos' ? memberHandoff : null}
+                    onMemberHandoffConsumed={consumeMemberHandoff}
+                  />
                 )}
 
                 {/* Inventory */}
@@ -285,12 +298,15 @@ const PharmacyAppContent: React.FC = () => {
 
                 {/* Admin Customer Directory */}
                 {activeTab === 'customers' &&
-                  (isAdmin ? <CustomersView /> : <PosView />)}
+                  (isAdmin ? <CustomersView onUseMember={useMemberIn} /> : <PosView />)}
 
                 {/* Clinic / OPD */}
 
                 {activeTab === 'clinic' && (
-                  <ClinicView />
+                  <ClinicView
+                    memberHandoff={memberHandoff?.destination !== 'pos' ? memberHandoff : null}
+                    onMemberHandoffConsumed={consumeMemberHandoff}
+                  />
                 )}
 
                 {/* Reports */}
