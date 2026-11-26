@@ -1,7 +1,8 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   BarChart3,
   ClipboardPlus,
+  ClipboardList,
   History,
   ShieldCheck,
   Stethoscope,
@@ -13,18 +14,26 @@ import { DoctorManagementPanel } from './DoctorManagementPanel';
 import { NewOpdPanel } from './NewOpdPanel';
 import { OpdRecordsPanel } from './OpdRecordsPanel';
 import { ClinicReportsPanel } from './ClinicReportsPanel';
+import { ProceduresPanel } from './ProceduresPanel';
+import type { MemberHandoff } from '../types/memberHandoff';
 
 type ClinicTab =
   | 'new_opd'
   | 'records'
   | 'doctors'
-  | 'reports';
+  | 'reports'
+  | 'procedures';
 
-export const ClinicView: React.FC = () => {
+type Props = {
+  memberHandoff?: MemberHandoff | null;
+  onMemberHandoffConsumed?: () => void;
+};
+
+export const ClinicView: React.FC<Props> = ({ memberHandoff, onMemberHandoffConsumed }) => {
   const { isAdmin } = usePharmacy();
 
   const [activeClinicTab, setActiveClinicTab] =
-    useState<ClinicTab>('new_opd');
+    useState<ClinicTab>(memberHandoff?.destination === 'procedures' ? 'procedures' : 'new_opd');
 
   const tabs = [
     {
@@ -44,6 +53,12 @@ export const ClinicView: React.FC = () => {
       label: 'Doctors',
       icon: UsersRound,
       adminOnly: true,
+    },
+    {
+      id: 'procedures' as const,
+      label: 'Procedures',
+      icon: ClipboardList,
+      adminOnly: false,
     },
     {
       id: 'reports' as const,
@@ -74,7 +89,7 @@ export const ClinicView: React.FC = () => {
 
               <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500 sm:text-sm">
                 Manage OPD visits, patients, doctors, clinic charges,
-                sticker printing and clinic revenue records.
+                sticker printing, pharmacist procedures and clinic revenue records.
               </p>
             </div>
           </div>
@@ -121,7 +136,10 @@ export const ClinicView: React.FC = () => {
 
       {/* New OPD */}
       {activeClinicTab === 'new_opd' && (
-        <NewOpdPanel />
+        <NewOpdPanel
+          memberHandoff={memberHandoff?.destination === 'opd' ? memberHandoff : null}
+          onMemberHandoffConsumed={onMemberHandoffConsumed}
+        />
       )}
 
       {/* OPD Records */}
@@ -132,6 +150,14 @@ export const ClinicView: React.FC = () => {
       {/* Doctor Management - Admin Only */}
       {activeClinicTab === 'doctors' && isAdmin && (
         <DoctorManagementPanel />
+      )}
+
+      {/* Procedures - Staff and Admin */}
+      {activeClinicTab === 'procedures' && (
+        <ProceduresPanel
+          memberHandoff={memberHandoff?.destination === 'procedures' ? memberHandoff : null}
+          onMemberHandoffConsumed={onMemberHandoffConsumed}
+        />
       )}
 
       {/* Reports - Admin Only */}

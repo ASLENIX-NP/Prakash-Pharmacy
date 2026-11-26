@@ -436,6 +436,8 @@ router.get(
     const opdPage = readPage(req.query.opdPage ?? page);
     const posSkip = (posPage - 1) * pageSize;
     const opdSkip = (opdPage - 1) * pageSize;
+    const procPage = readPage(req.query.procPage ?? page);
+    const procSkip = (procPage - 1) * pageSize;
 
     try {
       // History is accessible for registered members only.
@@ -548,6 +550,32 @@ router.get(
           prisma.clinicVisit.count({ where: visitWhere }),
         ]);
 
+      // Procedure history is linked only to an explicitly selected member ID.
+      // Do not derive membership from patient names or phone numbers.
+      const procWhere = {
+        customerId: id,
+        ...((fromDate || toExclusive) ? {
+          createdAt: {
+            ...(fromDate ? { gte: fromDate } : {}),
+            ...(toExclusive ? { lt: toExclusive } : {}),
+          },
+        } : {}),
+      };
+      const [procedureInvoices, procCount] = await Promise.all([
+        prisma.procedureInvoice.findMany({
+          where: procWhere,
+          orderBy: { id: 'desc' },
+          skip: procSkip,
+          take: pageSize,
+          select: {
+            id: true, createdAt: true, patientName: true,
+            paymentMethod: true, totalAmount: true,
+            items: { select: { serviceName: true, lineTotal: true } },
+          },
+        }),
+        prisma.procedureInvoice.count({ where: procWhere }),
+      ]);
+
       const pos = bills.map((bill) => {
         const total = Number(bill.grandTotal);
 
@@ -609,19 +637,34 @@ router.get(
           customer,
           pos,
           opd,
+          procedures: procedureInvoices.map((invoice) => ({
+            id: invoice.id,
+            invoiceNumber: `PRC-${String(invoice.id).padStart(6, '0')}`,
+            date: invoice.createdAt,
+            patientName: invoice.patientName,
+            paymentMethod: invoice.paymentMethod,
+            totalAmount: Number(invoice.totalAmount),
+            items: invoice.items.map(item => ({
+              description: item.serviceName,
+              amount: Number(item.lineTotal),
+            })),
+          })),
           pagination: {
             page,
             pageSize,
             posPage,
             opdPage,
+            procPage,
             posTotal: billCount,
             opdTotal: visitCount,
+            procTotal: procCount,
+            procPages: Math.max(1, Math.ceil(procCount / pageSize)),
             posPages: Math.max(1, Math.ceil(billCount / pageSize)),
             opdPages: Math.max(1, Math.ceil(visitCount / pageSize)),
             totalPages: Math.max(
               1,
               Math.ceil(
-                Math.max(billCount, visitCount) / pageSize
+                Math.max(billCount, visitCount, procCount) / pageSize
               )
             ),
           },

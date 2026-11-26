@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Search, UsersRound } from 'luc
 import { usePharmacy } from '../context/PharmacyContext';
 import { apiRequest } from '../services/api';
 import { MembershipRegistration } from './MembershipRegistration';
+import type { MemberDestination, RegisteredMemberHandoff } from '../types/memberHandoff';
 
 type Customer = {
   id: number;
@@ -42,15 +43,26 @@ type OpdRecord = {
   additionalCharge: number;
   totalCharge: number;
 };
+type ProcedureRecord = {
+  id: number;
+  invoiceNumber: string;
+  date: string;
+  patientName: string;
+  paymentMethod: string;
+  totalAmount: number;
+  items: Array<{ description: string; amount: number }>;
+};
 type History = {
   customer: Customer;
   pos: PosRecord[];
   opd: OpdRecord[];
+  procedures: ProcedureRecord[];
   pagination: {
     page: number;
     pageSize: number;
     posTotal: number;
     opdTotal: number;
+    procTotal: number;
     totalPages: number;
   };
   note?: string;
@@ -74,7 +86,11 @@ const showDate = (value: string): string => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('en-NP');
 };
 
-export const CustomersView: React.FC = () => {
+type Props = {
+  onUseMember?: (member: RegisteredMemberHandoff, destination: MemberDestination) => void;
+};
+
+export const CustomersView: React.FC<Props> = ({ onUseMember }) => {
   const { isAdmin } = usePharmacy();
   const [search, setSearch] = useState('');
   // MEMBER_PHONE_SEARCH_129H
@@ -97,6 +113,7 @@ export const CustomersView: React.FC = () => {
   // HISTORY_LAYOUT_129G
   const [posPage, setPosPage] = useState(1);
   const [opdPage, setOpdPage] = useState(1);
+  const [procPage, setProcPage] = useState(1);
   const [historyPanel, setHistoryPanel] =
     useState<'both' | 'pos' | 'opd'>('both');
   const [history, setHistory] = useState<History | null>(null);
@@ -172,6 +189,7 @@ export const CustomersView: React.FC = () => {
     const params = new URLSearchParams({
       posPage: String(posPage),
       opdPage: String(opdPage),
+      procPage: String(procPage),
     });
     if (range.from) params.set('from', range.from);
     if (range.to) params.set('to', range.to);
@@ -191,16 +209,38 @@ export const CustomersView: React.FC = () => {
       }
     })();
     return () => controller.abort();
-  }, [isAdmin, selected, posPage, opdPage, range.from, range.to, invalidRange]);
+  }, [isAdmin, selected, posPage, opdPage, procPage, range.from, range.to, invalidRange]);
 
-  const changePeriod = (next: Period) => { setPeriod(next); setPosPage(1); setOpdPage(1); };
+  const changePeriod = (next: Period) => { setPeriod(next); setPosPage(1); setOpdPage(1); setProcPage(1); };
   const choose = (customer: Customer) => {
     setHistoryPanel('both');
     setSelected(customer);
     setHistory(null);
-    setPosPage(1); setOpdPage(1);
+    setPosPage(1); setOpdPage(1); setProcPage(1);
   };
   const pageDue = (history?.pos || []).reduce((sum, bill) => sum + bill.outstanding, 0);
+  // Display both types of care in one timeline. Each source retains independent
+  // server pagination, so an OPD page change never skips Procedure bills.
+  const clinicalRows = useMemo(() => {
+    if (!history) return [];
+    return [
+      ...history.opd.map(visit => ({
+        kind: 'opd' as const,
+        date: visit.date,
+        id: visit.id,
+        record: visit,
+      })),
+      ...(history.procedures || []).map(bill => ({
+        kind: 'procedure' as const,
+        date: bill.date,
+        id: bill.id,
+        record: bill,
+      })),
+    ].sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime() ||
+      b.id - a.id
+    );
+  }, [history]);
 
   if (!isAdmin) return <p className="p-4 text-sm text-rose-700">Customer records are restricted to administrators.</p>;
 
@@ -211,7 +251,7 @@ export const CustomersView: React.FC = () => {
           <UsersRound className="h-7 w-7 text-teal-700" />
           <div>
             <h1 className="text-xl font-extrabold text-slate-900">Membership Management</h1>
-            <p className="text-sm text-slate-500">Register members first, then look them up in POS or OPD. Admin access only.</p>
+            <p className="text-sm text-slate-500">Register members, then send their details straight to POS, OPD or Procedures. Admin access only.</p>
           </div>
         </div>
       </header>
@@ -260,7 +300,8 @@ export const CustomersView: React.FC = () => {
           setSearch(member.membershipNumber);
           setActiveDirectorySearch('name');
           setDirectoryPage(1);
-          setSelected(null);
+          // Show the member immediately; no second lookup required to access the action buttons.
+          setSelected({ ...member, createdAt: new Date().toISOString() });
           setHistory(null);
           setPosPage(1); setOpdPage(1);
           setDirectoryRefresh((value) => value + 1);
@@ -436,6 +477,35 @@ export const CustomersView: React.FC = () => {
                 <p className="text-sm text-slate-600">Member ID: {selected.membershipNumber || 'Not assigned'}</p>
                 <p className="text-sm text-slate-600">Phone: {selected.phone}</p>
                 <p className="text-sm text-slate-600">Address: {selected.address || 'Not recorded'}</p>
+                {selected.membershipNumber && selected.memberSince && onUseMember && (
+                  <div className="mt-4 border-t border-slate-200 pt-4">
+                    <p className="mb-2 text-sm font-bold text-slate-800">Use this member in</p>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ['pos', 'Use in POS'],
+                        ['opd', 'Use in OPD'],
+                        ['procedures', 'Use in Procedures'],
+                      ] as const).map(([destination, label]) => (
+                        <button
+                          key={destination}
+                          type="button"
+                          onClick={() => onUseMember({
+                            id: selected.id,
+                            name: selected.name,
+                            phone: selected.phone,
+                            address: selected.address,
+                            membershipNumber: selected.membershipNumber!,
+                            memberSince: selected.memberSince!,
+                          }, destination)}
+                          className="rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">OPD uses separate Clinic numbers for each patient; shared phone numbers never merge medical histories.</p>
+                  </div>
+                )}
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 font-bold"><CalendarDays className="h-4 w-4 text-teal-700" /> Transaction date filter</div>
@@ -450,10 +520,10 @@ export const CustomersView: React.FC = () => {
                 {period === 'custom' && (
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <label className="text-xs font-semibold">From date
-                      <input type="date" value={from} max={to || undefined} onChange={e => { setFrom(e.target.value); setPosPage(1); setOpdPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
+                      <input type="date" value={from} max={to || undefined} onChange={e => { setFrom(e.target.value); setPosPage(1); setOpdPage(1); setProcPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
                     </label>
                     <label className="text-xs font-semibold">To date
-                      <input type="date" value={to} min={from || undefined} onChange={e => { setTo(e.target.value); setPosPage(1); setOpdPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
+                      <input type="date" value={to} min={from || undefined} onChange={e => { setTo(e.target.value); setPosPage(1); setOpdPage(1); setProcPage(1); }} className="mt-1 block w-full rounded-lg border border-slate-300 p-2" />
                     </label>
                   </div>
                 )}
@@ -547,62 +617,87 @@ export const CustomersView: React.FC = () => {
                   <div className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-slate-50 px-4 py-3">
                       <h3 className="font-bold">
-                        OPD visit history ({history.pagination.opdTotal})
+                        Clinical history: OPD + Procedures ({history.pagination.opdTotal + (history.pagination.procTotal || 0)})
                       </h3>
                       <button
                         type="button"
-                        onClick={() => setHistoryPanel(
-                          historyPanel === 'opd' ? 'both' : 'opd'
-                        )}
+                        onClick={() => setHistoryPanel(historyPanel === 'opd' ? 'both' : 'opd')}
                         className="rounded-lg border border-teal-200 bg-white px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-50"
                       >
-                        {historyPanel === 'opd' ? 'Show Both Histories' : 'View All OPD'}
+                        {historyPanel === 'opd' ? 'Show Both Histories' : 'View All Clinical'}
                       </button>
                     </div>
-                    {history.opd.length === 0 && <p className="p-4 text-sm text-slate-500">No OPD visits in this date range.</p>}
+                    <div className="flex flex-wrap gap-3 border-b bg-white px-4 py-2 text-xs text-slate-600">
+                      <span>OPD visits: <strong>{history.pagination.opdTotal}</strong></span>
+                      <span>Procedure bills: <strong>{history.pagination.procTotal || 0}</strong></span>
+                    </div>
+                    {clinicalRows.length === 0 && (
+                      <p className="p-4 text-sm text-slate-500">No linked OPD visits or Procedure bills in this date range.</p>
+                    )}
                     <div className="divide-y divide-slate-100">
-                      {history.opd.map((visit) => (
-                        <div key={visit.id} className="flex flex-wrap justify-between gap-3 p-4 text-sm">
+                      {clinicalRows.map(entry => entry.kind === 'opd' ? (
+                        <div key={`opd-${entry.id}`} className="flex flex-wrap justify-between gap-3 p-4 text-sm">
                           <div>
-                            <p className="font-bold">Visit #{visit.id} Â· {visit.patientName}</p>
-                            <p className="text-xs text-slate-500">{showDate(visit.date)} Â· Dr. {visit.doctorName}</p>
-                            <p className="text-xs text-slate-500">Status: {visit.status}</p>
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <span className="rounded bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">OPD visit</span>
+                              <p className="font-bold">Visit #{entry.record.id} · {entry.record.patientName}</p>
+                            </div>
+                            <p className="text-xs text-slate-500">{showDate(entry.record.date)} · Dr. {entry.record.doctorName}</p>
+                            <p className="text-xs text-slate-500">Status: {entry.record.status}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold">Charge: {money(visit.totalCharge)}</p>
-                            <p className="text-xs">Consultation: {money(visit.consultationFee)}</p>
-                            <p className="text-xs">Additional: {money(visit.additionalCharge)}</p>
+                            <p className="font-bold">Charge: {money(entry.record.totalCharge)}</p>
+                            <p className="text-xs">Consultation: {money(entry.record.consultationFee)}</p>
+                            <p className="text-xs">Additional: {money(entry.record.additionalCharge)}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div key={`procedure-${entry.id}`} className="flex flex-wrap justify-between gap-3 p-4 text-sm">
+                          <div>
+                            <div className="mb-1 flex flex-wrap items-center gap-2">
+                              <span className="rounded bg-teal-50 px-2 py-0.5 text-[11px] font-bold text-teal-700">Procedure</span>
+                              <p className="font-bold">{entry.record.invoiceNumber} · {entry.record.patientName}</p>
+                            </div>
+                            <p className="text-xs text-slate-500">{showDate(entry.record.date)} · {entry.record.paymentMethod}</p>
+                            <p className="mt-1 text-xs text-slate-600">{entry.record.items.map(item => item.description).join(', ')}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-teal-800">Paid: {money(entry.record.totalAmount)}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                     <p className="border-t bg-slate-50 px-4 py-2 text-[11px] text-slate-600">
-                      OPD amounts are recorded charges, not confirmed payment receipts.
+                      OPD charges are not proof of payment. Procedure bills here are recorded paid invoices. Only explicitly linked member records are shown; no automatic matching by shared phone.
                     </p>
-                    <div className="flex items-center justify-between gap-2 border-t bg-slate-50 p-3 text-xs">
-                      <button
-                        type="button"
-                        disabled={opdPage <= 1 || historyLoading}
-                        onClick={() => setOpdPage(p => p - 1)}
-                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
-                      >
-                        Previous
-                      </button>
-                      <span className="text-center text-slate-600">
-                        Page {opdPage} of {Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize))}
-                        {' '} · 10 per page
-                      </span>
-                      <button
-                        type="button"
-                        disabled={
-                          opdPage >= Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize)) ||
-                          historyLoading
-                        }
-                        onClick={() => setOpdPage(p => p + 1)}
-                        className="rounded-lg border px-3 py-2 disabled:opacity-40"
-                      >
-                        Next
-                      </button>
+                    <div className="space-y-2 border-t bg-slate-50 p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <button type="button" aria-label="Previous OPD page"
+                          disabled={opdPage <= 1 || historyLoading}
+                          onClick={() => setOpdPage(p => p - 1)}
+                          className="rounded-lg border px-3 py-2 disabled:opacity-40">Previous</button>
+                        <span className="text-center text-slate-600">
+                          OPD page {opdPage} of {Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize))}
+                        </span>
+                        <button type="button" aria-label="Next OPD page"
+                          disabled={opdPage >= Math.max(1, Math.ceil(history.pagination.opdTotal / history.pagination.pageSize)) || historyLoading}
+                          onClick={() => setOpdPage(p => p + 1)}
+                          className="rounded-lg border px-3 py-2 disabled:opacity-40">Next</button>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <button type="button" aria-label="Previous Procedure page"
+                          disabled={procPage <= 1 || historyLoading}
+                          onClick={() => setProcPage(p => p - 1)}
+                          className="rounded-lg border px-3 py-2 disabled:opacity-40">Previous</button>
+                        <span className="text-center text-slate-600">
+                          Procedures page {procPage} of {Math.max(1, Math.ceil((history.pagination.procTotal || 0) / history.pagination.pageSize))}
+                        </span>
+                        <button type="button" aria-label="Next Procedure page"
+                          disabled={procPage >= Math.max(1, Math.ceil((history.pagination.procTotal || 0) / history.pagination.pageSize)) || historyLoading}
+                          onClick={() => setProcPage(p => p + 1)}
+                          className="rounded-lg border px-3 py-2 disabled:opacity-40">Next</button>
+                      </div>
+                      <p className="text-[11px] text-slate-500">Newest first among the loaded pages (10 per type). Use the separate page controls to browse the full histories.</p>
                     </div>
                   </div>
                   )}

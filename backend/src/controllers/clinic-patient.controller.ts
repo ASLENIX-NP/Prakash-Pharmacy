@@ -262,6 +262,9 @@ const formatPatient = (
   phone:
     patient.phone ?? "",
 
+  customerId: patient.customerId ?? null,
+  membershipNumber: patient.customer?.membershipNumber ?? null,
+
   gender:
     patient.gender ?? "",
 
@@ -345,6 +348,7 @@ export const getClinicPatients = async (
     const patients =
       await prisma.clinicPatient.findMany({
         where,
+        include: { customer: { select: { membershipNumber: true } } },
         orderBy: {
           createdAt: "desc",
         },
@@ -400,6 +404,7 @@ export const getClinicPatientById = async (
         },
 
         include: {
+          customer: { select: { membershipNumber: true } },
           visits: {
             orderBy: {
               visitDateTime: "desc",
@@ -814,5 +819,65 @@ export const updateClinicPatient = async (
       message:
         "Failed to update clinic patient.",
     });
+  }
+};
+
+/** Explicitly link an EXISTING Clinic No. with a registered member.
+ * No phone-only matching and no rewriting of historical patient names/phones.
+ * The client must have obtained a positive "Use Member Details" confirmation.
+ */
+export const linkExistingClinicPatientToMember = async (
+  req: Request, res: Response
+): Promise<void> => {
+  const patientId = parsePatientId(req.params.id);
+  const memberId = Number(req.body?.memberId);
+  if (!patientId || !Number.isSafeInteger(memberId) || memberId <= 0) {
+    res.status(400).json({ success: false, message: 'Select a valid Clinic No. and registered member.' });
+    return;
+  }
+  try {
+    const linked = await prisma.$transaction(async tx => {
+      const [patient, member] = await Promise.all([
+        tx.clinicPatient.findUnique({ where: { id: patientId } }),
+        tx.customer.findUnique({ where: { id: memberId } }),
+      ]);
+      if (!patient) throw new Error('PATIENT_NOT_FOUND');
+      if (!member?.membershipNumber || !member.memberSince) throw new Error('MEMBER_NOT_FOUND');
+      const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+      const phone = String(patient.phone ?? '').replace(/\D/g, '');
+      if (phone !== member.phone || norm(patient.name) !== norm(member.name)) {
+        throw new Error('IDENTITY_MISMATCH');
+      }
+      if (patient.customerId && patient.customerId !== member.id) {
+        throw new Error('ALREADY_LINKED_OTHER_MEMBER');
+      }
+      // Avoid silently linking two different Clinic numbers to the same member.
+      const other = await tx.clinicPatient.findFirst({
+        where: { customerId: member.id, id: { not: patientId } }, select: { id: true },
+      });
+      if (other) throw new Error('MULTIPLE_CLINIC_NUMBERS');
+      if (patient.customerId === member.id) return tx.clinicPatient.findUniqueOrThrow({
+        where: { id: patientId }, include: { customer: { select: { membershipNumber: true } } },
+      });
+      const result = await tx.clinicPatient.updateMany({
+        where: { id: patientId, customerId: null }, data: { customerId: member.id },
+      });
+      if (result.count !== 1) throw new Error('CONCURRENT_UPDATE');
+      return tx.clinicPatient.findUniqueOrThrow({
+        where: { id: patientId }, include: { customer: { select: { membershipNumber: true } } },
+      });
+    });
+    res.json({ success: true, data: formatPatient(linked),
+      message: 'Registered member linked to the selected Clinic number.' });
+  } catch (e) {
+    const code = e instanceof Error ? e.message : '';
+    if (code === 'PATIENT_NOT_FOUND' || code === 'MEMBER_NOT_FOUND') {
+      res.status(404).json({ success: false, message: 'Patient or registered member not found.' }); return;
+    }
+    if (['IDENTITY_MISMATCH','ALREADY_LINKED_OTHER_MEMBER','MULTIPLE_CLINIC_NUMBERS','CONCURRENT_UPDATE'].includes(code)) {
+      res.status(409).json({ success: false, message: 'Cannot safely link this membership. Check patient identity, existing Clinic numbers and previous links before proceeding.' }); return;
+    }
+    console.error('Clinic membership linking failed', e);
+    res.status(500).json({ success: false, message: 'Unable to link membership.' });
   }
 };

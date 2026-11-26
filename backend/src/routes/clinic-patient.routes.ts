@@ -1,9 +1,10 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import {
   createClinicPatient,
   getClinicPatientById,
   getClinicPatients,
   updateClinicPatient,
+  linkExistingClinicPatientToMember,
 } from "../controllers/clinic-patient.controller.js";
 import {
   requireAuth,
@@ -31,6 +32,12 @@ router.post(
   "/",
   requireAuth,
   createClinicPatient
+);
+
+router.post(
+  "/:id/link-member",
+  requireAuth,
+  linkExistingClinicPatientToMember
 );
 
 router.put(

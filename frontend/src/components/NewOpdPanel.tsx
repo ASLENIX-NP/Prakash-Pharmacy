@@ -27,6 +27,7 @@ import {
 import { apiRequest } from '../services/api';
 import { usePharmacy } from '../context/PharmacyContext';
 import { printOpdSticker } from '../utils/opdSticker';
+import type { MemberHandoff, RegisteredMemberHandoff } from '../types/memberHandoff';
 
 
 interface ClinicPatient {
@@ -41,6 +42,8 @@ interface ClinicPatient {
   address: string;
   createdAt?: string;
   updatedAt?: string;
+  customerId?: number | null;
+  membershipNumber?: string | null;
 }
 
 
@@ -176,7 +179,12 @@ export const displayAge = (
 };
 
 
-export const NewOpdPanel: React.FC = () => {
+type Props = {
+  memberHandoff?: MemberHandoff | null;
+  onMemberHandoffConsumed?: () => void;
+};
+
+export const NewOpdPanel: React.FC<Props> = ({ memberHandoff, onMemberHandoffConsumed }) => {
   const { settings } = usePharmacy();
 
   const [doctors, setDoctors] =
@@ -203,6 +211,9 @@ export const NewOpdPanel: React.FC = () => {
     useState<SharedCustomer | null>(null);
   const [searchedMemberLoading, setSearchedMemberLoading] =
     useState(false);
+  const [selectedPatientMember, setSelectedPatientMember] = useState<SharedCustomer | null>(null);
+  const [memberLinking, setMemberLinking] = useState(false);
+  const [linkedMemberNotice, setLinkedMemberNotice] = useState('');
 
   // Both input values are preserved. Only the active field drives lookup.
   const updatePatientSearch = (mode: 'name' | 'phone', value: string) => {
@@ -221,6 +232,9 @@ export const NewOpdPanel: React.FC = () => {
     setHasSearchedPatients(false);
     setPatientSearching(false);
     setSearchedMember(null);
+    setSelectedPatientMember(null);
+    setLinkedMemberNotice('');
+    setTransferredMember(null);
     setError('');
   };
 
@@ -258,6 +272,7 @@ export const NewOpdPanel: React.FC = () => {
 
   const [registerAsMemberSelf, setRegisterAsMemberSelf] =
     useState(false);
+  const [transferredMember, setTransferredMember] = useState<RegisteredMemberHandoff | null>(null);
 
   const [newPatient, setNewPatient] =
     useState<NewPatientForm>(
@@ -297,6 +312,38 @@ export const NewOpdPanel: React.FC = () => {
   const [success, setSuccess] =
     useState('');
 
+
+  useEffect(() => {
+    if (!memberHandoff || memberHandoff.destination !== 'opd') return;
+    const member = memberHandoff.member;
+    const phone = normalizePatientPhone(member.phone);
+    setTransferredMember(member);
+    // Search existing Clinic numbers first: phone identifies a shared contact, not a patient.
+    setPatientSearchMode(phone.length === 10 ? 'phone' : 'name');
+    setPatientPhoneQuery(phone);
+    setPatientNameQuery(member.name);
+    setPatientSearch(phone.length === 10 ? phone : member.name);
+    patientSearchRequestId.current += 1;
+    setPatientResults([]);
+    setHasSearchedPatients(false);
+    setSelectedPatient(null);
+    setSelectedPatientMember(null);
+    setLinkedMemberNotice('');
+    setShowNewPatientForm(false);
+    setCreatingDifferentPatient(false);
+    setRegisterAsMemberSelf(false);
+    // Prepare, but do not create, a patient profile. Age and sex may still be required.
+    setNewPatient({
+      ...EMPTY_PATIENT_FORM,
+      name: sanitizePatientName(member.name),
+      phone,
+      address: (member.address || '').slice(0, 50),
+    });
+    setSavedVisit(null);
+    setError('');
+    setSuccess('');
+    onMemberHandoffConsumed?.();
+  }, [memberHandoff?.nonce]);
 
   // Look up explicitly registered member details by phone.
   // Never automatically overwrite patient form fields.
@@ -387,6 +434,76 @@ export const NewOpdPanel: React.FC = () => {
       controller.abort();
     };
   }, [patientSearch, patientSearchMode, selectedPatient, showNewPatientForm]);
+  // Existing Clinic patient: show membership data by that patient's OWN phone.
+  // A shared family contact is not enough to link that record automatically.
+  useEffect(() => {
+    setSelectedPatientMember(null);
+    if (!selectedPatient || !/^\d{10}$/.test(normalizePatientPhone(selectedPatient.phone || ''))) return;
+    const phone = normalizePatientPhone(selectedPatient.phone);
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await apiRequest<{ data: SharedCustomer | null }>(
+          `/customers/lookup?phone=${encodeURIComponent(phone)}`,
+          { signal: controller.signal }
+        );
+        if (!controller.signal.aborted && response.data?.membershipNumber &&
+            response.data.memberSince && response.data.phone === phone) {
+          setSelectedPatientMember(response.data);
+        }
+      } catch { /* Membership lookup failure must not block OPD visits. */ }
+    }, 300);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [selectedPatient?.id, selectedPatient?.phone]);
+
+  const linkSelectedPatientToMember = async (patient: ClinicPatient, member: SharedCustomer) => {
+    // Staff explicitly chooses this person. Server enforces exact name/phone,
+    // prevents conflicting links and refuses ambiguous Clinic IDs.
+    setMemberLinking(true);
+    setError('');
+    try {
+      const response = await apiRequest<PatientResponse>(
+        `/clinic-patients/${encodeURIComponent(patient.clinicNumber)}/link-member`,
+        { method: 'POST', body: JSON.stringify({ memberId: member.id }) }
+      );
+      setSelectedPatient(response.data);
+      setLinkedMemberNotice(`Verified member linked: ${member.name} (${member.membershipNumber})`);
+      setTransferredMember(null);
+      setSuccess('Member linked to the selected Clinic patient. Continue with the OPD ticket.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Member link requires identity review.');
+    } finally {
+      setMemberLinking(false);
+    }
+  };
+
+  const useSearchedMemberDetails = async (member: SharedCustomer) => {
+    if (member.phone !== patientPhoneQuery || patientSearchMode !== 'phone') return;
+    const norm = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+    const exact = patientResults.filter(p =>
+      normalizePatientPhone(p.phone || '') === member.phone && norm(p.name) === norm(member.name)
+    );
+    if (exact.length > 1) {
+      setError('Multiple Clinic numbers match this member. Select and verify the correct existing patient record.');
+      return;
+    }
+    if (exact.length === 1) {
+      selectPatient(exact[0]);
+      await linkSelectedPatientToMember(exact[0], member);
+      return;
+    }
+    // Member has no matching Clinic patient. Only prepare a new patient draft.
+    openNewPatientForm();
+    setRegisterAsMemberSelf(true);
+    setNewPatient({
+      ...EMPTY_PATIENT_FORM,
+      name: sanitizePatientName(member.name),
+      phone: member.phone,
+      address: (member.address || '').slice(0, 50),
+    });
+
+  };
+
   const loadDoctors =
     useCallback(async () => {
       try {
@@ -516,6 +633,8 @@ export const NewOpdPanel: React.FC = () => {
     setShowNewPatientForm(false);
     setCreatingDifferentPatient(false);
     setRegisterAsMemberSelf(false);
+    setTransferredMember(null);
+    setLinkedMemberNotice('');
 
     setPatientNameQuery(`${patient.name} - ${patient.clinicNumber}`);
     setPatientPhoneQuery('');
@@ -532,6 +651,8 @@ export const NewOpdPanel: React.FC = () => {
     patientSearchRequestId.current += 1;
     setPatientSearchMode('name');
     setSelectedPatient(null);
+    setSelectedPatientMember(null);
+    setLinkedMemberNotice('');
     setPatientNameQuery('');
     setPatientPhoneQuery('');
     setPatientSearch('');
@@ -942,6 +1063,24 @@ export const NewOpdPanel: React.FC = () => {
       )}
 
 
+      {transferredMember && !savedVisit && (
+        <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">
+          <p className="font-bold">Member ready for OPD: {transferredMember.name} ({transferredMember.membershipNumber})</p>
+          <p className="mt-1 text-xs">Search results below may include several people sharing this contact number. Select the correct existing Clinic number if this patient already has one.</p>
+          {!selectedPatient && !showNewPatientForm && (
+            <button type="button" onClick={() => {
+              setShowNewPatientForm(true);
+              setRegisterAsMemberSelf(true);
+              setCreatingDifferentPatient(false);
+              setPatientResults([]);
+            }} className="mt-3 rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white hover:bg-teal-800">
+              Register this member as a NEW OPD patient (prefilled)
+            </button>
+          )}
+          <p className="mt-2 text-xs">Do not create a second Clinic record if this person already has a Clinic number. Doctor and clinical details still need to be entered.</p>
+        </div>
+      )}
+
       {/* Saved Visit Result */}
       {savedVisit && (
         <div className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm sm:p-6">
@@ -1216,26 +1355,14 @@ export const NewOpdPanel: React.FC = () => {
                         A membership identifies the contact, not everyone using this phone.
                         Verify the actual patient by name, age and Clinic No.
                       </p>
-                      {patientResults.length === 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const member = searchedMember;
-                            if (!member) return;
-                            openNewPatientForm();
-                            setRegisterAsMemberSelf(true);
-                            setNewPatient({
-                              ...EMPTY_PATIENT_FORM,
-                              name: sanitizePatientName(member.name),
-                              phone: member.phone,
-                              address: (member.address ?? '').slice(0, 50),
-                            });
-                          }}
-                          className="mt-3 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-teal-800"
-                        >
-                          This Patient Is the Registered Member
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        disabled={memberLinking}
+                        onClick={() => void useSearchedMemberDetails(searchedMember)}
+                        className="mt-3 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-teal-800 disabled:opacity-50"
+                      >
+                        {memberLinking ? 'Verifying member...' : 'Use Member Details'}
+                      </button>
                     </div>
                   )}
 
@@ -1403,10 +1530,30 @@ export const NewOpdPanel: React.FC = () => {
 
                     {selectedPatient.address && (
                       <p className="mt-2 text-xs text-slate-500">
-                        {
-                          selectedPatient.address
-                        }
+                        {selectedPatient.address}
                       </p>
+                    )}
+                    {selectedPatient.membershipNumber && (
+                      <p className="mt-2 text-xs font-bold text-teal-800">Registered member: {selectedPatient.membershipNumber}</p>
+                    )}
+                    {linkedMemberNotice && (
+                      <p role="status" className="mt-2 text-xs font-bold text-teal-800">{linkedMemberNotice}</p>
+                    )}
+                    {selectedPatientMember && !selectedPatient.membershipNumber && !selectedPatient.customerId && (
+                      <div className="mt-3 rounded-lg border border-teal-300 bg-white p-3 text-xs">
+                        <p className="font-bold text-teal-900">Registered Member Found</p>
+                        <p>{selectedPatientMember.name} | {selectedPatientMember.membershipNumber}</p>
+                        <p className="text-slate-500">Phone: {selectedPatientMember.phone}</p>
+                        <p className="text-slate-500">Address: {selectedPatientMember.address || 'Not available'}</p>
+                        <p className="mt-2 text-slate-600">Only link if this Clinic No. belongs to the registered member personally, not a family member sharing the phone.</p>
+                        {selectedPatient.name.trim().replace(/\s+/g, ' ').toLowerCase() ===
+                          selectedPatientMember.name.trim().replace(/\s+/g, ' ').toLowerCase()
+                          ? <button type="button" disabled={memberLinking}
+                              onClick={() => void linkSelectedPatientToMember(selectedPatient, selectedPatientMember)}
+                              className="mt-2 rounded-lg bg-teal-700 px-3 py-2 font-bold text-white disabled:opacity-50">Use Member Details</button>
+                          : <p className="mt-2 font-bold text-amber-800">This Clinic patient has a different name. Keep their record separate.</p>}
+
+                      </div>
                     )}
                   </div>
 
